@@ -1,6 +1,5 @@
 // localStorage polyfill for Node test environment
 if (typeof localStorage === 'undefined') {
-
 	globalThis.localStorage = (() => {
 		let store: Record<string, string> = {};
 		return {
@@ -18,7 +17,6 @@ import { describe, it, expect, beforeEach } from 'vitest';
 import {
 	t,
 	getLocale,
-	setLocale,
 	detectInitialLocale,
 	initLocale,
 	formatNumber,
@@ -27,19 +25,32 @@ import {
 } from './index';
 
 beforeEach(() => {
-	// Reset locale to English before each test
-	setLocale('en');
 	localStorage.clear();
 });
 
+function withLocale(lang: 'en' | 'de'): void {
+	const saved = Object.getOwnPropertyDescriptor(globalThis, 'navigator');
+	Object.defineProperty(globalThis, 'navigator', {
+		value: { language: lang },
+		configurable: true,
+		writable: true,
+	});
+	initLocale();
+	if (saved) {
+		Object.defineProperty(globalThis, 'navigator', saved);
+	} else {
+		delete (globalThis as Record<string, unknown>).navigator;
+	}
+}
+
 describe('t', () => {
 	it('returns English string for English locale', () => {
-		setLocale('en');
+		withLocale('en');
 		expect(t('appTitle')).toBe('Meals');
 	});
 
 	it('returns German string for German locale', () => {
-		setLocale('de');
+		withLocale('de');
 		expect(t('appTitle')).toBe('Mahlzeiten');
 	});
 
@@ -47,7 +58,7 @@ describe('t', () => {
 		const saved = dictionaries.de.validationNameRequired;
 		// @ts-expect-error — testing runtime fallback
 		delete dictionaries.de.validationNameRequired;
-		setLocale('de');
+		withLocale('de');
 		expect(t('validationNameRequired')).toBe('Name is required');
 		dictionaries.de.validationNameRequired = saved;
 	});
@@ -58,35 +69,20 @@ describe('t', () => {
 	});
 
 	it('interpolates {name} parameter', () => {
-		setLocale('en');
+		withLocale('en');
 		expect(t('confirmDelete', { name: 'Pasta' })).toBe('Delete "Pasta"?');
 	});
 
 	it('interpolates {search} parameter in German', () => {
-		setLocale('de');
+		withLocale('de');
 		expect(t('noResults', { search: 'pizza' })).toBe(
 			'Keine Mahlzeiten für \u201Epizza" gefunden. Versuche eine andere Suche.'
 		);
 	});
 
 	it('replaces missing param with empty string', () => {
-		setLocale('en');
+		withLocale('en');
 		expect(t('noResults', {})).toBe('No meals match "". Try a different search.');
-	});
-});
-
-describe('setLocale', () => {
-	it('updates locale and writes localStorage', () => {
-		setLocale('de');
-		expect(getLocale()).toBe('de');
-		expect(localStorage.getItem('mealme.locale')).toBe('de');
-	});
-
-	it('updates locale to en', () => {
-		setLocale('de');
-		setLocale('en');
-		expect(getLocale()).toBe('en');
-		expect(localStorage.getItem('mealme.locale')).toBe('en');
 	});
 });
 
@@ -146,20 +142,23 @@ describe('detectInitialLocale', () => {
 });
 
 describe('initLocale', () => {
-	it('restores de from localStorage', () => {
-		localStorage.setItem('mealme.locale', 'de');
+	it('given_navigator_is_de_then_init_locale_uses_de', () => {
+		const saved = Object.getOwnPropertyDescriptor(globalThis, 'navigator');
+		Object.defineProperty(globalThis, 'navigator', {
+			value: { language: 'de' },
+			configurable: true,
+			writable: true,
+		});
 		initLocale();
 		expect(getLocale()).toBe('de');
+		if (saved) {
+			Object.defineProperty(globalThis, 'navigator', saved);
+		} else {
+			delete (globalThis as Record<string, unknown>).navigator;
+		}
 	});
 
-	it('falls back to detectInitialLocale when localStorage is empty', () => {
-		localStorage.clear();
-		initLocale();
-		expect(getLocale()).toBe('en');
-	});
-
-	it('falls back to detectInitialLocale for invalid localStorage value', () => {
-		localStorage.setItem('mealme.locale', 'fr');
+	it('given_navigator_is_en_then_init_locale_uses_en', () => {
 		initLocale();
 		expect(getLocale()).toBe('en');
 	});
@@ -167,19 +166,19 @@ describe('initLocale', () => {
 
 describe('formatNumber', () => {
 	it('formats number in English locale', () => {
-		setLocale('en');
+		withLocale('en');
 		expect(formatNumber(1234.56)).toBe('1,234.56');
 	});
 
 	it('formats number in German locale', () => {
-		setLocale('de');
+		withLocale('de');
 		expect(formatNumber(1234.56)).toBe('1.234,56');
 	});
 });
 
 describe('formatDate', () => {
 	it('formats date in German locale', () => {
-		setLocale('de');
+		withLocale('de');
 		const result = formatDate(new Date('2026-06-13T12:00:00Z'), {
 			day: '2-digit',
 			month: '2-digit',
@@ -189,7 +188,7 @@ describe('formatDate', () => {
 	});
 
 	it('formats date in English locale', () => {
-		setLocale('en');
+		withLocale('en');
 		const result = formatDate(new Date('2026-06-13T12:00:00Z'), {
 			day: '2-digit',
 			month: '2-digit',
@@ -199,7 +198,7 @@ describe('formatDate', () => {
 	});
 
 	it('accepts ISO string input', () => {
-		setLocale('de');
+		withLocale('de');
 		const result = formatDate('2026-06-13', {
 			year: 'numeric',
 			month: 'long',

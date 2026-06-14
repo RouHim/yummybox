@@ -43,8 +43,6 @@ export const en: Record<TranslationKey, string> = {
 	errorPlanEmpty: 'No meals exist — create at least one meal first',
 	errorPlanNotFound: 'Plan not found',
 	confirmDelete: 'Delete "{name}"?',
-	toggleToEnglish: 'Switch to English',
-	toggleToGerman: 'Switch to German',
 	plannerTitle: 'Meal Planner',
 	plannerSubtitle: 'Plan your meals for the week',
 	plannerGenerate: 'Generate',

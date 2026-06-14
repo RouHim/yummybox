@@ -105,13 +105,23 @@ describe('getPlan', () => {
 		const plan: Plan = { id: 1, year: 2026, week_number: 1, created_at: '', meals: [], ingredient_summary: [] };
 		mockResponse(200, plan);
 		const result = await getPlan(2026, 1);
-		expect(mockFetch).toHaveBeenCalledWith('/api/plans?year=2026&week=1', undefined);
+		expect(mockFetch).toHaveBeenCalledWith('/api/plans?year=2026&week=1');
 		expect(result).toEqual(plan);
 	});
 
-	it('throws when response is unexpectedly array', async () => {
+	it('given_array_response_then_throws', async () => {
 		mockResponse(200, []);
 		await expect(getPlan(2026, 1)).rejects.toThrow('expected plan, got array');
+	});
+
+	it('given_404_then_resolves_to_null', async () => {
+		mockResponse(404, { error: 'not found' });
+		await expect(getPlan(2026, 1)).resolves.toBeNull();
+	});
+
+	it('given_500_then_throws_with_server_message', async () => {
+		mockResponse(500, { error: 'boom' });
+		await expect(getPlan(2026, 1)).rejects.toThrow('boom');
 	});
 });
 

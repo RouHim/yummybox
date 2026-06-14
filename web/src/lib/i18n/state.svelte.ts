@@ -31,14 +31,6 @@ export function formatDate(value: Date | string | number, options?: Intl.DateTim
 	return new Intl.DateTimeFormat(_locale, options).format(date);
 }
 
-export function setLocale(next: Locale): void {
-	_locale = next;
-	try {
-		localStorage.setItem('mealme.locale', next);
-	} catch {
-		// localStorage write failed — degrade silently
-	}
-}
 
 export function detectInitialLocale(): Locale {
 	if (typeof navigator === 'undefined') return 'en';
@@ -46,15 +38,5 @@ export function detectInitialLocale(): Locale {
 }
 
 export function initLocale(): void {
-	let stored: string | null = null;
-	try {
-		stored = localStorage.getItem('mealme.locale');
-	} catch {
-		// localStorage read failed — fall through to detection
-	}
-	if (stored === 'en' || stored === 'de') {
-		_locale = stored;
-	} else {
-		_locale = detectInitialLocale();
-	}
+	_locale = detectInitialLocale();
 }

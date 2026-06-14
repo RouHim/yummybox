@@ -43,8 +43,6 @@ export type TranslationKey =
 	| 'errorPlanEmpty'
 	| 'errorPlanNotFound'
 	| 'confirmDelete'
-	| 'toggleToEnglish'
-	| 'toggleToGerman'
 	| 'plannerTitle'
 	| 'plannerSubtitle'
 	| 'plannerGenerate'

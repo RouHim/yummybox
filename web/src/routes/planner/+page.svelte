@@ -2,7 +2,7 @@
 	import { listPlansForYear, getPlan, createPlan, updatePlan, deletePlan, listMeals } from '$lib/api';
 	import type { Plan, PlanSummaryItem, Meal } from '$lib/types';
 	import { t } from '$lib/i18n';
-	import { weekOfDate, mondaySundayOf, weeksInYear } from '$lib/week';
+	import { weekOfDate, mondaySundayOf, weeksInYear, isPastWeek } from '$lib/week';
 	import Icon from '$lib/Icon.svelte';
 
 	let year = $state(new Date().getFullYear());
@@ -11,7 +11,7 @@
 	let selectedPlan = $state<Plan | null>(null);
 	let loading = $state(false);
 	let planError = $state<string | null>(null);
-	let mealCount = $state(5);
+	let mealCount = $state(3);
 
 	// Meal picker state
 	let mealPickerOpen = $state(false);
@@ -150,12 +150,14 @@
 		{#each Array.from({ length: totalWeeks }, (_, i) => i + 1) as week}
 			{@const weekPlan = plans.find(p => p.week_number === week)}
 			{@const isCurrent = year === currentWeekInfo.year && week === currentWeekInfo.week}
+			{@const isPast = isPastWeek(year, week, currentWeekInfo)}
 			<button
 				class="week-cell"
+				class:week-cell--past={isPast}
 				class:week-cell--current={isCurrent}
 				class:week-cell--active={selectedWeek === week}
 				class:week-cell--has-plan={!!weekPlan}
-				onclick={() => { selectedWeek = week; }}
+				onclick={() => { selectedWeek = week; mealCount = 3; }}
 				aria-label="Week {week}: {formatDateRange(week)}"
 			>
 				<span class="week-cell__num">{week}</span>
@@ -364,6 +366,16 @@
 	}
 	.week-cell--has-plan {
 		background: var(--color-surface-2);
+	}
+	.week-cell--past {
+		opacity: 0.5;
+	}
+	.week-cell--past .week-cell__num,
+	.week-cell--past .week-cell__dates {
+		color: var(--color-text-muted);
+	}
+	.week-cell--past.week-cell--active {
+		opacity: 0.7;
 	}
 	.week-cell__num {
 		font-weight: var(--weight-bold);

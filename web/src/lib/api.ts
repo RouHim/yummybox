@@ -55,8 +55,21 @@ export async function listPlansForYear(year: number): Promise<PlanSummaryItem[]>
 	return raw as PlanSummaryItem[];
 }
 
-export async function getPlan(year: number, week: number): Promise<Plan> {
-	const raw = await request<unknown>(`/api/plans?year=${year}&week=${week}`);
+export async function getPlan(year: number, week: number): Promise<Plan | null> {
+	const response = await fetch(`/api/plans?year=${year}&week=${week}`);
+	if (response.status === 404) return null;
+	if (!response.ok) {
+		let message = '__REQUEST_FAILED__';
+		try {
+			const body = await response.json();
+			if (body && typeof body.error === 'string') message = body.error;
+		} catch {
+			// response was not JSON
+		}
+		throw new Error(message);
+	}
+	if (response.status === 204) return null;
+	const raw = (await response.json()) as unknown;
 	if (Array.isArray(raw)) throw new Error('expected plan, got array');
 	return raw as Plan;
 }

@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { weekOfDate, mondaySundayOf, weeksInYear } from './week';
+import { weekOfDate, mondaySundayOf, weeksInYear, isPastWeek } from './week';
 
 describe('weekOfDate', () => {
 	it('returns 2026 week 1 for Jan 1 2026', () => {
@@ -35,5 +35,29 @@ describe('weeksInYear', () => {
 		expect(actual).toBe(weeksInYear(2023));
 		expect(actual).toBeGreaterThanOrEqual(52);
 		expect(actual).toBeLessThanOrEqual(53);
+	});
+});
+
+describe('isPastWeek', () => {
+	const current = { year: 2026, week: 25 };
+
+	it('given_current_year_and_earlier_week_then_returns_true', () => {
+		expect(isPastWeek(2026, 10, current)).toBe(true);
+	});
+
+	it('given_current_year_and_same_week_then_returns_false', () => {
+		expect(isPastWeek(2026, 25, current)).toBe(false);
+	});
+
+	it('given_current_year_and_later_week_then_returns_false', () => {
+		expect(isPastWeek(2026, 30, current)).toBe(false);
+	});
+
+	it('given_previous_year_then_returns_true', () => {
+		expect(isPastWeek(2025, 52, current)).toBe(true);
+	});
+
+	it('given_future_year_then_returns_false', () => {
+		expect(isPastWeek(2027, 1, current)).toBe(false);
 	});
 });

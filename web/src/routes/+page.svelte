@@ -2,7 +2,7 @@
 	import { listMeals, createMeal, updateMeal, deleteMeal } from '$lib/api';
 	import { validateMeal } from '$lib/validation';
 	import type { Meal, NewIngredientLine } from '$lib/types';
-	import { t, setLocale, getLocale } from '$lib/i18n';
+	import { t } from '$lib/i18n';
 
 	import { fly, fade, scale } from 'svelte/transition';
 	import { flip } from 'svelte/animate';
@@ -128,15 +128,6 @@
 		</div>
 		<div class="page-header__right">
 			<a href="/planner" class="nav-link">{t('navPlanner')}</a>
-			<button
-				type="button"
-				class="lang-toggle"
-				onclick={() => setLocale(getLocale() === 'en' ? 'de' : 'en')}
-				aria-label={getLocale() === 'en' ? t('toggleToGerman') : t('toggleToEnglish')}
-				aria-pressed={getLocale() === 'de'}
-			>
-				{getLocale() === 'en' ? 'DE' : 'EN'}
-			</button>
 		</div>
 	</header>
 
@@ -298,24 +289,6 @@
 	}
 	.nav-link:hover {
 		text-decoration: underline;
-	}
-	.lang-toggle {
-		flex-shrink: 0;
-		min-height: 44px;
-		min-width: 44px;
-		padding: var(--space-2) var(--space-3);
-		background: var(--color-surface-2);
-		color: var(--color-text-secondary);
-		border: 1px solid var(--color-border-strong);
-		border-radius: var(--radius-md);
-		font-weight: var(--weight-medium);
-		font-size: var(--text-sm);
-		cursor: pointer;
-		transition: background var(--transition-fast), color var(--transition-fast);
-	}
-	.lang-toggle:hover {
-		background: var(--color-primary-soft);
-		color: var(--color-primary);
 	}
 	.form-card {
 		background: var(--color-surface);

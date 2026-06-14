@@ -43,8 +43,6 @@ export const de: Record<TranslationKey, string> = {
 	errorPlanEmpty: 'Keine Mahlzeiten vorhanden — erstelle zuerst eine Mahlzeit',
 	errorPlanNotFound: 'Plan nicht gefunden',
 	confirmDelete: '„{name}" löschen?',
-	toggleToEnglish: 'Zu Englisch wechseln',
-	toggleToGerman: 'Zu Deutsch wechseln',
 	plannerTitle: 'Essensplaner',
 	plannerSubtitle: 'Plane deine Mahlzeiten für die Woche',
 	plannerGenerate: 'Erstellen',

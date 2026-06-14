@@ -5,7 +5,6 @@ export {
 	t,
 	formatNumber,
 	formatDate,
-	setLocale,
 	detectInitialLocale,
 	initLocale,
 } from './state.svelte';
