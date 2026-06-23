@@ -100,4 +100,9 @@ export const en: Record<TranslationKey, string> = {
 	importButtonUseDraft: 'Apply to form',
 	importTabUrl: 'From URL',
 	importTabPaste: 'Paste HTML/JSON-LD',
+	bgPhoto: 'Background photo',
+	themeToggle: 'Theme',
+	themeLight: 'Light',
+	themeDark: 'Dark',
+	themeSystem: 'System',
 };

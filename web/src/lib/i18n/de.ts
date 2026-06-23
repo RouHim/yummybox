@@ -100,4 +100,9 @@ export const de: Record<TranslationKey, string> = {
 	importButtonUseDraft: 'In Formular übernehmen',
 	importTabUrl: 'Von URL',
 	importTabPaste: 'HTML/JSON-LD einfügen',
+	bgPhoto: 'Hintergrundfoto',
+	themeToggle: 'Design',
+	themeLight: 'Hell',
+	themeDark: 'Dunkel',
+	themeSystem: 'System',
 };

@@ -99,4 +99,9 @@ export type TranslationKey =
 	| 'importErrorFetch'
 	| 'importButtonUseDraft'
 	| 'importTabUrl'
-	| 'importTabPaste';
+	| 'importTabPaste'
+	| 'bgPhoto'
+	| 'themeToggle'
+	| 'themeLight'
+	| 'themeDark'
+	| 'themeSystem'

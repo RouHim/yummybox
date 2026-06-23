@@ -36,4 +36,5 @@ fn main() {
 
     println!("cargo:rerun-if-changed=web/src");
     println!("cargo:rerun-if-changed=web/package.json");
+    println!("cargo:rerun-if-changed=web/static");
 }
