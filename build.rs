@@ -18,20 +18,20 @@ fn main() {
         }
     }
 
-    // Build the frontend
-    let status = Command::new("npm")
-        .args(["run", "build"])
-        .current_dir(&web_dir)
-        .status()
-        .expect("failed to run npm run build in web/");
-    if !status.success() {
-        panic!("npm run build failed with status: {status}");
-    }
-
-    // Ensure web/build/ exists
+    // Build the frontend (skip if web/build/ already exists, e.g., pre-built for musl cross)
     let build_dir = web_dir.join("build");
     if !build_dir.exists() {
-        panic!("web/build/ does not exist after npm run build");
+        let status = Command::new("npm")
+            .args(["run", "build"])
+            .current_dir(&web_dir)
+            .status()
+            .expect("failed to run npm run build in web/");
+        if !status.success() {
+            panic!("npm run build failed with status: {status}");
+        }
+        if !build_dir.exists() {
+            panic!("web/build/ does not exist after npm run build");
+        }
     }
 
     println!("cargo:rerun-if-changed=web/src");
