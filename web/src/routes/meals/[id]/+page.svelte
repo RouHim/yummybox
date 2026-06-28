@@ -39,13 +39,7 @@
 		<a href="/meals" class="nav-link"><Icon name="utensils" size={16} /> {t('cookingViewBack')}</a>
 	{:else if meal}
 		<div class="detail-wrapper glass">
-			<header class="page-header">
-				<h1>{t('cookingViewTitle')}</h1>
-				<div class="page-header__right">
-				<a href="/meals" class="nav-link"><Icon name="utensils" size={16} /> {t('navMeals')}</a>
-				<a href="/planner" class="nav-link"><Icon name="calendar" size={16} /> {t('navPlanner')}</a>
-			</div>
-		</header>
+			<h1>{t('cookingViewTitle')}</h1>
 
 		<h2 class="cooking-view__name">{meal.name}</h2>
 
@@ -84,37 +78,6 @@
 </main>
 
 <style>
-	.page-header {
-		display: flex;
-		justify-content: space-between;
-		align-items: center;
-		flex-wrap: wrap;
-		gap: var(--space-3);
-		margin-bottom: var(--space-4);
-	}
-	.detail-wrapper {
-		padding: var(--space-6);
-		border-radius: var(--radius-lg);
-		display: flex;
-		flex-direction: column;
-		gap: var(--space-4);
-	}
-	.page-header__right {
-		display: flex;
-		align-items: center;
-		gap: var(--space-3);
-	}
-
-	.nav-link {
-		display: inline-flex;
-		align-items: center;
-		gap: var(--space-1);
-		color: var(--color-primary);
-		text-decoration: none;
-		font-weight: var(--weight-medium);
-		font-size: var(--text-base);
-	}
-	.nav-link:hover { text-decoration: underline; }
 
 	.cooking-view__loading {
 		color: var(--color-text-secondary);

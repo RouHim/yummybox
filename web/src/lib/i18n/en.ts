@@ -4,6 +4,7 @@ export const en: Record<TranslationKey, string> = {
 	appTitle: 'Meals',
 	appSubtitle: 'Your personal collection of recipes',
 	navMeals: 'Meals',
+	bgPhoto: 'Background photo',
 	navPlanner: 'Planner',
 	navAddMeal: 'Add meal',
 	addMealTitle: 'Add meal',

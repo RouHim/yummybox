@@ -117,16 +117,16 @@ test.describe('Ambient background', () => {
 		console.log(`Image stats: mean=rgb(${hasVariance.meanR},${hasVariance.meanG},${hasVariance.meanB}), stdDev=${hasVariance.stdDev.toFixed(1)}, solidRatio=${(hasVariance.sameRatio * 100).toFixed(1)}%`);
 	});
 
-	test('footer attribution is present with photographer credit', async ({ page }) => {
+	test('footer has no Pexels attribution after palette redesign', async ({ page }) => {
 		await page.goto('/');
 		await page.waitForSelector('.site-footer', { state: 'attached', timeout: 10000 });
 
 		const footer = page.locator('.site-footer');
 		await expect(footer).toBeVisible();
 
+		// Attribution was removed in Forest palette redesign — original images replaced
 		const link = footer.locator('a');
-		await expect(link).toHaveAttribute('href', /pexels\.com\/photo\/cooked-food-with-sesame-seeds-8481834/);
-		await expect(link).toContainText('Sergey Meshkov');
+		await expect(link).toHaveCount(0);
 	});
 });
 

@@ -5,6 +5,7 @@ export type TranslationKey =
 	| 'appSubtitle'
 	| 'navMeals'
 	| 'navPlanner'
+	| 'bgPhoto'
 	| 'navAddMeal'
 	| 'addMealTitle'
 	| 'searchPlaceholder'

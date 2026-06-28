@@ -49,22 +49,6 @@
 		</p>
 		<button class="btn btn--ghost" onclick={loadCurrentWeek}>{t('buttonRetry')}</button>
 	{:else if plan}
-		<header class="page-header glass">
-			<div class="page-header__brand">
-				<Icon name="soup" size={28} />
-				<div>
-					<h1>{t('currentWeekTitle')}</h1>
-					<p class="page-header__subtitle">{formatDateRange()}</p>
-				</div>
-			</div>
-			<div class="page-header__right">
-				<a href="/meals" class="nav-link"><Icon name="utensils" size={16} /> {t('navMeals')}</a>
-				<a href="/planner" class="nav-link">
-					<Icon name="calendar" size={16} />
-					{t('navPlanner')}
-				</a>
-			</div>
-		</header>
 
 		<section class="current-week-meals">
 			<h2>{t('currentWeekMeals')}</h2>
@@ -121,47 +105,6 @@
 
 
 <style>
-	.page-header {
-		display: flex;
-		justify-content: space-between;
-		align-items: center;
-		flex-wrap: wrap;
-		gap: var(--space-3);
-		position: sticky;
-		top: 0;
-		z-index: 20;
-		padding: var(--space-3) var(--space-4);
-		border-radius: 0;
-		border-left: none;
-		border-right: none;
-		border-top: none;
-	}
-	.page-header.glass .nav-link {
-		background: var(--glass-scrim);
-		border-radius: var(--radius-full);
-		padding: var(--space-1) var(--space-2);
-	}
-	.page-header__subtitle {
-		margin: 0;
-		color: var(--color-text-secondary);
-		font-size: var(--text-base);
-	}
-	.page-header__right {
-		display: flex;
-		align-items: center;
-		gap: var(--space-3);
-	}
-
-	.nav-link {
-		display: inline-flex;
-		align-items: center;
-		gap: var(--space-1);
-		color: var(--color-primary);
-		text-decoration: none;
-		font-weight: var(--weight-medium);
-		font-size: var(--text-base);
-	}
-	.nav-link:hover { text-decoration: underline; }
 
 	.current-week__loading {
 		color: var(--color-text-secondary);

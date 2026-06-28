@@ -173,16 +173,6 @@
 </script>
 
 <main>
-	<header class="planner-header glass">
-		<div class="page-header__brand">
-			<Icon name="soup" size={28} />
-			<div>
-				<h1>{t('plannerTitle')}</h1>
-				<p class="planner-header__subtitle">{t('plannerSubtitle')}</p>
-			</div>
-		</div>
-		<a href="/meals" class="nav-link"><Icon name="utensils" size={16} /> {t('navMeals')}</a>
-	</header>
 
 	<!-- Year navigation -->
 	<div class="year-nav glass">
@@ -358,43 +348,6 @@
 </main>
 
 <style>
-	.planner-header {
-		display: flex;
-		justify-content: space-between;
-		align-items: center;
-		margin-bottom: var(--space-4);
-		position: sticky;
-		top: 0;
-		z-index: 20;
-		padding: var(--space-3) var(--space-4);
-		border-radius: 0;
-		border-left: none;
-		border-right: none;
-		border-top: none;
-	}
-	.planner-header h1 {
-		font-family: var(--font-display);
-	}
-	.planner-header.glass .nav-link {
-		background: var(--glass-scrim);
-		border-radius: var(--radius-full);
-		padding: var(--space-1) var(--space-2);
-	}
-	.planner-header__subtitle {
-		margin: 0;
-		color: var(--color-text-secondary);
-		font-size: var(--text-base);
-	}
-	.nav-link {
-		display: inline-flex;
-		align-items: center;
-		gap: var(--space-1);
-		color: var(--color-primary);
-		text-decoration: none;
-		font-weight: var(--weight-medium);
-		font-size: var(--text-sm);
-	}
-	.nav-link:hover { text-decoration: underline; }
 
 	.year-nav {
 		display: flex;
@@ -403,7 +356,7 @@
 		gap: var(--space-3);
 		margin-bottom: var(--space-4);
 		position: sticky;
-		top: 72px;
+		top: var(--app-bar-h);
 		z-index: 15;
 		padding: var(--space-2) var(--space-4);
 		border-radius: var(--radius-md);

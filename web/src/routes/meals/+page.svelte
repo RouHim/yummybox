@@ -210,35 +210,18 @@
 </script>
 
 <main>
-	<header class="page-header glass">
-		<div class="page-header__brand">
-			<Icon name="soup" size={28} />
-			<div>
-				<h1 class="page-header__wordmark">{t('appTitle')}</h1>
-				<p class="page-header__subtitle">{t('appSubtitle')}</p>
-			</div>
+	<div class="page-toolbar">
+		<div class="search">
+			<Icon name="search" class="search__icon" />
+			<input type="search" class="search__input"
+				bind:value={searchTerm}
+				placeholder={t('searchPlaceholder')}
+				aria-label={t('searchAriaLabel')} />
 		</div>
-		<div class="page-header__right">
-			<div class="page-header__search">
-				<Icon name="search" class="search__icon" />
-				<input
-					type="search"
-					class="search__input"
-					bind:value={searchTerm}
-					placeholder={t('searchPlaceholder')}
-					aria-label={t('searchAriaLabel')}
-				/>
-			</div>
-			<button type="button" class="btn btn--primary" onclick={openAdd}>
-				<Icon name="plus" size={16} />
-				{t('navAddMeal')}
-			</button>
-			<a href="/planner" class="nav-link">
-				<Icon name="calendar" size={16} />
-				{t('navPlanner')}
-			</a>
-		</div>
-	</header>
+		<button type="button" class="btn btn--primary" onclick={openAdd}>
+			<Icon name="plus" size={16} /> {t('navAddMeal')}
+		</button>
+	</div>
 
 	{#if loadError}
 		<p class="form-error" role="alert">
@@ -428,67 +411,6 @@
 </main>
 
 <style>
-	.page-header {
-		display: flex;
-		justify-content: space-between;
-		align-items: center;
-		flex-wrap: wrap;
-		gap: var(--space-3);
-		margin-bottom: var(--space-2);
-		position: sticky;
-		top: 0;
-		z-index: 20;
-		padding: var(--space-3) var(--space-4);
-		border-radius: var(--radius-lg);
-	}
-	.page-header__wordmark {
-		font-family: var(--font-display);
-		font-size: var(--text-2xl);
-	}
-	.page-header__subtitle {
-		margin: 0;
-		color: var(--color-text-secondary);
-		font-size: var(--text-base);
-	}
-	.page-header__right {
-		display: flex;
-		align-items: center;
-		gap: var(--space-3);
-	}
-	.page-header__search {
-		position: relative;
-		display: flex;
-		align-items: center;
-	}
-	.page-header__search .search__input {
-		background: transparent;
-		border: 1px solid var(--glass-border-inner);
-		border-radius: var(--radius-full);
-		padding: var(--space-1) var(--space-3) var(--space-1) var(--space-8);
-		font-size: var(--text-sm);
-		color: var(--color-text);
-		width: 220px;
-	}
-	.page-header__search .search__input:focus {
-		outline: 2px solid var(--color-primary);
-		outline-offset: 2px;
-		border-color: var(--color-primary);
-	}
-	.nav-link {
-		display: inline-flex;
-		align-items: center;
-		gap: var(--space-1);
-		color: var(--color-primary);
-		text-decoration: none;
-		font-weight: var(--weight-medium);
-		font-size: var(--text-sm);
-	}
-	.nav-link:hover { text-decoration: underline; }
-	.page-header.glass .nav-link {
-		background: var(--glass-scrim);
-		border-radius: var(--radius-full);
-		padding: var(--space-1) var(--space-2);
-	}
 	.meal-list {
 		list-style: none;
 		padding: 0;

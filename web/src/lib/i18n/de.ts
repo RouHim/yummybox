@@ -4,6 +4,7 @@ export const de: Record<TranslationKey, string> = {
 	appTitle: 'Mahlzeiten',
 	appSubtitle: 'Deine persönliche Rezeptsammlung',
 	navMeals: 'Mahlzeiten',
+	bgPhoto: 'Hintergrundfoto',
 	navPlanner: 'Planer',
 	navAddMeal: 'Mahlzeit hinzufügen',
 	addMealTitle: 'Mahlzeit hinzufügen',
