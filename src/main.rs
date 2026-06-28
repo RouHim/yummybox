@@ -2,6 +2,7 @@ mod data_dir;
 mod db;
 mod error;
 mod image;
+mod llm_import;
 mod model;
 mod recipe;
 mod routes;
@@ -76,6 +77,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         )
         .route("/meals/:id/image", get(routes::get_meal_image))
         .route("/import/url", post(routes::import_from_url))
+        .route("/import/llm", post(routes::import_from_llm))
         .route("/import/paste", post(routes::import_from_paste))
         .route("/plans", get(routes::get_plans).post(routes::create_plan))
         .route(

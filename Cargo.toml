@@ -12,6 +12,7 @@ image = { version = "0.25", default-features = false, features = ["jpeg", "png",
 recipe-scraper = "0.1"
 reqwest = { version = "0.13", default-features = false, features = ["rustls", "webpki-roots", "json"] }
 scraper = "0.23"
+genai = "0.6"
 base64 = "0.22"
 rand = "0.9"
 sqlx = { version = "0.9", default-features = false, features = ["runtime-tokio", "sqlite", "macros", "migrate", "chrono"] }

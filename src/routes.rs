@@ -259,6 +259,95 @@ pub async fn import_from_paste(
     let draft = recipe::parse_recipe(&req.content)?;
     Ok(Json(draft))
 }
+
+#[instrument(skip(_state))]
+pub async fn import_from_llm(
+    State(_state): State<Arc<AppState>>,
+    mut multipart: Multipart,
+) -> Result<Json<recipe::ImportDraft>, AppError> {
+    let mut model: Option<String> = None;
+    let mut hint: Option<String> = None;
+    let mut image_bytes: Option<Vec<u8>> = None;
+    let mut image_content_type: Option<String> = None;
+
+    while let Some(field) = multipart
+        .next_field()
+        .await
+        .map_err(|e| AppError::BadRequest(format!("invalid multipart data: {e}")))?
+    {
+        match field.name() {
+            Some("model") => {
+                let text = field.text().await.map_err(|e| {
+                    AppError::BadRequest(format!("failed to read model field: {e}"))
+                })?;
+                model = Some(text);
+            }
+            Some("hint") => {
+                let text = field
+                    .text()
+                    .await
+                    .map_err(|e| AppError::BadRequest(format!("failed to read hint field: {e}")))?;
+                hint = Some(text);
+            }
+            Some("image") => {
+                if image_bytes.is_some() {
+                    return Err(AppError::BadRequest(
+                        "only one image may be uploaded".into(),
+                    ));
+                }
+                image_content_type = field.content_type().map(String::from);
+                let data = field.bytes().await.map_err(|e| {
+                    AppError::BadRequest(format!("failed to read image field: {e}"))
+                })?;
+                image_bytes = Some(data.to_vec());
+            }
+            _ => {}
+        }
+    }
+
+    let model = model
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty())
+        .ok_or_else(|| AppError::BadRequest("missing 'model' field".into()))?;
+    let hint = hint.map(|s| s.trim().to_string()).filter(|s| !s.is_empty());
+
+    let image_bytes = match image_bytes {
+        Some(b) if !b.is_empty() => Some(b),
+        _ => None,
+    };
+    if image_bytes.is_none() && hint.is_none() {
+        return Err(AppError::BadRequest(
+            "at least one of image or hint is required".into(),
+        ));
+    }
+
+    if let Some(h) = &hint {
+        if h.chars().count() > 5000 {
+            return Err(AppError::BadRequest(
+                "hint must be at most 5000 characters".into(),
+            ));
+        }
+    }
+
+    const MAX_IMAGE_BYTES: usize = 20 * 1024 * 1024;
+    let image = match image_bytes {
+        Some(bytes) => {
+            if bytes.len() > MAX_IMAGE_BYTES {
+                return Err(AppError::PayloadTooLarge(
+                    "image exceeds 20 MB limit".into(),
+                ));
+            }
+            Some(crate::llm_import::LlmImage {
+                bytes,
+                content_type: image_content_type.unwrap_or_else(|| "image/jpeg".to_string()),
+            })
+        }
+        None => None,
+    };
+
+    let draft = crate::llm_import::import_via_llm(&model, hint.as_deref(), image).await?;
+    Ok(Json(draft))
+}
 // ---------------------------------------------------------------------------
 // Plan handlers
 // ---------------------------------------------------------------------------
@@ -361,8 +450,10 @@ mod tests {
             .route("/meals/:id/image", get(get_meal_image))
             .route("/import/url", post(import_from_url))
             .route("/import/paste", post(import_from_paste))
+            .route("/import/llm", post(import_from_llm))
             .route("/plans", get(get_plans).post(create_plan))
             .route("/plans/:year/:week", put(update_plan).delete(delete_plan))
+            .layer(axum::extract::DefaultBodyLimit::max(50 * 1024 * 1024))
             .with_state(state);
         TestCtx { app, _dir: dir }
     }
@@ -1299,5 +1390,147 @@ mod tests {
         let body = to_bytes(response.into_body(), 4096).await.unwrap();
         let meals: Vec<serde_json::Value> = serde_json::from_slice(&body).unwrap();
         assert!(meals.is_empty(), "import must not persist meals");
+    }
+
+    // ---------------------------------------------------------------
+    // LLM import route tests
+    // ---------------------------------------------------------------
+
+    fn build_llm_multipart(
+        model: Option<&str>,
+        hint: Option<&str>,
+        image_data: Option<&[u8]>,
+    ) -> (Vec<u8>, String) {
+        let boundary = "testboundaryLLM";
+        let mut body = Vec::new();
+
+        if let Some(m) = model {
+            body.extend_from_slice(b"--");
+            body.extend_from_slice(boundary.as_bytes());
+            body.extend_from_slice(b"\r\n");
+            body.extend_from_slice(b"Content-Disposition: form-data; name=\"model\"\r\n\r\n");
+            body.extend_from_slice(m.as_bytes());
+            body.extend_from_slice(b"\r\n");
+        }
+        if let Some(h) = hint {
+            body.extend_from_slice(b"--");
+            body.extend_from_slice(boundary.as_bytes());
+            body.extend_from_slice(b"\r\n");
+            body.extend_from_slice(b"Content-Disposition: form-data; name=\"hint\"\r\n\r\n");
+            body.extend_from_slice(h.as_bytes());
+            body.extend_from_slice(b"\r\n");
+        }
+        if let Some(img) = image_data {
+            body.extend_from_slice(b"--");
+            body.extend_from_slice(boundary.as_bytes());
+            body.extend_from_slice(b"\r\n");
+            body.extend_from_slice(
+                b"Content-Disposition: form-data; name=\"image\"; filename=\"photo.jpg\"\r\n",
+            );
+            body.extend_from_slice(b"Content-Type: image/jpeg\r\n\r\n");
+            body.extend_from_slice(img);
+            body.extend_from_slice(b"\r\n");
+        }
+
+        body.extend_from_slice(b"--");
+        body.extend_from_slice(boundary.as_bytes());
+        body.extend_from_slice(b"--\r\n");
+
+        let content_type = format!("multipart/form-data; boundary={boundary}");
+        (body, content_type)
+    }
+
+    #[tokio::test]
+    async fn given_empty_body_when_import_llm_then_400() {
+        let ctx = setup().await;
+        let (body, content_type) = build_llm_multipart(None, None, None);
+        let response = ctx
+            .app
+            .oneshot(
+                Request::builder()
+                    .method(Method::POST)
+                    .uri("/import/llm")
+                    .header("content-type", content_type)
+                    .body(axum::body::Body::from(body))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+        let resp_body = to_bytes(response.into_body(), 4096).await.unwrap();
+        let error: serde_json::Value = serde_json::from_slice(&resp_body).unwrap();
+        assert!(
+            error["error"]
+                .as_str()
+                .unwrap()
+                .contains("missing 'model' field")
+        );
+    }
+
+    #[tokio::test]
+    async fn given_model_but_no_image_no_hint_when_import_llm_then_400() {
+        let ctx = setup().await;
+        let (body, content_type) = build_llm_multipart(Some("gpt-4o-mini"), None, None);
+        let response = ctx
+            .app
+            .oneshot(
+                Request::builder()
+                    .method(Method::POST)
+                    .uri("/import/llm")
+                    .header("content-type", content_type)
+                    .body(axum::body::Body::from(body))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+    }
+
+    #[tokio::test]
+    async fn given_hint_over_5000_chars_when_import_llm_then_400() {
+        let ctx = setup().await;
+        let long_hint = "x".repeat(5001);
+        let (body, content_type) = build_llm_multipart(Some("gpt-4o-mini"), Some(&long_hint), None);
+        let response = ctx
+            .app
+            .oneshot(
+                Request::builder()
+                    .method(Method::POST)
+                    .uri("/import/llm")
+                    .header("content-type", content_type)
+                    .body(axum::body::Body::from(body))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+    }
+
+    #[tokio::test]
+    async fn given_image_over_20mb_when_import_llm_then_413() {
+        let ctx = setup().await;
+        let oversized = vec![0u8; 21_000_001];
+        let (body, content_type) = build_llm_multipart(Some("gpt-4o-mini"), None, Some(&oversized));
+        let response = ctx
+            .app
+            .oneshot(
+                Request::builder()
+                    .method(Method::POST)
+                    .uri("/import/llm")
+                    .header("content-type", content_type)
+                    .body(axum::body::Body::from(body))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::PAYLOAD_TOO_LARGE);
+        let resp_body = to_bytes(response.into_body(), 4096).await.unwrap();
+        let error: serde_json::Value = serde_json::from_slice(&resp_body).unwrap();
+        assert!(
+            error["error"]
+                .as_str()
+                .unwrap()
+                .contains("image exceeds 20 MB limit")
+        );
     }
 }

@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { listMeals, createMeal, updateMeal, deleteMeal, mealImageUrl, importFromUrl, importFromPaste } from '$lib/api';
+	import { listMeals, createMeal, updateMeal, deleteMeal, mealImageUrl, importFromUrl, importFromPaste, importFromLlm } from '$lib/api';
 	import { validateMeal } from '$lib/validation';
 	import type { Meal, NewIngredientLine } from '$lib/types';
 	import { t } from '$lib/i18n';
@@ -15,9 +15,12 @@
 	let formName = $state('');
 	let formIngredients = $state<NewIngredientLine[]>([{ name: '', quantity: null }]);
 	let formInstructions = $state('');
-	let importMode = $state<'url' | 'paste'>('url');
+	let importMode = $state<'url' | 'paste' | 'llm'>('url');
 	let importUrl = $state('');
 	let importPaste = $state('');
+	let importLlmModel = $state('');
+	let importLlmHint = $state('');
+	let importLlmImage = $state<File | null>(null);
 	let importing = $state(false);
 	let importError = $state<string | null>(null);
 	let formError = $state<string | null>(null);
@@ -148,7 +151,9 @@
 		try {
 			const draft = importMode === 'url'
 				? await importFromUrl(importUrl)
-				: await importFromPaste(importPaste);
+				: importMode === 'paste'
+					? await importFromPaste(importPaste)
+					: await importFromLlm(importLlmModel, importLlmHint || null, importLlmImage);
 			formName = draft.name;
 			formIngredients = draft.ingredients.length > 0
 				? draft.ingredients.map(i => ({ name: i.name, quantity: i.quantity }))
@@ -162,6 +167,9 @@
 			editingId = null;
 			importUrl = '';
 			importPaste = '';
+			importLlmModel = '';
+			importLlmHint = '';
+			importLlmImage = null;
 		} catch (err) {
 			const raw = err instanceof Error ? err.message : '';
 			importError = raw === '__REQUEST_FAILED__' ? t('importErrorFetch') : raw;
@@ -170,6 +178,11 @@
 		}
 	}
 
+
+	function onImportImageChange(e: Event) {
+		const file = (e.target as HTMLInputElement).files?.[0] ?? null;
+		importLlmImage = file;
+	}
 
 	function onImageChange(e: Event) {
 		const file = (e.target as HTMLInputElement).files?.[0] ?? null;
@@ -262,16 +275,29 @@
 				onclick={() => importMode = 'paste'}>
 				{t('importTabPaste')}
 			</button>
+			<button type="button" class="btn btn--ghost" class:btn--active={importMode === 'llm'}
+				onclick={() => importMode = 'llm'}>
+				{t('importTabLlm')}
+			</button>
 		</div>
 		{#if importMode === 'url'}
 			<input type="url" bind:value={importUrl} placeholder={t('importUrlPlaceholder')} />
 			<button type="button" class="btn btn--primary" onclick={onImport} disabled={importing || !importUrl.trim()}>
 				{t('importButtonFetch')}
 			</button>
-		{:else}
+		{:else if importMode === 'paste'}
 			<textarea bind:value={importPaste} placeholder={t('importPastePlaceholder')} rows="6"></textarea>
 			<button type="button" class="btn btn--primary" onclick={onImport} disabled={importing || !importPaste.trim()}>
 				{t('importButtonPaste')}
+			</button>
+		{:else}
+			<p class="import-info">{t('importLlmInfo')}</p>
+			<input type="text" bind:value={importLlmModel} placeholder={t('importLlmModelPlaceholder')} />
+			<textarea bind:value={importLlmHint} placeholder={t('importLlmHintPlaceholder')} rows="3"></textarea>
+			<input type="file" accept="image/*" onchange={onImportImageChange} />
+			<button type="button" class="btn btn--primary" onclick={onImport}
+				disabled={importing || !importLlmModel.trim() || (!importLlmHint.trim() && !importLlmImage)}>
+				{t('importButtonLlm')}
 			</button>
 		{/if}
 		{#if importError}

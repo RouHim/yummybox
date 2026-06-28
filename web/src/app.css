@@ -1,19 +1,19 @@
 :root {
 	/* Color — restrained dual-theme (light) */
-	--color-bg: #f6f5f1;
+	--color-bg: #f4f6f3;
 	--color-surface: #ffffff;
-	--color-surface-2: #f1efe9;
+	--color-surface-2: #eef1ec;
 	--color-primary: #0f766e;
 	--color-primary-hover: #0c5d56;
 	--color-primary-soft: #ccfbf1;
 	--color-on-primary: #ffffff;
-	--color-text: #1c2024;
+	--color-text: #1a201c;
 	--color-text-secondary: #51555c;
 	--color-text-muted: #8b8f96;
-	--color-border: #e2e0da;
-	--color-border-strong: #c8c5be;
-	--color-border-light: #efede7;
-	--color-accent: #9c5a3c;
+	--color-border: #e0e3df;
+	--color-border-strong: #c4c9c1;
+	--color-border-light: #edf0ea;
+	--color-accent: #b45309;
 	--color-error: #b91c1c;
 	--color-error-bg: #fef2f2;
 	--color-danger: #b91c1c;
@@ -86,8 +86,8 @@
 
 @media (prefers-color-scheme: dark) {
 	:root:not([data-theme]) {
-		--color-bg: #14181b;
-		--color-surface: #1c2125;
+		--color-bg: #131815;
+		--color-surface: #1a201c;
 		--color-surface-2: #262b30;
 		--color-primary: #3db8a3;
 		--color-primary-hover: #57c8b5;
@@ -99,7 +99,7 @@
 		--color-border: #2e3439;
 		--color-border-strong: #3f464c;
 		--color-border-light: #262b30;
-		--color-accent: #c08068;
+		--color-accent: #d97706;
 		--color-error: #f87171;
 		--color-error-bg: #2a1517;
 		--color-danger: #f87171;
@@ -119,8 +119,8 @@
 }
 
 :root[data-theme="dark"] {
-	--color-bg: #14181b;
-	--color-surface: #1c2125;
+	--color-bg: #131815;
+	--color-surface: #1a201c;
 	--color-surface-2: #262b30;
 	--color-primary: #3db8a3;
 	--color-primary-hover: #57c8b5;
@@ -132,7 +132,7 @@
 	--color-border: #2e3439;
 	--color-border-strong: #3f464c;
 	--color-border-light: #262b30;
-	--color-accent: #c08068;
+	--color-accent: #d97706;
 	--color-error: #f87171;
 	--color-error-bg: #2a1517;
 	--color-danger: #f87171;
@@ -285,6 +285,13 @@ button {
 	border-radius: var(--radius-md);
 	border: 1px solid var(--color-error);
 	font-size: var(--text-sm);
+}
+
+.import-info {
+	font-size: var(--text-sm);
+	color: var(--color-text-secondary);
+	margin-bottom: var(--space-3);
+	line-height: 1.5;
 }
 
 /* Search */
@@ -532,20 +539,6 @@ button {
 	padding: var(--space-6) var(--space-4) var(--space-4);
 }
 
-.attribution {
-	font-size: var(--text-xs);
-	color: var(--color-text-muted);
-}
-
-.attribution a {
-	color: var(--color-text-muted);
-	text-decoration: underline;
-	text-underline-offset: 2px;
-}
-
-.attribution a:hover {
-	color: var(--color-text-secondary);
-}
 
 .theme-toggle {
 	margin-top: var(--space-2);

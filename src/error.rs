@@ -16,6 +16,12 @@ pub enum AppError {
     #[error("{0}")]
     BadRequest(String),
 
+    #[error("{0}")]
+    PayloadTooLarge(String),
+
+    #[error("{0}")]
+    UnprocessableEntity(String),
+
     #[error("database error: {0}")]
     Database(#[from] sqlx::Error),
 
@@ -29,6 +35,8 @@ impl IntoResponse for AppError {
             AppError::NotFound => (StatusCode::NOT_FOUND, self.to_string()),
             AppError::Validation(msg) => (StatusCode::BAD_REQUEST, msg.clone()),
             AppError::BadRequest(msg) => (StatusCode::BAD_REQUEST, msg.clone()),
+            AppError::PayloadTooLarge(msg) => (StatusCode::PAYLOAD_TOO_LARGE, msg.clone()),
+            AppError::UnprocessableEntity(msg) => (StatusCode::UNPROCESSABLE_ENTITY, msg.clone()),
             AppError::Database(_err) => (StatusCode::INTERNAL_SERVER_ERROR, self.to_string()),
             AppError::Internal(msg) => (StatusCode::INTERNAL_SERVER_ERROR, msg.clone()),
         };
@@ -103,6 +111,26 @@ mod tests {
             AppError::Internal("something broke".into()),
             StatusCode::INTERNAL_SERVER_ERROR,
             "something broke",
+        )
+        .await;
+    }
+
+    #[tokio::test]
+    async fn given_payload_too_large_when_into_response_then_returns_413() {
+        assert_response(
+            AppError::PayloadTooLarge("image exceeds 20 MB limit".into()),
+            StatusCode::PAYLOAD_TOO_LARGE,
+            "image exceeds 20 MB limit",
+        )
+        .await;
+    }
+
+    #[tokio::test]
+    async fn given_unprocessable_entity_when_into_response_then_returns_422() {
+        assert_response(
+            AppError::UnprocessableEntity("could not parse a recipe from input".into()),
+            StatusCode::UNPROCESSABLE_ENTITY,
+            "could not parse a recipe from input",
         )
         .await;
     }
