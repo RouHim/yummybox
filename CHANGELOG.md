@@ -1,3 +1,10 @@
+## [1.0.1](https://github.com/RouHim/mealme/compare/v1.0.0...v1.0.1) (2026-06-28)
+
+
+### Bug Fixes
+
+* skip npm build in build.rs when web/build/ already exists ([d634ed2](https://github.com/RouHim/mealme/commit/d634ed2538bf10b0f37939d7d388012ab7d9c8d3))
+
 # 1.0.0 (2026-06-28)
 
 
