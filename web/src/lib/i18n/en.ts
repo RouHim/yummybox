@@ -1,7 +1,7 @@
 import type { TranslationKey } from './types';
 
 export const en: Record<TranslationKey, string> = {
-	appTitle: 'Meals',
+	appTitle: 'MealMe',
 	appSubtitle: 'Your personal collection of recipes',
 	navMeals: 'Meals',
 	bgPhoto: 'Background photo',

@@ -28,6 +28,7 @@
 </script>
 
 <svelte:head>
+	<title>{t('appTitle')}</title>
 	<link rel="icon" href={favicon} />
 </svelte:head>
 

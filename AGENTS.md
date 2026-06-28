@@ -59,6 +59,17 @@ RUST_LOG=debug cargo run
 # Format + lint Rust
 cargo fmt
 cargo clippy
+# Run E2E tests (visual/styling — requires release binary)
+cd web && npm run test:e2e
+
+# Run E2E tests (workflows — auto-builds via cargo run, isolated DB on :11342)
+cd tests && npm test
+
+# Run all E2E tests
+cd web && npm run test:e2e && cd ../tests && npm test
+
+# Run E2E tests headed (debugging)
+cd tests && npx playwright test --headed
 
 # Dev server (frontend only, for UI work)
 cd web && npm run dev
@@ -150,6 +161,9 @@ If a function has no call site, delete it — no commented-out scaffolds, no `#[
 | `web/vitest.config.ts` | Test include pattern: `src/**/*.test.ts` |
 | `web/src/routes/+page.svelte` | Entire app UI — form, list, search, edit, delete |
 | `web/src/lib/api.ts` | Fetch client for all API endpoints |
+| `web/playwright.config.ts` | E2E config: visual tests on :11341 (release binary) |
+| `tests/playwright.config.ts` | E2E config: workflow tests on :11342 (auto-build, isolated DB) |
+| `tests/e2e/_helpers.ts` | Shared E2E helpers: `createMeal`, `resetMeals`, `setLocale` |
 
 ## Workflow Practices
 
@@ -162,10 +176,9 @@ If a function has no call site, delete it — no commented-out scaffolds, no `#[
 - **Rust**: 1.85+ (edition 2024). Use `rustfmt` and `clippy`.
 - **Node.js**: 26+ (build-time only, for SvelteKit/Vite compilation).
 - **Port**: `127.0.0.1:11341` (hardcoded in `main.rs`).
-- **Package manager**: npm only (no pnpm/yarn/bun). Commit `package-lock.json`; regenerate only via `npm install`.
+- **CI**: `.github/workflows/ci.yml` — Gitleaks → lint-format + frontend-tests + rust-tests (parallel) → e2e-tests (both suites) → create-release.
 - **Database**: SQLite via `rusqlite` with `bundled` feature — no system SQLite needed.
 - **TLS**: `rustls` only (project rule: no OpenSSL / no `native-tls`). No TLS endpoints today, but any future TLS feature must use a `rustls`-based crate (e.g., `rustls`, `reqwest` with `rustls-tls` feature).
-- **No CI config**: No `.github/workflows/`, `Jenkinsfile`, or `Makefile` exists at time of writing.
 
 ## Testing & QA
 
@@ -194,4 +207,35 @@ All tests are written in **BDD** style: name them by behavior, not implementatio
 
 ### E2E tests
 
-E2E tests are specified in `spec.md` (Playwright-based, headless Chromium, auto-starts/terminates binary, fresh DB per run) but **not yet implemented**.
+E2E tests use Playwright with headless Chromium. Each config auto-starts the `mealme` binary on its own port with an isolated database, so no manual server setup is needed.
+
+**Two test suites** with separate Playwright configs:
+
+| Suite | Config | Port | Binary | DB | Command |
+|-------|--------|------|--------|----|---------|
+| Visual/styling | `web/playwright.config.ts` | `:11341` | `target/release/mealme` | shared `./data/meals.db` | `cd web && npm run test:e2e` |
+| Workflows | `tests/playwright.config.ts` | `:11342` | `cargo run --quiet` | isolated `.e2e-db/` | `cd tests && npm test` |
+
+#### Visual/styling suite (`web/e2e/ambient-background.spec.ts`, 6 tests)
+
+- `.app-ambient` element exists and covers the viewport
+- `background-image` CSS resolves to a real image (HTTP 200, ≥1 KB)
+- Pixel variance analysis via canvas (solid-color ratio < 95%, std dev > 2)
+- Footer attribution: photographer credit link
+- Dark mode image variance (URL contains `ambient-dark`, pixel variance)
+- Dark mode `backgroundColor` — each RGB channel < 80
+
+#### Workflow suite (`tests/e2e/`, 31 tests across 8 spec files)
+
+| File | Tests | Coverage |
+|------|-------|----------|
+| `add-meal.spec.ts` | 3 | Happy path, empty-name validation, empty-ingredients validation |
+| `view-meals.spec.ts` | 2 | Empty state message, meal name + ingredient previews |
+| `edit-meal.spec.ts` | 2 | Pre-populated form values, update reflects in list |
+| `delete-meal.spec.ts` | 2 | Confirm delete removes meal, cancel keeps it |
+| `search-meals.spec.ts` | 3 | Filter by name (case-insensitive), by ingredient, clear search restores all |
+| `meal-images.spec.ts` | 7 | Upload shows thumbnail, edit-to-add sets `has_image`, replace image, remove image, non-image error inline, no-image meals have no `<img>`, oversized PNG downscaled to ≤3840×2160 JPEG |
+| `planner.spec.ts` | 9 | Future week click, past-week CSS class, past year all muted, meal count defaults to 3, count resets on new week, no lang toggle, navigator language → no localStorage |
+| `i18n.spec.ts` | 3 | `de-DE` → German strings, `fr-FR` → English fallback, full German UI string audit |
+
+Shared helper (`tests/e2e/_helpers.ts`): `setLocale(page, locale)`, `resetMeals(request)`, `createMeal(page, name, ingredients, instructions?)`.

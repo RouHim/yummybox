@@ -46,12 +46,12 @@ function withLocale(lang: 'en' | 'de'): void {
 describe('t', () => {
 	it('returns English string for English locale', () => {
 		withLocale('en');
-		expect(t('appTitle')).toBe('Meals');
+		expect(t('appTitle')).toBe('MealMe');
 	});
 
 	it('returns German string for German locale', () => {
 		withLocale('de');
-		expect(t('appTitle')).toBe('Mahlzeiten');
+		expect(t('appTitle')).toBe('MealMe');
 	});
 
 	it('falls back to English when a key is missing in German', () => {

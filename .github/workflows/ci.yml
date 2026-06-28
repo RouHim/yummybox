@@ -28,6 +28,18 @@ jobs:
           cargo install cargo-deny --locked
           cargo deny check
 
+  frontend-tests:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '26'
+      - name: npm ci
+        run: cd web && npm ci
+      - name: Vitest
+        run: cd web && npm test
+
   rust-tests:
     runs-on: ubuntu-latest
     steps:
@@ -41,32 +53,43 @@ jobs:
         run: cargo test
       - name: cargo build --release
         run: cargo build --release
+      - uses: actions/upload-artifact@v4
+        with:
+          name: mealme-release
+          path: target/release/mealme
+          retention-days: 1
 
   e2e-tests:
+    needs: [rust-tests]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
-      - uses: Swatinem/rust-cache@v2
       - uses: actions/setup-node@v4
         with:
           node-version: '26'
-      - uses: extractions/setup-just@v2
+      - uses: actions/download-artifact@v4
         with:
-          just-version: 1.52.0
+          name: mealme-release
+          path: target/release/
+      - name: Make binary executable
+        run: chmod +x target/release/mealme
       - uses: actions/cache@v4
         id: playwright-cache
         with:
           path: ~/.cache/ms-playwright
-          key: playwright-${{ runner.os }}-${{ hashFiles('tests/package-lock.json') }}
-      - name: Install E2E deps
-        run: cd tests && npm ci
+          key: playwright-${{ runner.os }}-${{ hashFiles('tests/package-lock.json', 'web/package-lock.json') }}
+      - name: Install deps
+        run: |
+          cd tests && npm ci
+          cd ../web && npm ci
       - name: Install Playwright browsers
         if: steps.playwright-cache.outputs.cache-hit != 'true'
-        run: cd tests && npx playwright install --with-deps chromium
-      - name: Run E2E tests
-        run: just e2e
-      - name: Upload HTML report
+        run: npx playwright install --with-deps chromium
+      - name: Run visual/styling E2E tests
+        run: cd web && npx playwright test --config=playwright.config.ts
+      - name: Run workflow E2E tests
+        run: cd tests && npx playwright test --config=playwright.config.ts
+      - name: Upload HTML report (tests)
         if: failure()
         uses: actions/upload-artifact@v4
         with:
@@ -82,7 +105,7 @@ jobs:
           retention-days: 14
 
   create-release:
-    needs: [lint-format, rust-tests, e2e-tests]
+    needs: [lint-format, frontend-tests, rust-tests, e2e-tests]
     if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     outputs:
