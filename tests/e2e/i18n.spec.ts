@@ -10,7 +10,7 @@ test.describe('i18n', () => {
 		const context = await browser.newContext({ locale: 'de-DE' });
 		const page = await context.newPage();
 		await page.goto('/meals');
-		await expect(page.locator('h1')).toContainText('Mahlzeiten');
+		await expect(page.getByRole('link', { name: 'Mahlzeiten' })).toBeVisible();
 		await context.close();
 	});
 
@@ -18,7 +18,7 @@ test.describe('i18n', () => {
 		const context = await browser.newContext({ locale: 'fr-FR' });
 		const page = await context.newPage();
 		await page.goto('/meals');
-		await expect(page.locator('h1')).toContainText('Meals');
+		await expect(page.getByRole('link', { name: 'Meals' })).toBeVisible();
 		await context.close();
 	});
 
@@ -28,7 +28,7 @@ test.describe('i18n', () => {
 		await page.goto('/meals');
 
 		// Header
-		await expect(page.locator('h1')).toContainText('Mahlzeiten');
+		await expect(page.getByRole('link', { name: 'Mahlzeiten' })).toBeVisible();
 
 		// Search
 		await expect(page.getByPlaceholder('Mahlzeiten suchen...')).toBeVisible();
