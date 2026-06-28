@@ -1,3 +1,15 @@
+# [1.3.0](https://github.com/RouHim/mealme/compare/v1.2.0...v1.3.0) (2026-06-28)
+
+
+### Bug Fixes
+
+* update i18n E2E tests for app-bar layout (no h1 on meals page) ([12b7a4b](https://github.com/RouHim/mealme/commit/12b7a4beb15e4799240d179f8455e1352617c363))
+
+
+### Features
+
+* main spacing — app-bar + footer glass, padding-bottom between content and footer ([cb23501](https://github.com/RouHim/mealme/commit/cb23501edf8faf8cd348170eea5248ef0aafd1ad))
+
 # [1.2.0](https://github.com/RouHim/mealme/compare/v1.1.0...v1.2.0) (2026-06-28)
 
 
