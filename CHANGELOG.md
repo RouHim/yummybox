@@ -1,3 +1,10 @@
+# [1.2.0](https://github.com/RouHim/mealme/compare/v1.1.0...v1.2.0) (2026-06-28)
+
+
+### Features
+
+* replace README banner fork+knife with soup icon ([b9a1b9b](https://github.com/RouHim/mealme/commit/b9a1b9bd34d7dcc5a08797255678f0a94b043249))
+
 # [1.1.0](https://github.com/RouHim/mealme/compare/v1.0.1...v1.1.0) (2026-06-28)
 
 
