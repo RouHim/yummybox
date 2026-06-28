@@ -1,3 +1,10 @@
+## [1.3.2](https://github.com/RouHim/mealme/compare/v1.3.1...v1.3.2) (2026-06-28)
+
+
+### Bug Fixes
+
+* equal-height meal cards in overview grid ([54ece7a](https://github.com/RouHim/mealme/commit/54ece7a972d58832c179d2bdaeb4848319f3cd85))
+
 ## [1.3.1](https://github.com/RouHim/mealme/compare/v1.3.0...v1.3.1) (2026-06-28)
 
 
