@@ -84,7 +84,7 @@ jobs:
           cd ../web && npm ci
       - name: Install Playwright browsers
         if: steps.playwright-cache.outputs.cache-hit != 'true'
-        run: npx playwright install --with-deps chromium
+        run: cd tests && npx playwright install --with-deps chromium
       - name: Run visual/styling E2E tests
         run: cd web && npx playwright test --config=playwright.config.ts
       - name: Run workflow E2E tests
