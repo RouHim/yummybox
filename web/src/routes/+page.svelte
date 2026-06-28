@@ -14,7 +14,7 @@
 	function formatDateRange(): string {
 		const { monday, sunday } = mondaySundayOf(currentWeekInfo.year, currentWeekInfo.week);
 		const opts: Intl.DateTimeFormatOptions = { month: 'short', day: 'numeric' };
-		return `${monday.toLocaleDateString(undefined, opts)} – ${sunday.toLocaleDateString(undefined, opts)}`;
+		return `${monday.toLocaleDateString(undefined, opts)} to ${sunday.toLocaleDateString(undefined, opts)}`;
 	}
 
 	async function loadCurrentWeek() {

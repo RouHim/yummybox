@@ -165,7 +165,7 @@
 	function formatDateRange(week: number): string {
 		const { monday, sunday } = mondaySundayOf(year, week);
 		const opts: Intl.DateTimeFormatOptions = { month: 'short', day: 'numeric' };
-		return `${monday.toLocaleDateString(undefined, opts)} – ${sunday.toLocaleDateString(undefined, opts)}`;
+		return `${monday.toLocaleDateString(undefined, opts)} to ${sunday.toLocaleDateString(undefined, opts)}`;
 	}
 
 	function prevYear() { year--; selectedWeek = null; selectedPlan = null; }
@@ -210,9 +210,7 @@
 				<span class="week-cell__num">{week}</span>
 				<span class="week-cell__dates">{formatDateRange(week)}</span>
 				{#if weekPlan}
-					<span class="week-cell__badge" title="{t('plannerHasPlan')} ({weekPlan.meal_count})">
-						<Icon name="calendar" size={12} />
-					</span>
+					<span class="week-cell__badge" title={t('plannerHasPlan')}></span>
 				{/if}
 			</button>
 		{/each}
@@ -371,6 +369,9 @@
 		border-right: none;
 		border-top: none;
 	}
+	.planner-header h1 {
+		font-family: var(--font-display);
+	}
 	.planner-header.glass .nav-link {
 		background: var(--glass-scrim);
 		border-radius: var(--radius-full);
@@ -439,8 +440,8 @@
 		border-color: var(--color-primary);
 	}
 	.week-cell--current {
-		border-color: var(--color-primary);
-		border-width: 2px;
+		border-color: var(--color-border);
+		border-bottom: 3px solid var(--color-primary);
 	}
 	.week-cell--active {
 		background: var(--color-primary-soft);
@@ -469,9 +470,12 @@
 	}
 	.week-cell__badge {
 		position: absolute;
-		top: 4px;
-		right: 4px;
-		color: var(--color-primary);
+		top: 6px;
+		right: 6px;
+		width: 8px;
+		height: 8px;
+		border-radius: 50%;
+		background: var(--color-primary);
 	}
 
 	.plan-detail {

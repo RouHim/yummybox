@@ -40,7 +40,7 @@ export const de: Record<TranslationKey, string> = {
 	errorDeleteFailed: 'Mahlzeit konnte nicht gelöscht werden',
 	errorRequestFailed: 'Anfrage fehlgeschlagen',
 	errorPlanFailed: 'Plan konnte nicht erstellt werden',
-	errorPlanEmpty: 'Keine Mahlzeiten vorhanden — erstelle zuerst eine Mahlzeit',
+	errorPlanEmpty: 'Keine Mahlzeiten vorhanden. Erstelle zuerst eine Mahlzeit.',
 	errorPlanNotFound: 'Plan nicht gefunden',
 	confirmDelete: '„{name}" löschen?',
 	confirmDeletePlan: 'Diesen Plan löschen?',

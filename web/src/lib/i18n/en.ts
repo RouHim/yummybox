@@ -40,7 +40,7 @@ export const en: Record<TranslationKey, string> = {
 	errorDeleteFailed: 'Failed to delete meal',
 	errorRequestFailed: 'Request failed',
 	errorPlanFailed: 'Failed to generate plan',
-	errorPlanEmpty: 'No meals exist — create at least one meal first',
+	errorPlanEmpty: 'No meals exist. Create at least one meal first.',
 	errorPlanNotFound: 'Plan not found',
 	confirmDelete: 'Delete "{name}"?',
 	confirmDeletePlan: 'Delete this plan?',

@@ -235,27 +235,26 @@
 <main>
 	<header class="page-header glass">
 		<div>
-			<h1>{t('appTitle')}</h1>
+			<h1 class="page-header__wordmark">{t('appTitle')}</h1>
 			<p class="page-header__subtitle">{t('appSubtitle')}</p>
 		</div>
 		<div class="page-header__right">
+			<div class="page-header__search">
+				<Icon name="search" class="search__icon" />
+				<input
+					type="search"
+					class="search__input"
+					bind:value={searchTerm}
+					placeholder={t('searchPlaceholder')}
+					aria-label={t('searchAriaLabel')}
+				/>
+			</div>
 			<a href="/planner" class="nav-link">
 				<Icon name="calendar" size={16} />
 				{t('navPlanner')}
 			</a>
 		</div>
 	</header>
-
-	<div class="search glass">
-		<Icon name="search" class="search__icon" />
-		<input
-			type="search"
-			class="search__input"
-			bind:value={searchTerm}
-			placeholder={t('searchPlaceholder')}
-			aria-label={t('searchAriaLabel')}
-		/>
-	</div>
 
 	{#if loadError}
 		<p class="form-error" role="alert">
@@ -522,6 +521,8 @@
 		display: flex;
 		justify-content: space-between;
 		align-items: center;
+		flex-wrap: wrap;
+		gap: var(--space-3);
 		margin-bottom: var(--space-2);
 		position: sticky;
 		top: 0;
@@ -532,6 +533,10 @@
 		border-right: none;
 		border-top: none;
 	}
+	.page-header__wordmark {
+		font-family: var(--font-display);
+		font-size: var(--text-2xl);
+	}
 	.page-header__subtitle {
 		margin: 0;
 		color: var(--color-text-secondary);
@@ -541,6 +546,25 @@
 		display: flex;
 		align-items: center;
 		gap: var(--space-3);
+	}
+	.page-header__search {
+		position: relative;
+		display: flex;
+		align-items: center;
+	}
+	.page-header__search .search__input {
+		background: transparent;
+		border: 1px solid var(--glass-border-inner);
+		border-radius: var(--radius-full);
+		padding: var(--space-1) var(--space-3) var(--space-1) var(--space-8);
+		font-size: var(--text-sm);
+		color: var(--color-text);
+		width: 220px;
+	}
+	.page-header__search .search__input:focus {
+		outline: none;
+		border-color: var(--color-primary);
+		box-shadow: none;
 	}
 	.nav-link {
 		display: inline-flex;
@@ -557,27 +581,19 @@
 		border-radius: var(--radius-full);
 		padding: var(--space-1) var(--space-2);
 	}
-	.search.glass {
-		border-radius: var(--radius-full);
-		padding: var(--space-1) var(--space-3);
-	}
-	.search.glass .search__input {
-		background: transparent;
-		border: none;
-	}
-	.search.glass .search__input:focus {
-		outline: none;
-		box-shadow: none;
-	}
 	.form-card {
 		background: var(--color-surface);
 		border: 1px solid var(--color-border);
+		border-top: 2px solid rgb(124 45 18 / 0.15);
 		border-radius: var(--radius-lg);
 		padding: var(--space-6);
 		box-shadow: var(--shadow-sm);
 		display: flex;
 		flex-direction: column;
 		gap: var(--space-4);
+	}
+	.form-card h2 {
+		font-family: var(--font-display);
 	}
 	.form-card__form {
 		display: flex;
@@ -707,13 +723,12 @@
 		padding: var(--space-2);
 	}
 
-	/* Import card */
+	/* Import card — recessive, secondary to authoring form */
 	.import-card {
-		background: var(--color-surface);
+		background: var(--color-surface-2);
 		border: 1px solid var(--color-border);
 		border-radius: var(--radius-lg);
 		padding: var(--space-6);
-		box-shadow: var(--shadow-sm);
 		display: flex;
 		flex-direction: column;
 		gap: var(--space-3);

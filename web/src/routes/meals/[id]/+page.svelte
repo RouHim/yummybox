@@ -128,9 +128,11 @@
 	}
 
 	.cooking-view__name {
+		font-family: var(--font-display);
 		margin-top: var(--space-4);
 		margin-bottom: var(--space-4);
-		font-size: var(--text-xl);
+		font-size: var(--text-2xl);
+		font-weight: var(--weight-semibold);
 	}
 
 	.cooking-view__image {
@@ -144,6 +146,10 @@
 		margin-bottom: var(--space-6);
 	}
 	.cooking-view__ingredients h3 {
+		font-size: var(--text-sm);
+		text-transform: uppercase;
+		letter-spacing: 0.08em;
+		color: var(--color-text-secondary);
 		margin-bottom: var(--space-3);
 	}
 
@@ -175,6 +181,10 @@
 		margin-bottom: var(--space-6);
 	}
 	.cooking-view__instructions h3 {
+		font-size: var(--text-sm);
+		text-transform: uppercase;
+		letter-spacing: 0.08em;
+		color: var(--color-text-secondary);
 		margin-bottom: var(--space-3);
 	}
 	.cooking-view__instructions-text {
