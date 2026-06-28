@@ -27,7 +27,7 @@ test.describe('Add meal', () => {
 		await page.goto('/meals');
 		await page.getByRole('button', { name: /^Add meal$|^Mahlzeit hinzufügen$/ }).click();
 		await expect(page.getByRole('dialog')).toBeVisible();
-		await page.getByRole('dialog').getByLabel('Name').fill('x');
+		await page.getByRole('dialog').getByLabel('Name', { exact: true }).fill('x');
 		// Leave ingredient row empty, click submit
 		await page.getByRole('dialog').getByRole('button', { name: /^(Add|Hinzufügen)$/ }).click();
 		await expect(page.getByText('At least one ingredient is required')).toBeVisible();

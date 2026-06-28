@@ -14,7 +14,7 @@ test.describe('Edit meal', () => {
 		await item.hover();
 		await item.getByRole('button', { name: 'Edit' }).click();
 
-		await expect(page.getByRole('dialog').getByLabel('Name')).toHaveValue('Pasta');
+		await expect(page.getByRole('dialog').getByLabel('Name', { exact: true })).toHaveValue('Pasta');
 		await expect(page.getByRole('dialog').getByRole('textbox', { name: 'Ingredient name 1' })).toHaveValue('noodles');
 	});
 
@@ -25,7 +25,7 @@ test.describe('Edit meal', () => {
 		await item.hover();
 		await item.getByRole('button', { name: 'Edit' }).click();
 
-		await page.getByRole('dialog').getByLabel('Name').fill('Pasta Carbonara');
+		await page.getByRole('dialog').getByLabel('Name', { exact: true }).fill('Pasta Carbonara');
 		await page.getByRole('dialog').getByRole('button', { name: /^(Save|Speichern)$/ }).click();
 
 		await expect(page.getByRole('listitem').filter({ hasText: 'Pasta Carbonara' })).toBeVisible();

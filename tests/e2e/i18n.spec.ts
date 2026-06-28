@@ -42,7 +42,7 @@ test.describe('i18n', () => {
 		await expect(dialog.getByRole('heading', { name: 'Mahlzeit hinzufügen' })).toBeVisible();
 
 		// Form labels
-		await expect(dialog.getByLabel('Name')).toBeVisible();
+		await expect(dialog.getByLabel('Name', { exact: true })).toBeVisible();
 		await expect(dialog.getByText('Zutaten')).toBeVisible();
 
 		// Submit button
