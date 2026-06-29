@@ -1,17 +1,19 @@
 <script lang="ts">
-	import { listPlansForYear, getPlan, createPlan, updatePlan, deletePlan, listMeals } from '$lib/api';
+	import { listPlansForYear, getPlan, createPlan, updatePlan, deletePlan, listMeals, sendToBring } from '$lib/api';
 	import type { Plan, PlanSummaryItem, Meal } from '$lib/types';
-	import { t } from '$lib/i18n';
-	import { weekOfDate, mondaySundayOf, weeksInYear, isPastWeek } from '$lib/week';
+	import { t, formatDate } from '$lib/i18n';
+	import { weekOfDate, mondaySundayOf, isPastWeek, monthGrid, type MonthCell } from '$lib/week';
 	import Icon from '$lib/Icon.svelte';
 	import { fly, fade, scale } from 'svelte/transition';
 	import { tierDuration } from '$lib/motion';
 	import DeleteConfirmDialog from '$lib/DeleteConfirmDialog.svelte';
 	import { page } from '$app/state';
 
-	let year = $state(new Date().getFullYear());
+	let viewYear = $state(new Date().getFullYear());
+	let viewMonth = $state(new Date().getMonth()); // 0-indexed
 	let plans = $state<PlanSummaryItem[]>([]);
 	let selectedWeek = $state<number | null>(null);
+	let selectedWeekYear = $state<number | null>(null);
 	let selectedPlan = $state<Plan | null>(null);
 	let loading = $state(false);
 	let planError = $state<string | null>(null);
@@ -27,14 +29,28 @@
 	let currentWeekInfo = $state(weekOfDate(new Date()));
 	const focusCurrent = $derived(page.url.searchParams.get('focus') === 'current');
 
-	const totalWeeks = $derived(weeksInYear(year));
+	// Calendar grid for the viewed month
+	const grid = $derived(monthGrid(viewYear, viewMonth));
+
+	// Group the 42 cells into 6 week rows of 7 days each.
+	// Each row's identity is the ISO week of its Monday (first cell).
+	const weekRows = $derived(
+		Array.from({ length: 6 }, (_, row) => {
+			const start = row * 7;
+			const cells = grid.slice(start, start + 7);
+			return { week: cells[0].week, cells };
+		})
+	);
+
+	// Derived today string for highlighting today's cell in the grid
+	const todayStr = $derived(new Date().toDateString());
 
 	$effect(() => {
 		loadPlans();
 	});
 
 	$effect(() => {
-		if (selectedWeek !== null) {
+		if (selectedWeek !== null && selectedWeekYear !== null) {
 			loadPlan();
 		}
 	});
@@ -42,25 +58,50 @@
 	$effect(() => {
 		if (focusCurrent && selectedWeek === null) {
 			selectedWeek = currentWeekInfo.week;
-			if (year !== currentWeekInfo.year) year = currentWeekInfo.year;
+			selectedWeekYear = currentWeekInfo.year;
+			const { monday } = mondaySundayOf(currentWeekInfo.year, currentWeekInfo.week);
+			viewYear = monday.getUTCFullYear();
+			viewMonth = monday.getUTCMonth();
 			mealCount = 3;
 		}
 	});
 
 	async function loadPlans() {
 		try {
-			plans = await listPlansForYear(year);
+			const primaryPlans = await listPlansForYear(viewYear);
+			// For months near year boundaries, also fetch adjacent ISO year plans
+			// so that border-week badges render correctly.
+			if (viewMonth === 0 || viewMonth >= 10) {
+				const adjacentYear = viewMonth === 0 ? viewYear - 1 : viewYear + 1;
+				try {
+					const adjacentPlans = await listPlansForYear(adjacentYear);
+					const seen = new Set<string>();
+					const merged: PlanSummaryItem[] = [];
+					for (const p of [...primaryPlans, ...adjacentPlans]) {
+						const key = `${p.year}-${p.week_number}`;
+						if (!seen.has(key)) {
+							seen.add(key);
+							merged.push(p);
+						}
+					}
+					plans = merged;
+					return;
+				} catch {
+					// Fall through to primary only
+				}
+			}
+			plans = primaryPlans;
 		} catch {
 			plans = [];
 		}
 	}
 
 	async function loadPlan() {
-		if (selectedWeek === null) return;
+		if (selectedWeek === null || selectedWeekYear === null) return;
 		loading = true;
 		planError = null;
 		try {
-			selectedPlan = await getPlan(year, selectedWeek);
+			selectedPlan = await getPlan(selectedWeekYear, selectedWeek);
 		} catch (err) {
 			selectedPlan = null;
 			if (err instanceof Error && err.message !== '__REQUEST_FAILED__') {
@@ -74,7 +115,7 @@
 	async function onGenerate() {
 		planError = null;
 		try {
-			selectedPlan = await createPlan({ year, week_number: selectedWeek!, meal_count: mealCount });
+			selectedPlan = await createPlan({ year: selectedWeekYear!, week_number: selectedWeek!, meal_count: mealCount });
 			await loadPlans();
 		} catch (err) {
 			planError = err instanceof Error ? err.message : String(err);
@@ -87,9 +128,9 @@
 
 	async function confirmDeletePlan() {
 		planDeleteOpen = false;
-		if (selectedWeek === null) return;
+		if (selectedWeek === null || selectedWeekYear === null) return;
 		try {
-			await deletePlan(year, selectedWeek);
+			await deletePlan(selectedWeekYear, selectedWeek);
 			selectedPlan = null;
 			await loadPlans();
 		} catch (err) {
@@ -98,10 +139,10 @@
 	}
 
 	async function onRemoveMeal(mealId: number) {
-		if (!selectedPlan) return;
+		if (!selectedPlan || selectedWeek === null || selectedWeekYear === null) return;
 		const mealIds = selectedPlan.meals.map(m => m.id).filter(id => id !== mealId);
 		try {
-			selectedPlan = await updatePlan(year, selectedWeek!, { meal_ids: mealIds });
+			selectedPlan = await updatePlan(selectedWeekYear, selectedWeek, { meal_ids: mealIds });
 			await loadPlans();
 		} catch (err) {
 			planError = err instanceof Error ? err.message : String(err);
@@ -123,11 +164,11 @@
 	}
 
 	async function onAddMeal(mealId: number) {
-		if (!selectedPlan) return;
+		if (!selectedPlan || selectedWeek === null || selectedWeekYear === null) return;
 		const existing = selectedPlan.meals.map(m => m.id);
 		if (existing.includes(mealId)) return; // already in plan
 		try {
-			selectedPlan = await updatePlan(year, selectedWeek!, { meal_ids: [...existing, mealId] });
+			selectedPlan = await updatePlan(selectedWeekYear, selectedWeek, { meal_ids: [...existing, mealId] });
 			await loadPlans();
 		} catch (err) {
 			planError = err instanceof Error ? err.message : String(err);
@@ -162,46 +203,124 @@
 		};
 	}
 
-	function formatDateRange(week: number): string {
+	/** Format the Mon–Sun date range for a given ISO week. */
+	function formatDateRange(year: number, week: number): string {
 		const { monday, sunday } = mondaySundayOf(year, week);
 		const opts: Intl.DateTimeFormatOptions = { month: 'short', day: 'numeric' };
 		return `${monday.toLocaleDateString(undefined, opts)} to ${sunday.toLocaleDateString(undefined, opts)}`;
 	}
 
-	function prevYear() { year--; selectedWeek = null; selectedPlan = null; }
-	function nextYear() { year++; selectedWeek = null; selectedPlan = null; }
+	/** Cell date as a local date string for "today" comparison. */
+	function cellLocalDateStr(cell: MonthCell): string {
+		return new Date(cell.date.getUTCFullYear(), cell.date.getUTCMonth(), cell.date.getUTCDate()).toDateString();
+	}
+
+	// Weekday header dates (Mon–Sun reference week: Jan 5–11 2026)
+	const weekdayDates = Array.from({ length: 7 }, (_, i) => new Date(2026, 0, 5 + i));
+
+	function prevMonth() {
+		if (viewMonth === 0) {
+			viewMonth = 11;
+			viewYear--;
+		} else {
+			viewMonth--;
+		}
+	}
+
+	function nextMonth() {
+		if (viewMonth === 11) {
+			viewMonth = 0;
+			viewYear++;
+		} else {
+			viewMonth++;
+		}
+	}
+
+	function goToday() {
+		const now = new Date();
+		viewYear = now.getFullYear();
+		viewMonth = now.getMonth();
+	}
+
+	function onWeekClick(week: { year: number; week: number }) {
+		selectedWeekYear = week.year;
+		selectedWeek = week.week;
+		mealCount = 3;
+	}
+
+	// Bring! integration state — per-ingredient send tracking by ingredient name
+	let bringStates = $state<Record<string, { loading: boolean; error: string | null; success: boolean }>>({});
+
+	function bringSpec(entry: { name: string; numeric_total: { value: number; unit: string | null } | null }): string | null {
+		if (entry.numeric_total) {
+			const { value, unit } = entry.numeric_total;
+			return unit ? `${value} ${unit}` : `${value}`;
+		}
+		return null;
+	}
+
+	async function onBringSend(entry: { name: string; numeric_total: { value: number; unit: string | null } | null }) {
+		const key = entry.name;
+		bringStates[key] = { loading: true, error: null, success: false };
+		try {
+			await sendToBring(entry.name, bringSpec(entry));
+			bringStates[key] = { loading: false, error: null, success: true };
+		} catch (err) {
+			const msg = err instanceof Error ? err.message : String(err);
+			bringStates[key] = { loading: false, error: msg, success: false };
+		}
+	}
 </script>
 
 <main>
 
-	<!-- Year navigation -->
-	<div class="year-nav glass">
-		<button class="btn btn--ghost btn--icon" onclick={prevYear} aria-label={t('plannerYearPrev')}>
+	<!-- Month navigation -->
+	<div class="cal-nav glass">
+		<button class="btn btn--ghost btn--icon" onclick={prevMonth} aria-label={t('plannerMonthPrev')}>
 			<Icon name="chevron-left" size={20} />
 		</button>
-		<span class="year-nav__label">{year}</span>
-		<button class="btn btn--ghost btn--icon" onclick={nextYear} aria-label={t('plannerYearNext')}>
+		<span class="cal-nav__label">{formatDate(new Date(viewYear, viewMonth, 1), { month: 'long', year: 'numeric' })}</span>
+		<button class="btn btn--ghost btn--icon" onclick={nextMonth} aria-label={t('plannerMonthNext')}>
 			<Icon name="chevron-right" size={20} />
+		</button>
+		<button class="btn btn--ghost btn--icon" onclick={goToday} aria-label={t('plannerToday')}>
+			<Icon name="calendar" size={20} />
 		</button>
 	</div>
 
-	<!-- Week grid -->
-	<div class="week-grid">
-		{#each Array.from({ length: totalWeeks }, (_, i) => i + 1) as week}
-			{@const weekPlan = plans.find(p => p.week_number === week)}
-			{@const isCurrent = year === currentWeekInfo.year && week === currentWeekInfo.week}
-			{@const isPast = isPastWeek(year, week, currentWeekInfo)}
+	<!-- Month calendar -->
+	<div class="cal-grid">
+		<!-- Weekday headers -->
+		{#each weekdayDates as d}
+			<div class="cal-grid__dow" role="columnheader">
+				{formatDate(d, { weekday: 'short' }).replace(/\.$/, '')}
+			</div>
+		{/each}
+
+		<!-- 6 week rows -->
+		{#each weekRows as row}
+			{@const weekPlan = plans.find(p => p.year === row.week.year && p.week_number === row.week.week)}
+			{@const isCurrent = row.week.year === currentWeekInfo.year && row.week.week === currentWeekInfo.week}
+			{@const isPast = isPastWeek(row.week.year, row.week.week, currentWeekInfo)}
+			{@const isActive = selectedWeek === row.week.week && selectedWeekYear === row.week.year}
 			<button
 				class="week-cell"
 				class:week-cell--past={isPast}
 				class:week-cell--current={isCurrent}
-				class:week-cell--active={selectedWeek === week}
+				class:week-cell--active={isActive}
 				class:week-cell--has-plan={!!weekPlan}
-				onclick={() => { selectedWeek = week; mealCount = 3; }}
-				aria-label="Week {week}: {formatDateRange(week)}"
+				onclick={() => onWeekClick(row.week)}
+				aria-label={t('plannerWeekAria', { week: String(row.week.week), range: formatDateRange(row.week.year, row.week.week) })}
 			>
-				<span class="week-cell__num">{week}</span>
-				<span class="week-cell__dates">{formatDateRange(week)}</span>
+				{#each row.cells as cell}
+					<span
+						class="cal-day"
+						class:cal-day--out={!cell.inMonth}
+						class:cal-day--today={cellLocalDateStr(cell) === todayStr}
+					>
+						{cell.date.getUTCDate()}
+					</span>
+				{/each}
 				{#if weekPlan}
 					<span class="week-cell__badge" title={t('plannerHasPlan')}></span>
 				{/if}
@@ -255,6 +374,7 @@
 						<h3>{t('plannerIngredientSummary')}</h3>
 						<ul class="summary-list">
 							{#each selectedPlan.ingredient_summary as entry (entry.name)}
+								{@const bs = bringStates[entry.name] ?? { loading: false, error: null, success: false }}
 								<li class="summary-item">
 									<span class="summary-item__name">{entry.name}</span>
 									{#if entry.numeric_total}
@@ -266,7 +386,30 @@
 									{#each entry.non_numeric as qty}
 										<span class="summary-item__text">{qty}</span>
 									{/each}
+									<button
+										class="btn btn--icon bring-btn"
+										class:bring-btn--loading={bs.loading}
+										class:bring-btn--success={bs.success}
+										class:bring-btn--error={bs.error !== null}
+										onclick={() => onBringSend(entry)}
+										disabled={bs.loading || bs.success}
+										aria-label={bs.loading ? t('bringSending') : bs.success ? t('bringSent') : t('bringSend')}
+									>
+										{#if bs.loading}
+											<Icon name="loader-circle" size={14} />
+										{:else if bs.success}
+											<Icon name="check" size={14} />
+										{:else}
+											<Icon name="plus" size={14} />
+										{/if}
+									</button>
 								</li>
+								{#if bs.error}
+									<li class="bring-error" role="alert">
+										<Icon name="circle-alert" size={14} />
+										<span>{bs.error}</span>
+									</li>
+								{/if}
 							{/each}
 						</ul>
 					</div>
@@ -348,8 +491,8 @@
 </main>
 
 <style>
-
-	.year-nav {
+	/* ---- Calendar Navigation ---- */
+	.cal-nav {
 		display: flex;
 		align-items: center;
 		justify-content: center;
@@ -361,26 +504,40 @@
 		padding: var(--space-2) var(--space-4);
 		border-radius: var(--radius-md);
 	}
-	.year-nav__label {
+	.cal-nav__label {
 		font-size: var(--text-xl);
 		font-weight: var(--weight-semibold);
-		min-width: 5ch;
+		min-width: 16ch;
 		text-align: center;
 	}
 
-	.week-grid {
-		display: grid;
-		grid-template-columns: repeat(auto-fill, minmax(120px, 1fr));
-		gap: var(--space-2);
-		margin-bottom: var(--space-6);
-	}
-
-	.week-cell {
+	/* ---- Calendar Grid ---- */
+	.cal-grid {
 		display: flex;
 		flex-direction: column;
-		align-items: center;
 		gap: var(--space-1);
-		padding: var(--space-3) var(--space-2);
+		margin-bottom: var(--space-6);
+	}
+	.cal-grid__dow {
+		text-align: center;
+		font-size: var(--text-xs);
+		color: var(--color-text-muted);
+		padding: var(--space-1) 0;
+		text-transform: none;
+	}
+
+	/* Weekday header row — show as grid row inside flex column */
+	.cal-grid::before {
+		content: none;
+	}
+
+	/* ---- Week Row (the clickable .week-cell) ---- */
+	.week-cell {
+		display: grid;
+		grid-template-columns: repeat(7, 1fr);
+		gap: var(--space-1);
+		width: 100%;
+		padding: 0;
 		border: 1px solid var(--color-border);
 		border-radius: var(--radius-md);
 		background: var(--color-surface);
@@ -409,21 +566,26 @@
 	.week-cell--past {
 		opacity: 0.5;
 	}
-	.week-cell--past .week-cell__num,
-	.week-cell--past .week-cell__dates {
-		color: var(--color-text-muted);
-	}
 	.week-cell--past.week-cell--active {
 		opacity: 0.7;
 	}
-	.week-cell__num {
-		font-weight: var(--weight-bold);
-		font-size: var(--text-lg);
-	}
-	.week-cell__dates {
-		font-size: var(--text-xs);
+
+	/* ---- Day Chip ---- */
+	.cal-day {
+		padding: var(--space-2) var(--space-1);
+		text-align: center;
+		font-size: var(--text-sm);
 		color: var(--color-text-secondary);
 	}
+	.cal-day--out {
+		opacity: 0.4;
+	}
+	.cal-day--today {
+		font-weight: var(--weight-bold);
+		color: var(--color-primary);
+	}
+
+	/* ---- Plan Badge ---- */
 	.week-cell__badge {
 		position: absolute;
 		top: 6px;
@@ -434,6 +596,7 @@
 		background: var(--color-primary);
 	}
 
+	/* ---- Plan Detail Panel (unchanged) ---- */
 	.plan-detail {
 		border: 1px solid var(--glass-border);
 		border-radius: var(--radius-lg);
@@ -519,7 +682,7 @@
 		font-size: var(--text-sm);
 	}
 
-	/* Meal picker overlay */
+	/* Meal picker overlay (unchanged) */
 	.meal-picker-overlay {
 		position: fixed;
 		inset: 0;
@@ -585,5 +748,40 @@
 		display: flex;
 		align-items: center;
 		justify-content: center;
+	}
+
+	/* ---- Mobile ---- */
+	@media (max-width: 767px) {
+		.cal-day {
+			font-size: var(--text-xs);
+			padding: var(--space-1) var(--space-0-5);
+		}
+		.cal-nav__label {
+			min-width: 12ch;
+		}
+	}
+
+	/* ---- Bring! button ---- */
+	.bring-btn {
+		flex-shrink: 0;
+		margin-left: auto;
+	}
+	.bring-btn--loading {
+		opacity: 0.6;
+		cursor: wait;
+	}
+	.bring-btn--success {
+		color: var(--color-success, #22c55e);
+	}
+	.bring-btn--error {
+		color: var(--color-danger);
+	}
+	.bring-error {
+		display: flex;
+		align-items: center;
+		gap: var(--space-2);
+		padding: var(--space-1) var(--space-2);
+		color: var(--color-danger);
+		font-size: var(--text-sm);
 	}
 </style>

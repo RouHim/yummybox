@@ -1,7 +1,9 @@
+mod bring;
 mod data_dir;
 mod db;
 mod error;
 mod image;
+mod jsonld;
 mod llm_import;
 mod model;
 mod recipe;
@@ -84,6 +86,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             "/plans/{year}/{week}",
             put(routes::update_plan).delete(routes::delete_plan),
         )
+        .route("/bring/items", post(routes::add_bring_item))
         .layer(DefaultBodyLimit::max(50 * 1024 * 1024))
         .with_state(state);
 

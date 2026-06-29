@@ -255,3 +255,44 @@ describe('importFromPaste', () => {
 		expect(result).toEqual(draft);
 	});
 });
+
+// ---------------------------------------------------------------------------
+// Bring! shopping list API
+// ---------------------------------------------------------------------------
+
+import { sendToBring } from './api';
+
+describe('sendToBring', () => {
+	it('POSTs to /api/bring/items with name and spec', async () => {
+		mockResponse(200, { sent: true });
+
+		const result = await sendToBring('Tomatoes', '400 g');
+
+		expect(mockFetch).toHaveBeenCalledWith('/api/bring/items', {
+			method: 'POST',
+			headers: { 'Content-Type': 'application/json' },
+			body: JSON.stringify({ name: 'Tomatoes', spec: '400 g' }),
+		});
+		expect(result).toEqual({ sent: true });
+	});
+
+	it('POSTs with spec null when no quantity', async () => {
+		mockResponse(200, { sent: true });
+
+		await sendToBring('Tomatoes', null);
+
+		expect(mockFetch).toHaveBeenCalledWith('/api/bring/items', {
+			method: 'POST',
+			headers: { 'Content-Type': 'application/json' },
+			body: JSON.stringify({ name: 'Tomatoes', spec: null }),
+		});
+	});
+
+	it('throws with error message from server', async () => {
+		mockResponse(400, { error: 'Bring! credentials not configured: set BRING_EMAIL and BRING_PASSWORD' });
+
+		await expect(sendToBring('Tomatoes', null)).rejects.toThrow(
+			'Bring! credentials not configured'
+		);
+	});
+});

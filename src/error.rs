@@ -27,6 +27,15 @@ pub enum AppError {
 
     #[error("internal error: {0}")]
     Internal(String),
+
+    #[error("{0}")]
+    BringAuthFailed(String),
+
+    #[error("{0}")]
+    BringNetworkError(String),
+
+    #[error("no Bring! lists found in your account")]
+    BringNoLists,
 }
 
 impl IntoResponse for AppError {
@@ -39,6 +48,9 @@ impl IntoResponse for AppError {
             AppError::UnprocessableEntity(msg) => (StatusCode::UNPROCESSABLE_ENTITY, msg.clone()),
             AppError::Database(_err) => (StatusCode::INTERNAL_SERVER_ERROR, self.to_string()),
             AppError::Internal(msg) => (StatusCode::INTERNAL_SERVER_ERROR, msg.clone()),
+            AppError::BringAuthFailed(msg) => (StatusCode::UNAUTHORIZED, msg.clone()),
+            AppError::BringNetworkError(msg) => (StatusCode::BAD_GATEWAY, msg.clone()),
+            AppError::BringNoLists => (StatusCode::NOT_FOUND, self.to_string()),
         };
         (status, Json(json!({ "error": message }))).into_response()
     }
@@ -140,5 +152,39 @@ mod tests {
         let serde_err = serde_json::from_str::<serde_json::Value>("not json").unwrap_err();
         let app_err: AppError = serde_err.into();
         assert_response(app_err, StatusCode::BAD_REQUEST, "invalid JSON").await;
+    }
+
+    #[tokio::test]
+    async fn given_bring_auth_failed_when_into_response_then_returns_401() {
+        assert_response(
+            AppError::BringAuthFailed(
+                "Bring! login failed — check BRING_EMAIL and BRING_PASSWORD".into(),
+            ),
+            StatusCode::UNAUTHORIZED,
+            "Bring! login failed",
+        )
+        .await;
+    }
+
+    #[tokio::test]
+    async fn given_bring_network_error_when_into_response_then_returns_502() {
+        assert_response(
+            AppError::BringNetworkError(
+                "Could not reach Bring! — check your network connection".into(),
+            ),
+            StatusCode::BAD_GATEWAY,
+            "Could not reach Bring!",
+        )
+        .await;
+    }
+
+    #[tokio::test]
+    async fn given_bring_no_lists_when_into_response_then_returns_404() {
+        assert_response(
+            AppError::BringNoLists,
+            StatusCode::NOT_FOUND,
+            "no Bring! lists found",
+        )
+        .await;
     }
 }

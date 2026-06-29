@@ -1,5 +1,5 @@
 <script lang="ts">
-	type IconName = 'search' | 'empty-meals' | 'circle-alert' | 'calendar' | 'chevron-left' | 'chevron-right' | 'plus' | 'trash-2' | 'x' | 'check' | 'pen-line' | 'utensils' | 'sun' | 'moon' | 'monitor' | 'soup';
+	type IconName = 'search' | 'empty-meals' | 'circle-alert' | 'calendar' | 'chevron-left' | 'chevron-right' | 'plus' | 'trash-2' | 'x' | 'check' | 'pen-line' | 'utensils' | 'sun' | 'moon' | 'monitor' | 'soup' | 'loader-circle';
 	let { name, class: className = '', size = 24 }: { name: IconName; class?: string; size?: number } = $props();
 </script>
 
@@ -104,10 +104,21 @@
 		<path d="M11.25 3c.27.1.8.53.74 1.36-.05.83-.93 1.2-.98 2.02-.06.78.33 1.24.72 1.62" />
 		<path d="M6.25 3c.27.1.8.53.75 1.36-.06.83-.93 1.2-1 2.02-.05.78.34 1.24.74 1.62" />
 	</svg>
+{:else if name === 'loader-circle'}
+	<svg xmlns="http://www.w3.org/2000/svg" width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class={`${className} icon-spin`} aria-hidden="true">
+		<path d="M21 12a9 9 0 1 1-6.219-8.56" />
+	</svg>
 {/if}
 
 <style>
 	svg {
 		vertical-align: middle;
+	}
+	.icon-spin {
+		animation: icon-spin 1s linear infinite;
+	}
+	@keyframes icon-spin {
+		from { transform: rotate(0deg); }
+		to { transform: rotate(360deg); }
 	}
 </style>

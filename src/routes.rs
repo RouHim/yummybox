@@ -3,34 +3,82 @@ use std::sync::Arc;
 
 use axum::Json;
 use axum::extract::{Multipart, Path, Query, State};
-use axum::http::{StatusCode, header};
+use axum::http::{HeaderMap, HeaderValue, StatusCode, header};
 use axum::response::{IntoResponse, Response};
 use tracing::instrument;
 
+use crate::bring;
 use crate::db;
 use crate::error::AppError;
 use crate::image;
+use crate::jsonld;
 use crate::model::{Meal, MealPatch, NewMeal, NewPlanRequest, Plan, PlanPatch, PlanSummaryItem};
 use crate::recipe;
 use crate::state::AppState;
+
+/// Returns `true` when the request's `Accept` header contains
+/// `application/ld+json` (simple substring match — no q-value parsing).
+fn wants_jsonld(headers: &HeaderMap) -> bool {
+    headers
+        .get(header::ACCEPT)
+        .and_then(|v| v.to_str().ok())
+        .map(|s| s.contains("application/ld+json"))
+        .unwrap_or(false)
+}
+
+/// Derive a base URL from the `Host` header, defaulting the scheme to `http`.
+fn base_url(headers: &HeaderMap) -> Option<String> {
+    headers
+        .get(header::HOST)
+        .and_then(|v| v.to_str().ok())
+        .map(|h| format!("http://{h}"))
+}
+
+/// Build an `application/ld+json` response with the correct Content-Type header.
+fn jsonld_response(value: serde_json::Value) -> Response {
+    let mut resp = Json(value).into_response();
+    resp.headers_mut().insert(
+        header::CONTENT_TYPE,
+        HeaderValue::from_static("application/ld+json"),
+    );
+    resp
+}
 
 #[instrument(skip(state))]
 pub async fn list_meals(
     State(state): State<Arc<AppState>>,
     Query(params): Query<HashMap<String, String>>,
-) -> Result<Json<Vec<Meal>>, AppError> {
+    headers: HeaderMap,
+) -> Result<Response, AppError> {
     let search = params.get("search").map(String::as_str);
     let meals = db::list_meals(&state.pool, search).await?;
-    Ok(Json(meals))
+    if wants_jsonld(&headers) {
+        let base = base_url(&headers);
+        Ok(jsonld_response(jsonld::meals_to_graph(
+            &meals,
+            base.as_deref(),
+        )))
+    } else {
+        Ok(Json(meals).into_response())
+    }
 }
 
 #[instrument(skip(state))]
 pub async fn get_meal(
     State(state): State<Arc<AppState>>,
     Path(id): Path<i64>,
-) -> Result<Json<Meal>, AppError> {
+    headers: HeaderMap,
+) -> Result<Response, AppError> {
     let meal = db::find_meal(&state.pool, id).await?;
-    Ok(Json(meal))
+    if wants_jsonld(&headers) {
+        let base = base_url(&headers);
+        Ok(jsonld_response(jsonld::meal_to_recipe(
+            &meal,
+            base.as_deref(),
+        )))
+    } else {
+        Ok(Json(meal).into_response())
+    }
 }
 
 #[instrument(skip(state))]
@@ -410,6 +458,26 @@ pub async fn delete_plan(
     Ok(StatusCode::NO_CONTENT)
 }
 
+// ---------------------------------------------------------------------------
+// Bring! shopping list handler
+// ---------------------------------------------------------------------------
+
+#[derive(Debug, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct BringItemRequest {
+    pub name: String,
+    pub spec: Option<String>,
+}
+
+#[instrument(skip(_state))]
+pub async fn add_bring_item(
+    State(_state): State<Arc<AppState>>,
+    Json(req): Json<BringItemRequest>,
+) -> Result<Json<serde_json::Value>, AppError> {
+    bring::push_item_to_bring(&req.name, req.spec.as_deref()).await?;
+    Ok(Json(serde_json::json!({"sent": true})))
+}
+
 // ===========================================================================
 // Tests
 // ===========================================================================
@@ -423,7 +491,7 @@ mod tests {
     use ::image::RgbaImage;
     use axum::Router;
     use axum::body::to_bytes;
-    use axum::http::{Method, Request, StatusCode};
+    use axum::http::{Method, Request, StatusCode, header};
     use axum::routing::{get, post, put};
     use serde_json::json;
 
@@ -453,6 +521,7 @@ mod tests {
             .route("/import/llm", post(import_from_llm))
             .route("/plans", get(get_plans).post(create_plan))
             .route("/plans/{year}/{week}", put(update_plan).delete(delete_plan))
+            .route("/bring/items", post(add_bring_item))
             .layer(axum::extract::DefaultBodyLimit::max(50 * 1024 * 1024))
             .with_state(state);
         TestCtx { app, _dir: dir }
@@ -1284,6 +1353,12 @@ mod tests {
 </script>
 </head><body></body></html>"#;
 
+    const PASTE_HTML_WITH_HTML_INSTRUCTIONS: &str = r#"<html><head>
+<script type="application/ld+json">
+{"@context":"https://schema.org","@type":"Recipe","name":"HTML Recipe","description":"A recipe with HTML instructions","recipeIngredient":["3 eggs","flour"],"recipeInstructions":[{"@type":"HowToStep","text":"<p dir=ltr>Step 1: crack eggs</p>"},{"@type":"HowToStep","text":"<p dir=ltr>Step 2: mix with flour</p>"}]}
+</script>
+</head><body></body></html>"#;
+
     #[tokio::test]
     async fn given_valid_paste_content_when_import_from_paste_then_returns_draft() {
         let ctx = setup().await;
@@ -1307,6 +1382,36 @@ mod tests {
         assert_eq!(draft["name"], "Test Recipe");
         assert_eq!(draft["ingredients"].as_array().unwrap().len(), 2);
         assert!(draft["instructions"].as_str().unwrap().contains("Mix"));
+        assert!(draft["imageBase64"].is_null());
+    }
+
+    #[tokio::test]
+    async fn given_paste_with_html_instructions_when_import_from_paste_then_sanitized() {
+        let ctx = setup().await;
+        let response = ctx
+            .app
+            .oneshot(
+                Request::builder()
+                    .method(Method::POST)
+                    .uri("/import/paste")
+                    .header("content-type", "application/json")
+                    .body(axum::body::Body::from(
+                        serde_json::to_vec(&json!({"content": PASTE_HTML_WITH_HTML_INSTRUCTIONS}))
+                            .unwrap(),
+                    ))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+        let body = to_bytes(response.into_body(), 65536).await.unwrap();
+        let draft: serde_json::Value = serde_json::from_slice(&body).unwrap();
+        assert_eq!(draft["name"], "HTML Recipe");
+        // dir attribute must be stripped; only whitelisted <p> tag survives
+        assert_eq!(
+            draft["instructions"].as_str().unwrap(),
+            "<p>Step 1: crack eggs</p>\n<p>Step 2: mix with flour</p>"
+        );
         assert!(draft["imageBase64"].is_null());
     }
 
@@ -1531,6 +1636,360 @@ mod tests {
                 .as_str()
                 .unwrap()
                 .contains("image exceeds 20 MB limit")
+        );
+    }
+
+    // -----------------------------------------------------------------------
+    // JSON-LD content-negotiation tests
+    // -----------------------------------------------------------------------
+
+    #[tokio::test]
+    async fn given_meal_when_get_meal_with_jsonld_accept_then_returns_recipe_jsonld() {
+        let ctx = setup().await;
+        let meal = create_meal_helper(
+            &ctx,
+            "Pancakes",
+            &[("flour", Some("2 cups")), ("egg", Some("1"))],
+            "Mix and fry.",
+        )
+        .await;
+
+        let response = ctx
+            .app
+            .oneshot(
+                Request::builder()
+                    .method(Method::GET)
+                    .uri(format!("/meals/{}", meal.id))
+                    .header(header::ACCEPT, "application/ld+json")
+                    .header(header::HOST, "127.0.0.1:11341")
+                    .body(axum::body::Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(response.status(), StatusCode::OK);
+        let ct = response
+            .headers()
+            .get(header::CONTENT_TYPE)
+            .unwrap()
+            .to_str()
+            .unwrap();
+        assert_eq!(ct, "application/ld+json");
+
+        let body = to_bytes(response.into_body(), 4096).await.unwrap();
+        let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
+        assert_eq!(json["@context"], "https://schema.org");
+        assert_eq!(json["@type"], "Recipe");
+        assert_eq!(json["name"], "Pancakes");
+        let ings = json["recipeIngredient"].as_array().unwrap();
+        assert_eq!(ings.len(), 2);
+        assert!(
+            ings.iter().any(|v| v == "2 cups flour"),
+            "expected '2 cups flour' in ingredients"
+        );
+        assert!(
+            ings.iter().any(|v| v == "1 egg"),
+            "expected '1 egg' in ingredients"
+        );
+        assert_eq!(json["recipeInstructions"], "Mix and fry.");
+        assert!(json["datePublished"].as_str().unwrap().contains("T"));
+        assert!(json["dateModified"].as_str().unwrap().contains("T"));
+        assert!(!json.as_object().unwrap().contains_key("image"));
+    }
+
+    #[tokio::test]
+    async fn given_meal_with_image_when_get_meal_jsonld_then_image_is_absolute_url() {
+        let ctx = setup().await;
+        // Create a meal with an image
+        let png = build_test_png(10, 10);
+        let ings = make_ingredient_lines(&[("salt", None)]);
+        let ingredients_json = serde_json::to_string(&ings).unwrap();
+        let (body, content_type) = build_multipart_body(
+            "Photo Meal",
+            &ingredients_json,
+            "test instructions",
+            Some(&png),
+        );
+        let create_resp = ctx
+            .app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method(Method::POST)
+                    .uri("/meals")
+                    .header("content-type", &content_type)
+                    .body(axum::body::Body::from(body))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(create_resp.status(), StatusCode::CREATED);
+        let meal: Meal =
+            serde_json::from_slice(&to_bytes(create_resp.into_body(), 4096).await.unwrap())
+                .unwrap();
+        assert!(meal.has_image);
+
+        let response = ctx
+            .app
+            .oneshot(
+                Request::builder()
+                    .method(Method::GET)
+                    .uri(format!("/meals/{}", meal.id))
+                    .header(header::ACCEPT, "application/ld+json")
+                    .header(header::HOST, "127.0.0.1:11341")
+                    .body(axum::body::Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+        let body = to_bytes(response.into_body(), 4096).await.unwrap();
+        let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
+        assert_eq!(
+            json["image"],
+            format!("http://127.0.0.1:11341/api/meals/{}/image", meal.id)
+        );
+    }
+
+    #[tokio::test]
+    async fn given_meal_without_image_when_get_meal_jsonld_then_no_image_field() {
+        let ctx = setup().await;
+        let meal = create_meal_helper(&ctx, "Plain", &[("x", None)], "test").await;
+        assert!(!meal.has_image);
+
+        let response = ctx
+            .app
+            .oneshot(
+                Request::builder()
+                    .method(Method::GET)
+                    .uri(format!("/meals/{}", meal.id))
+                    .header(header::ACCEPT, "application/ld+json")
+                    .header(header::HOST, "127.0.0.1:11341")
+                    .body(axum::body::Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+        let body = to_bytes(response.into_body(), 4096).await.unwrap();
+        let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
+        assert!(
+            !json.as_object().unwrap().contains_key("image"),
+            "image field should be absent for meals without an image"
+        );
+    }
+
+    #[tokio::test]
+    async fn given_missing_meal_when_get_meal_jsonld_then_404_json_error() {
+        let ctx = setup().await;
+        let response = ctx
+            .app
+            .oneshot(
+                Request::builder()
+                    .method(Method::GET)
+                    .uri("/meals/99999")
+                    .header(header::ACCEPT, "application/ld+json")
+                    .header(header::HOST, "127.0.0.1:11341")
+                    .body(axum::body::Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::NOT_FOUND);
+        let ct = response
+            .headers()
+            .get(header::CONTENT_TYPE)
+            .unwrap()
+            .to_str()
+            .unwrap();
+        assert!(
+            ct.contains("application/json"),
+            "404 errors should return application/json, got {ct}"
+        );
+        let body = to_bytes(response.into_body(), 4096).await.unwrap();
+        let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
+        assert_eq!(json["error"], "not found");
+    }
+
+    #[tokio::test]
+    async fn given_meals_when_get_meals_jsonld_then_returns_graph_array() {
+        let ctx = setup().await;
+        create_meal_helper(&ctx, "A", &[("a", None)], "test").await;
+        create_meal_helper(&ctx, "B", &[("b", None)], "test").await;
+        create_meal_helper(&ctx, "C", &[("c", None)], "test").await;
+
+        let response = ctx
+            .app
+            .oneshot(
+                Request::builder()
+                    .method(Method::GET)
+                    .uri("/meals")
+                    .header(header::ACCEPT, "application/ld+json")
+                    .header(header::HOST, "127.0.0.1:11341")
+                    .body(axum::body::Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+        let body = to_bytes(response.into_body(), 4096).await.unwrap();
+        let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
+        assert_eq!(json["@context"], "https://schema.org");
+        let graph = json["@graph"].as_array().unwrap();
+        assert_eq!(graph.len(), 3);
+        for node in graph {
+            assert_eq!(node["@type"], "Recipe");
+            assert!(node.as_object().unwrap().contains_key("@context"));
+        }
+    }
+
+    #[tokio::test]
+    async fn given_no_meals_when_get_meals_jsonld_then_empty_graph() {
+        let ctx = setup().await;
+        let response = ctx
+            .app
+            .oneshot(
+                Request::builder()
+                    .method(Method::GET)
+                    .uri("/meals")
+                    .header(header::ACCEPT, "application/ld+json")
+                    .header(header::HOST, "127.0.0.1:11341")
+                    .body(axum::body::Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+        let body = to_bytes(response.into_body(), 4096).await.unwrap();
+        let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
+        assert_eq!(json["@context"], "https://schema.org");
+        let graph = json["@graph"].as_array().unwrap();
+        assert!(graph.is_empty());
+    }
+
+    #[tokio::test]
+    async fn given_meal_when_get_meal_without_jsonld_accept_then_plain_json_unchanged() {
+        let ctx = setup().await;
+        let meal =
+            create_meal_helper(&ctx, "Pasta", &[("noodles", Some("200 g"))], "Boil water.").await;
+
+        let response = ctx
+            .app
+            .oneshot(
+                Request::builder()
+                    .method(Method::GET)
+                    .uri(format!("/meals/{}", meal.id))
+                    .body(axum::body::Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+        let ct = response
+            .headers()
+            .get(header::CONTENT_TYPE)
+            .unwrap()
+            .to_str()
+            .unwrap();
+        assert!(ct.contains("application/json"));
+
+        let body = to_bytes(response.into_body(), 4096).await.unwrap();
+        let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
+        // Default JSON shape: ingredients is [{name, quantity}], has "id"
+        assert!(json["id"].is_number());
+        assert_eq!(json["name"], "Pasta");
+        let ings = json["ingredients"].as_array().unwrap();
+        assert_eq!(ings.len(), 1);
+        assert_eq!(ings[0]["name"], "noodles");
+        assert_eq!(ings[0]["quantity"], "200 g");
+    }
+
+    #[tokio::test]
+    async fn given_missing_host_when_get_meal_jsonld_then_image_omitted() {
+        let ctx = setup().await;
+        // Create a meal with an image
+        let png = build_test_png(10, 10);
+        let ings = make_ingredient_lines(&[("salt", None)]);
+        let ingredients_json = serde_json::to_string(&ings).unwrap();
+        let (body, content_type) =
+            build_multipart_body("Hostless", &ingredients_json, "test", Some(&png));
+        let create_resp = ctx
+            .app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method(Method::POST)
+                    .uri("/meals")
+                    .header("content-type", &content_type)
+                    .body(axum::body::Body::from(body))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(create_resp.status(), StatusCode::CREATED);
+        let meal: Meal =
+            serde_json::from_slice(&to_bytes(create_resp.into_body(), 4096).await.unwrap())
+                .unwrap();
+        assert!(meal.has_image);
+
+        // Request with Accept: application/ld+json but NO Host header
+        let response = ctx
+            .app
+            .oneshot(
+                Request::builder()
+                    .method(Method::GET)
+                    .uri(format!("/meals/{}", meal.id))
+                    .header(header::ACCEPT, "application/ld+json")
+                    // deliberately omit Host header
+                    .body(axum::body::Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+        let body = to_bytes(response.into_body(), 4096).await.unwrap();
+        let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
+        assert!(
+            !json.as_object().unwrap().contains_key("image"),
+            "image should be omitted when Host header is missing"
+        );
+    }
+
+    // Bring! integration tests
+
+    #[tokio::test]
+    async fn given_missing_bring_credentials_when_send_then_returns_400() {
+        // Ensure env vars are unset during test
+        unsafe { std::env::remove_var("BRING_EMAIL") };
+        unsafe { std::env::remove_var("BRING_PASSWORD") };
+
+        let ctx = setup().await;
+        let response = ctx
+            .app
+            .oneshot(
+                Request::builder()
+                    .method(Method::POST)
+                    .uri("/bring/items")
+                    .header("Content-Type", "application/json")
+                    .body(axum::body::Body::from(
+                        serde_json::to_string(&json!({"name": "Tomatoes", "spec": "400 g"}))
+                            .unwrap(),
+                    ))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+        let body = to_bytes(response.into_body(), 4096).await.unwrap();
+        let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
+        assert!(
+            json["error"]
+                .as_str()
+                .unwrap()
+                .contains("BRING_EMAIL and BRING_PASSWORD"),
+            "expected credential error, got: {json}"
         );
     }
 }

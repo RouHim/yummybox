@@ -143,3 +143,17 @@ export async function importFromLlm(
 	if (image) form.set('image', image);
 	return request<ImportDraft>('/api/import/llm', { method: 'POST', body: form });
 }
+
+// Bring! shopping list API
+
+export interface BringItemResponse {
+	sent: boolean;
+}
+
+export async function sendToBring(name: string, spec: string | null): Promise<BringItemResponse> {
+	return request<BringItemResponse>('/api/bring/items', {
+		method: 'POST',
+		headers: { 'Content-Type': 'application/json' },
+		body: JSON.stringify({ name, spec }),
+	});
+}

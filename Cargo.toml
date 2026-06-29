@@ -7,11 +7,12 @@ license = "MIT"
 build = "build.rs"
 
 [dependencies]
+ammonia = "4"
 axum = { version = "0.8", default-features = false, features = ["json", "query", "macros", "tokio", "http1", "multipart"] }
 chrono = { version = "0.4", default-features = false, features = ["serde", "clock"] }
 image = { version = "0.25", default-features = false, features = ["jpeg", "png", "gif", "bmp", "webp"] }
 recipe-scraper = "0.1"
-reqwest = { version = "0.13", default-features = false, features = ["rustls", "webpki-roots", "json"] }
+reqwest = { version = "0.13", default-features = false, features = ["rustls", "webpki-roots", "json", "form"] }
 scraper = "0.27"
 genai = "0.6"
 base64 = "0.22"
