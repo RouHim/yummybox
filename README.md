@@ -109,6 +109,28 @@ Example:
 OPENAI_API_KEY=sk-... ./mealme
 ```
 
+### Bring! shopping list
+
+Send ingredients from your weekly plan directly to your [Bring!](https://getbring.com) shopping list. Each ingredient gets a one-click "Send to Bring!" button next to it in the planner's ingredient summary.
+
+If you signed up with Google, Apple, or Facebook, you need to set a password first — the Bring! API doesn't support social login tokens:
+
+- **Mobile**: open the Bring! app → Profile → More settings → Change password
+- **Web**: visit [getbring.com](https://web.getbring.com) → Settings → Reset password
+
+You can still log in with Google/Apple/Facebook afterward — the password is an additional credential.
+
+| Variable | What it does |
+|----------|--------------|
+| `BRING_EMAIL` | Your Bring! account email address |
+| `BRING_PASSWORD` | Your Bring! account password |
+
+Example:
+
+```bash
+BRING_EMAIL=you@example.com BRING_PASSWORD=your-password ./mealme
+```
+
 ## Contributing
 
 Bug reports and pull requests are welcome. See [CONTRIBUTING.md](CONTRIBUTING.md) for development setup and guidelines.
