@@ -1,3 +1,22 @@
+# [1.4.0](https://github.com/RouHim/mealme/compare/v1.3.2...v1.4.0) (2026-07-01)
+
+
+### Bug Fixes
+
+* Bring! API save-item uses correct JSON endpoint and user UUID header ([b98aa3e](https://github.com/RouHim/mealme/commit/b98aa3ea63e0d626b62b39a3ac81f37262781988))
+* pin clock in planner past-week test to avoid date-dependent failure ([5356d20](https://github.com/RouHim/mealme/commit/5356d204344150fbb4b1c7af3a21fe455989ed19))
+* preserve ingredient name casing on import and manual entry ([3bade2f](https://github.com/RouHim/mealme/commit/3bade2f71c9eec75d9c8e2cc4103862d6d5268b5))
+
+
+### Features
+
+* Bring! shopping list integration ([52436ff](https://github.com/RouHim/mealme/commit/52436ff66abfda08080ae5b9cef3e1b5e45eb4ec))
+* bulk URL recipe import ([183616b](https://github.com/RouHim/mealme/commit/183616be67e6f9e609246350c256d87b7dadf3f2))
+* cooking view, JSON-LD export, planner redesign, HTML sanitization ([1fd2002](https://github.com/RouHim/mealme/commit/1fd20022162fc0d0ef0974400fae9deda00369ee))
+* extract image URLs from HTML for LLM import bare-URL hints ([6deca6c](https://github.com/RouHim/mealme/commit/6deca6c61d1cccb524087ad72fc59836c33be6de))
+* LLM recipe import from URLs + UI polish ([2872911](https://github.com/RouHim/mealme/commit/2872911c91b9fd32e7d0e600b57761fa540bc1a1))
+* remember latest LLM config via localStorage, polish import form contrast ([78fd1fb](https://github.com/RouHim/mealme/commit/78fd1fb1ad72ad9866292f1dfb8361cd57d97a64))
+
 ## [1.3.2](https://github.com/RouHim/mealme/compare/v1.3.1...v1.3.2) (2026-06-28)
 
 
