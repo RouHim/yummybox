@@ -25,6 +25,9 @@ test.describe('planner', () => {
 	});
 
 	test('given_past_weeks_in_current_year_when_planner_loads_then_past_cells_have_muted_class', async ({ page }) => {
+		// Pin clock to mid-March to guarantee past weeks exist in the month grid
+		await page.clock.setFixedTime(new Date('2026-03-15T12:00:00Z'));
+
 		await page.goto('/planner');
 
 		// Wait for the week grid to render
