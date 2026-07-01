@@ -65,8 +65,8 @@
 	--ambient-image: url('/ambient-light.jpg');
 
 	/* Glass surfaces — warm tint */
-	--glass-bg: rgba(255, 250, 244, 0.55);
-	--glass-bg-strong: rgba(255, 250, 244, 0.72);
+	--glass-bg: rgba(255, 250, 244, 0.82);
+	--glass-bg-strong: rgba(255, 250, 244, 0.92);
 	--glass-border: rgba(255, 250, 244, 0.6);
 	--glass-border-inner: rgba(255, 250, 244, 0.9);
 	--glass-blur: 16px;
@@ -793,4 +793,108 @@ button {
 .site-footer a:hover {
 	color: var(--color-primary-hover);
 	text-decoration-color: var(--color-primary-hover);
+}
+
+/* Cooking view (meal detail) */
+.cooking-view {
+	max-width: 48rem;
+	margin: 0 auto;
+	display: flex;
+	flex-direction: column;
+	gap: var(--space-6);
+	background: var(--color-surface);
+	border: 1px solid var(--color-border);
+	border-radius: var(--radius-lg);
+	padding: var(--space-6);
+}
+
+.cooking-view__back {
+	position: sticky;
+	top: calc(var(--app-bar-h) + var(--space-3));
+	z-index: 10;
+	align-self: flex-start;
+}
+
+.cooking-view__hero {
+	margin: 0;
+}
+
+.cooking-view__hero-img {
+	width: 100%;
+	aspect-ratio: 16 / 9;
+	object-fit: cover;
+	border-radius: var(--radius-lg);
+	display: block;
+}
+
+.cooking-view__header {
+	display: flex;
+	flex-direction: column;
+	gap: var(--space-3);
+}
+
+.cooking-view__name {
+	font-family: var(--font-display);
+	font-size: var(--text-3xl);
+	font-weight: var(--weight-semibold);
+	margin: 0;
+	line-height: 1.15;
+	color: var(--color-text);
+}
+
+.cooking-view__meta {
+	display: flex;
+	align-items: center;
+	gap: var(--space-2);
+	margin: 0;
+	font-size: var(--text-sm);
+	color: var(--color-text-secondary);
+}
+
+.cooking-view__meta-sep {
+	color: var(--color-text-muted);
+}
+
+.cooking-view__actions {
+	display: flex;
+	gap: var(--space-2);
+	flex-wrap: wrap;
+}
+
+.cooking-view__body {
+	display: grid;
+	grid-template-columns: 1fr;
+	gap: var(--space-8);
+}
+
+@media (min-width: 768px) {
+	.cooking-view__body {
+		grid-template-columns: minmax(0, 0.9fr) minmax(0, 1.1fr);
+		align-items: start;
+	}
+}
+
+.cooking-view__section-title {
+	font-family: var(--font-display);
+	font-size: var(--text-lg);
+	font-weight: var(--weight-semibold);
+	text-transform: none;
+	margin: 0 0 var(--space-4);
+	color: var(--color-text);
+}
+
+.cooking-view__ingredients,
+.cooking-view__instructions {
+	min-width: 0;
+}
+
+.cooking-view__loading {
+	color: var(--color-text-secondary);
+	font-style: italic;
+}
+
+.cooking-view__not-found {
+	color: var(--color-text-secondary);
+	font-size: var(--text-lg);
+	margin-bottom: var(--space-4);
 }

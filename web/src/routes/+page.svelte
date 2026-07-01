@@ -2,6 +2,8 @@
 	import { getPlan, mealImageUrl } from '$lib/api';
 	import { weekOfDate, mondaySundayOf } from '$lib/week';
 	import { t } from '$lib/i18n';
+	import { fly, scale } from 'svelte/transition';
+	import { tierDuration, staggerDuration } from '$lib/motion';
 	import { goto } from '$app/navigation';
 	import type { Plan } from '$lib/types';
 	import Icon from '$lib/Icon.svelte';
@@ -41,7 +43,7 @@
 
 <main>
 	{#if loading}
-		<p class="current-week__loading">Loading...</p>
+		<p class="week-meals__loading">Loading...</p>
 	{:else if loadError}
 		<p class="form-error" role="alert">
 			<Icon name="circle-alert" size={18} />
@@ -49,28 +51,42 @@
 		</p>
 		<button class="btn btn--ghost" onclick={loadCurrentWeek}>{t('buttonRetry')}</button>
 	{:else if plan}
+		<header class="week-header">
+			<h1 class="week-header__title">{t('currentWeekMeals')}</h1>
+			<p class="week-header__range">{formatDateRange()}</p>
+		</header>
 
-		<section class="current-week-meals">
-			<h2>{t('currentWeekMeals')}</h2>
+		<section class="week-meals">
 			{#if plan.meals.length === 0}
-				<p class="current-week__empty-msg">{t('currentWeekNoMeals')}</p>
+				<div class="week-empty">
+					<Icon name="empty-meals" size={48} />
+					<p class="week-empty__msg">{t('currentWeekNoMeals')}</p>
+					<a href="/planner?focus=current" class="btn btn--ghost">
+						<Icon name="calendar" size={16} /> {t('currentWeekPlannerLink')}
+					</a>
+				</div>
 			{:else}
-				<ul class="current-week-meal-list">
-					{#each plan.meals as meal (meal.id)}
-						<li class="current-week-meal">
-							<a href="/meals/{meal.id}" class="current-week-meal__link">
-								{#if meal.has_image}
-									<img
-										src={mealImageUrl(meal.id)}
-										alt={meal.name}
-										class="current-week-meal__img"
-									/>
-								{/if}
-								<div class="current-week-meal__info">
-									<strong class="current-week-meal__name">{meal.name}</strong>
-									<span class="current-week-meal__ings">
+				<ul class="week-meal-list">
+					{#each plan.meals as meal, i (meal.id)}
+						<li
+							in:fly={{ y: 12, duration: tierDuration(250), delay: staggerDuration(i) }}
+							out:scale={{ duration: tierDuration(200), start: 0.95 }}
+						>
+							<a href="/meals/{meal.id}" class="week-meal-card" aria-label={t('mealCardCookAria', { name: meal.name })}>
+								<div class="week-meal-card__media">
+									{#if meal.has_image}
+										<img src={mealImageUrl(meal.id)} alt={meal.name} class="week-meal-card__img" />
+									{:else}
+										<div class="week-meal-card__placeholder" aria-hidden="true">
+											<Icon name="utensils" size={48} />
+										</div>
+									{/if}
+								</div>
+								<div class="week-meal-card__body">
+									<h2 class="week-meal-card__name">{meal.name}</h2>
+									<p class="week-meal-card__ings">
 										{meal.ingredients.map(i => i.quantity ? `${i.name} (${i.quantity})` : i.name).join(', ')}
-									</span>
+									</p>
 								</div>
 							</a>
 						</li>
@@ -80,20 +96,20 @@
 		</section>
 
 		{#if plan.ingredient_summary.length > 0}
-			<section class="current-week-summary">
+			<section class="week-summary glass">
 				<h2>{t('currentWeekIngredientSummary')}</h2>
-				<ul class="summary-list">
+				<ul class="week-summary-grid">
 					{#each plan.ingredient_summary as entry (entry.name)}
-						<li class="summary-item">
-							<span class="summary-item__name">{entry.name}</span>
+						<li class="week-summary-item">
+							<span class="week-summary-item__name">{entry.name}</span>
 							{#if entry.numeric_total}
-								<span class="summary-item__num">
+								<span class="week-summary-item__num">
 									{entry.numeric_total.value}
 									{#if entry.numeric_total.unit} {entry.numeric_total.unit}{/if}
 								</span>
 							{/if}
 							{#each entry.non_numeric as qty}
-								<span class="summary-item__text">{qty}</span>
+								<span class="week-summary-item__text">{qty}</span>
 							{/each}
 						</li>
 					{/each}
@@ -106,119 +122,145 @@
 
 <style>
 
-	.current-week__loading {
-		color: var(--color-text-secondary);
-		font-style: italic;
+	.week-header {
+		margin-bottom: var(--space-6);
+		background: var(--color-surface);
+		border: 1px solid var(--color-border);
+		border-radius: var(--radius-lg);
+		padding: var(--space-4) var(--space-5);
 	}
-
-	.current-week__empty-msg {
+	.week-header__title {
+		font-family: var(--font-display);
+		font-size: var(--text-2xl);
+		font-weight: var(--weight-semibold);
+		margin: 0 0 var(--space-1) 0;
+		line-height: 1.15;
+	}
+	.week-header__range {
+		font-size: var(--text-sm);
 		color: var(--color-text-secondary);
-		font-style: italic;
 		margin: 0;
 	}
 
-	.current-week-meals {
-		margin-bottom: var(--space-6);
-	}
-	.current-week-meals h2 {
-		margin-bottom: var(--space-3);
+	.week-meals__loading {
+		color: var(--color-text-secondary);
+		font-style: italic;
 	}
 
-	.current-week-meal-list {
+	.week-meal-list {
 		list-style: none;
 		padding: 0;
 		margin: 0;
 		display: flex;
 		flex-direction: column;
-		gap: var(--space-2);
+		gap: var(--space-5);
 	}
-
-	.current-week-meal {
+	.week-meal-card {
+		display: block;
+		background: var(--color-surface);
 		border: 1px solid var(--color-border);
-		border-radius: var(--radius-md);
+		border-radius: var(--radius-lg);
 		overflow: hidden;
-	}
-	.current-week-meal:hover {
-		box-shadow: var(--shadow-md);
-	}
-
-	.current-week-meal__link {
-		display: flex;
-		gap: var(--space-3);
 		text-decoration: none;
 		color: inherit;
-		padding: var(--space-3);
-		align-items: center;
+		transition: box-shadow var(--transition-base), border-color var(--transition-base);
 	}
-	.current-week-meal__link:hover {
+	.week-meal-card:hover {
+		box-shadow: var(--shadow-md);
+		border-color: var(--color-border-strong);
+	}
+	.week-meal-card__media {
+		aspect-ratio: 16 / 9;
 		background: var(--color-surface-2);
 	}
-
-	.current-week-meal__img {
-		width: 56px;
-		height: 56px;
-		border-radius: var(--radius-sm);
+	.week-meal-card__img {
+		width: 100%;
+		height: 100%;
 		object-fit: cover;
-		flex-shrink: 0;
+		display: block;
+	}
+	.week-meal-card__placeholder {
+		width: 100%;
+		height: 100%;
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		color: var(--color-text-muted);
+	}
+	.week-meal-card__body {
+		padding: var(--space-4);
+	}
+	.week-meal-card__name {
+		font-family: var(--font-display);
+		font-size: var(--text-xl);
+		font-weight: var(--weight-semibold);
+		margin: 0 0 var(--space-1) 0;
+		line-height: 1.2;
+	}
+	.week-meal-card__ings {
+		font-size: var(--text-sm);
+		color: var(--color-text-secondary);
+		margin: 0;
+		line-height: 1.5;
+		display: -webkit-box;
+		-webkit-line-clamp: 2;
+		line-clamp: 2;
+		-webkit-box-orient: vertical;
+		overflow: hidden;
 	}
 
-	.current-week-meal__info {
+	.week-empty {
+		display: flex;
+		flex-direction: column;
+		align-items: center;
+		gap: var(--space-3);
+		padding: var(--space-8) var(--space-4);
+		text-align: center;
+		color: var(--color-text-muted);
+	}
+	.week-empty__msg {
+		margin: 0;
+		color: var(--color-text-secondary);
+	}
+
+	.week-summary {
+		border: 1px solid var(--glass-border);
+		border-radius: var(--radius-lg);
+		padding: var(--space-6);
+		margin-top: var(--space-8);
+	}
+	.week-summary h2 {
+		margin: 0 0 var(--space-4) 0;
+		font-family: var(--font-display);
+		font-size: var(--text-xl);
+		font-weight: var(--weight-semibold);
+	}
+	.week-summary-grid {
+		list-style: none;
+		padding: 0;
+		margin: 0;
+		display: grid;
+		grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+		gap: var(--space-3) var(--space-4);
+	}
+	.week-summary-item {
 		display: flex;
 		flex-direction: column;
 		gap: var(--space-0-5);
-		min-width: 0;
+		padding: var(--space-2) 0;
 	}
-
-	.current-week-meal__name {
-		font-size: var(--text-base);
-		font-weight: var(--weight-semibold);
-	}
-
-	.current-week-meal__ings {
+	.week-summary-item__name {
 		font-size: var(--text-sm);
-		color: var(--color-text-secondary);
-		white-space: nowrap;
-		overflow: hidden;
-		text-overflow: ellipsis;
-	}
-
-	.current-week-summary {
-		border: 1px solid var(--color-border);
-		border-radius: var(--radius-lg);
-		padding: var(--space-6);
-	}
-	.current-week-summary h2 {
-		margin-top: 0;
-	}
-
-	.summary-list {
-		list-style: none;
-		padding: 0;
-		margin: 0;
-		display: flex;
-		flex-direction: column;
-		gap: var(--space-2);
-	}
-
-	.summary-item {
-		display: flex;
-		align-items: baseline;
-		gap: var(--space-2);
-		flex-wrap: wrap;
-	}
-
-	.summary-item__name {
 		font-weight: var(--weight-medium);
-		flex: 1;
+		color: var(--color-text);
 	}
-
-	.summary-item__num {
+	.week-summary-item__num {
+		font-size: var(--text-sm);
 		font-weight: var(--weight-semibold);
 		color: var(--color-primary);
 	}
-
-	.summary-item__text {
-		font-size: var(--text-sm);
+	.week-summary-item__text {
+		font-size: var(--text-xs);
 		color: var(--color-text-secondary);
 	}
 

@@ -2,6 +2,8 @@
 	import { listMeals, updateMeal, deleteMeal, mealImageUrl, createMeal, importFromUrl, importFromPaste, importFromLlm } from '$lib/api';
 	import type { Meal, NewIngredientLine } from '$lib/types';
 	import { t, formatDate } from '$lib/i18n';
+	import { page } from '$app/state';
+	import { goto } from '$app/navigation';
 
 	import { fly, fade, scale } from 'svelte/transition';
 	import { flip } from 'svelte/animate';
@@ -14,6 +16,7 @@
 	let loadError = $state<string | null>(null);
 	let reduced = $state(prefersReducedMotion());
 	let deleteTarget = $state<Meal | null>(null);
+	let editHandled = false;
 
 	let editTarget = $state<Meal | null>(null);
 	let editSubmitting = $state(false);
@@ -96,6 +99,7 @@
 		importMode = 'url'; importUrl = ''; importPaste = ''; importLlmModel = ''; importLlmHint = '';
 		importLlmImage = null; importing = false; importError = null; importToken++;
 		addOpen = true;
+		editHandled = false;
 	}
 	function closeAdd() { addOpen = false; }
 
@@ -120,6 +124,20 @@
 
 	$effect(() => {
 		loadMeals();
+	});
+
+	// Deep-link: open the edit modal for ?edit=<id>
+	$effect(() => {
+		const raw = page.url.searchParams.get('edit');
+		if (!raw || editHandled || meals.length === 0) return;
+		const id = Number(raw);
+		if (Number.isNaN(id)) return;
+		const meal = meals.find(m => m.id === id);
+		if (meal) {
+			editHandled = true;
+			openEdit(meal);
+			goto('/meals', { replaceState: true, keepFocus: true, noScroll: true });
+		}
 	});
 
 	$effect(() => {

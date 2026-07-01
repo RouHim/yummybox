@@ -45,10 +45,12 @@ test.describe('planner', () => {
 		// Wait for the week grid to render
 		await page.waitForSelector('.week-cell', { state: 'visible' });
 
-		// Navigate to previous year
-		await page.getByRole('button', { name: 'Previous year' }).click();
+		// Navigate back to a fully-past year by stepping months
+		for (let i = 0; i < 12; i++) {
+			await page.getByRole('button', { name: 'Previous month' }).click();
+		}
 
-		// All week cells should have past class
+		// All visible week cells should be past
 		const totalCells = await page.locator('.week-cell').count();
 		const pastCells = await page.locator('.week-cell--past').count();
 		expect(pastCells).toBe(totalCells);

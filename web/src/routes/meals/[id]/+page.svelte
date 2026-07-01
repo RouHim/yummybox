@@ -1,15 +1,22 @@
 <script lang="ts">
-	import { getMeal, mealImageUrl } from '$lib/api';
+	import { getMeal, deleteMeal, mealImageUrl } from '$lib/api';
 	import Icon from '$lib/Icon.svelte';
-	import { t } from '$lib/i18n';
+	import { t, formatDate } from '$lib/i18n';
 	import { page } from '$app/state';
+	import { goto } from '$app/navigation';
 	import type { Meal } from '$lib/types';
+	import { fly } from 'svelte/transition';
+	import { tierDuration } from '$lib/motion';
+	import DeleteConfirmDialog from '$lib/DeleteConfirmDialog.svelte';
 
 	let meal = $state<Meal | null>(null);
 	let loading = $state(true);
 	let notFound = $state(false);
 	let loadError = $state<string | null>(null);
 	const mealId = $derived(Number(page.params.id));
+
+	let deleteOpen = $state(false);
+	let deleting = $state(false);
 
 	async function loadMeal() {
 		loading = true;
@@ -18,7 +25,6 @@
 		try {
 			meal = await getMeal(mealId);
 		} catch (err) {
-			// getMeal throws on any non-ok response; the only non-ok for GET /api/meals/:id is 404
 			meal = null;
 			notFound = true;
 		} finally {
@@ -29,6 +35,26 @@
 	$effect(() => {
 		if (!Number.isNaN(mealId)) loadMeal();
 	});
+
+	function openDelete() { deleteOpen = true; }
+	function closeDelete() { deleteOpen = false; }
+
+	async function confirmDelete() {
+		if (!meal) return;
+		deleting = true;
+		try {
+			await deleteMeal(meal.id);
+			deleteOpen = false;
+			await goto('/meals');
+		} finally {
+			deleting = false;
+		}
+	}
+
+	function editMeal() {
+		if (!meal) return;
+		goto('/meals?edit=' + meal.id);
+	}
 </script>
 
 <main>
@@ -38,84 +64,77 @@
 		<p class="cooking-view__not-found">{t('cookingViewNotFound')}</p>
 		<a href="/meals" class="nav-link"><Icon name="utensils" size={16} /> {t('cookingViewBack')}</a>
 	{:else if meal}
-		<div class="detail-wrapper glass">
-			<h1>{t('cookingViewTitle')}</h1>
+		<article class="cooking-view" in:fly={{ y: 8, duration: tierDuration(250) }}>
+			<a href="/meals" class="cooking-view__back nav-link">
+				<Icon name="utensils" size={16} /> {t('cookingViewBack')}
+			</a>
 
-		<h2 class="cooking-view__name">{meal.name}</h2>
+			{#if meal.has_image}
+				<figure class="cooking-view__hero">
+					<img
+						src={mealImageUrl(meal.id)}
+						alt={meal.name}
+						class="cooking-view__hero-img"
+					/>
+				</figure>
+			{/if}
 
-		{#if meal.has_image}
-			<img
-				src={mealImageUrl(meal.id)}
-				alt={meal.name}
-				class="cooking-view__image"
-			/>
-		{/if}
+			<header class="cooking-view__header">
+				<h1 class="cooking-view__name">{meal.name}</h1>
 
-		<section class="cooking-view__ingredients">
-			<h3>{t('cookingViewIngredients')}</h3>
-			<ul class="cooking-view__ingredient-list">
-				{#each meal.ingredients as ingredient (ingredient.name)}
-					<li>
-						<span>{ingredient.name}</span>
-						{#if ingredient.quantity}
-							<span class="cooking-view__qty">{ingredient.quantity}</span>
-						{/if}
-					</li>
-				{/each}
-			</ul>
-		</section>
+				<p class="cooking-view__meta">
+					<span>{meal.ingredients.length === 1 ? t('ingredientCountOne') : t('ingredientCount', { count: String(meal.ingredients.length) })}</span>
+					<span class="cooking-view__meta-sep" aria-hidden="true">·</span>
+					<span>{meal.last_planned_at ? t('lastPlanned', { date: formatDate(meal.last_planned_at, { month: 'short', day: 'numeric', year: 'numeric' }) }) : t('lastPlannedNever')}</span>
+				</p>
 
-		{#if meal.instructions}
-			<section class="cooking-view__instructions">
-				<h3>{t('fieldInstructionsLabel')}</h3>
-				<p class="cooking-view__instructions-text">{meal.instructions}</p>
-			</section>
-		{/if}
+				<div class="cooking-view__actions">
+					<button type="button" class="btn btn--ghost" onclick={editMeal} disabled={deleting}>
+						<Icon name="pen-line" size={16} /> {t('cookingViewEditMeal')}
+					</button>
+					<button type="button" class="btn btn--danger-ghost" onclick={openDelete} disabled={deleting}>
+						<Icon name="trash-2" size={16} /> {t('cookingViewDeleteMeal')}
+					</button>
+				</div>
+			</header>
 
-		<a href="/meals" class="nav-link"><Icon name="utensils" size={16} /> {t('cookingViewBack')}</a>
-		</div>
+			<div class="cooking-view__body">
+				<section class="cooking-view__ingredients">
+					<h2 class="cooking-view__section-title">{t('cookingViewIngredients')}</h2>
+					<ul class="cooking-view__ingredient-list">
+						{#each meal.ingredients as ingredient (ingredient.name)}
+							<li>
+								<span>{ingredient.name}</span>
+								{#if ingredient.quantity}
+									<span class="cooking-view__qty">{ingredient.quantity}</span>
+								{/if}
+							</li>
+						{/each}
+					</ul>
+				</section>
+
+				{#if meal.instructions}
+					<section class="cooking-view__instructions">
+						<h2 class="cooking-view__section-title">{t('fieldInstructionsLabel')}</h2>
+						<div class="cooking-view__instructions-text">{@html meal.instructions}</div>
+					</section>
+				{/if}
+			</div>
+		</article>
 	{/if}
+
+	<DeleteConfirmDialog
+		open={deleteOpen}
+		title={t('buttonDelete')}
+		message={t('confirmDelete', { name: meal?.name ?? '' })}
+		confirmLabel={t('buttonDelete')}
+		cancelLabel={t('buttonCancel')}
+		onconfirm={confirmDelete}
+		oncancel={closeDelete}
+	/>
 </main>
 
 <style>
-
-	.cooking-view__loading {
-		color: var(--color-text-secondary);
-		font-style: italic;
-	}
-
-	.cooking-view__not-found {
-		color: var(--color-text-secondary);
-		font-size: var(--text-lg);
-		margin-bottom: var(--space-4);
-	}
-
-	.cooking-view__name {
-		font-family: var(--font-display);
-		margin-top: var(--space-4);
-		margin-bottom: var(--space-4);
-		font-size: var(--text-2xl);
-		font-weight: var(--weight-semibold);
-	}
-
-	.cooking-view__image {
-		max-width: 100%;
-		border-radius: var(--radius-lg);
-		margin-bottom: var(--space-6);
-		display: block;
-	}
-
-	.cooking-view__ingredients {
-		margin-bottom: var(--space-6);
-	}
-	.cooking-view__ingredients h3 {
-		font-size: var(--text-sm);
-		text-transform: uppercase;
-		letter-spacing: 0.08em;
-		color: var(--color-text-secondary);
-		margin-bottom: var(--space-3);
-	}
-
 	.cooking-view__ingredient-list {
 		list-style: none;
 		padding: 0;
@@ -140,16 +159,7 @@
 		color: var(--color-text-secondary);
 		font-style: italic;
 	}
-	.cooking-view__instructions {
-		margin-bottom: var(--space-6);
-	}
-	.cooking-view__instructions h3 {
-		font-size: var(--text-sm);
-		text-transform: uppercase;
-		letter-spacing: 0.08em;
-		color: var(--color-text-secondary);
-		margin-bottom: var(--space-3);
-	}
+
 	.cooking-view__instructions-text {
 		white-space: pre-wrap;
 		line-height: 1.6;

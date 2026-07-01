@@ -39,3 +39,29 @@ export function isPastWeek(
 	if (year > current.year) return false;
 	return week < current.week;
 }
+
+export interface MonthCell {
+	date: Date;
+	inMonth: boolean;
+	week: { year: number; week: number };
+}
+
+/** Returns a 42-cell month grid (6 rows x 7 columns) for the given year/month.
+ *  Monday-start. Includes leading/trailing days from adjacent months. */
+export function monthGrid(year: number, month: number): MonthCell[] {
+	const firstOfMonth = new Date(Date.UTC(year, month, 1, 12, 0, 0));
+	const dayOfWeek = firstOfMonth.getUTCDay();
+	const daysFromMon = dayOfWeek === 0 ? 6 : dayOfWeek - 1;
+	// Monday on or before the 1st
+	const start = new Date(Date.UTC(year, month, 1 - daysFromMon, 12, 0, 0));
+	const cells: MonthCell[] = [];
+	for (let i = 0; i < 42; i++) {
+		const date = new Date(start.getTime() + i * 86400000);
+		cells.push({
+			date,
+			inMonth: date.getUTCMonth() === month,
+			week: weekOfDate(date),
+		});
+	}
+	return cells;
+}

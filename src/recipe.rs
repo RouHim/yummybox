@@ -1,3 +1,4 @@
+use std::collections::HashSet;
 use std::time::Duration;
 
 use base64::Engine;
@@ -133,7 +134,7 @@ fn parse_recipe_with_image_url(text: &str) -> Result<(ImportDraft, Option<String
                     }
                 })
                 .collect();
-            let instructions = recipe
+            let raw_instructions = recipe
                 .directions()
                 .as_ref()
                 .map_or_else(String::new, |list| {
@@ -152,6 +153,7 @@ fn parse_recipe_with_image_url(text: &str) -> Result<(ImportDraft, Option<String
                         String::new()
                     }
                 });
+            let instructions = sanitize_instructions(&raw_instructions);
 
             let image_url = extract_image_url(json_value);
 
@@ -324,6 +326,26 @@ async fn try_download_image(client: &reqwest::Client, url: &str) -> Option<Vec<u
     let bytes = resp.bytes().await.ok()?;
     let jpeg = crate::image::convert_to_jpeg(&bytes).ok()?;
     Some(jpeg)
+}
+
+/// Sanitize HTML in imported instructions to a safe whitelist.
+/// Allows only: p, br, strong, em, b, i, ul, ol, li. Strips all attributes.
+/// Drops the *content* of script/style tags. Plain text passes through.
+/// Returns "" if the result is empty/whitespace-only.
+pub fn sanitize_instructions(html: &str) -> String {
+    let tags: HashSet<&str> =
+        HashSet::from(["p", "br", "strong", "em", "b", "i", "ul", "ol", "li"]);
+    let clean_content: HashSet<&str> = HashSet::from(["script", "style"]);
+    let sanitized = ammonia::Builder::empty()
+        .add_tags(&tags)
+        .clean_content_tags(clean_content)
+        .clean(html)
+        .to_string();
+    if sanitized.trim().is_empty() {
+        String::new()
+    } else {
+        sanitized
+    }
 }
 
 // ===========================================================================
@@ -555,5 +577,65 @@ mod tests {
         });
         let result = extract_image_url(&json);
         assert_eq!(result.as_deref(), Some("https://example.com/img1.jpg"));
+    }
+
+    // -----------------------------------------------------------------------
+    // sanitize_instructions tests
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn given_html_with_dir_attribute_when_sanitize_then_attribute_stripped() {
+        let input = "<p dir=ltr>Step 1</p>";
+        let result = sanitize_instructions(input);
+        assert_eq!(result, "<p>Step 1</p>");
+    }
+
+    #[test]
+    fn given_script_tag_when_sanitize_then_content_dropped() {
+        let input = "<script>alert(1)</script>";
+        let result = sanitize_instructions(input);
+        assert_eq!(result, "");
+    }
+
+    #[test]
+    fn given_non_whitelisted_tags_when_sanitize_then_stripped() {
+        let input = "<div><span>x</span></div>";
+        let result = sanitize_instructions(input);
+        assert_eq!(result, "x");
+    }
+
+    #[test]
+    fn given_whitelisted_nested_tags_when_sanitize_then_preserved() {
+        let input = "<p><strong><em>x</em></strong></p>";
+        let result = sanitize_instructions(input);
+        assert_eq!(result, "<p><strong><em>x</em></strong></p>");
+    }
+
+    #[test]
+    fn given_br_self_closing_when_sanitize_then_normalized() {
+        let input = "a<br/>b";
+        let result = sanitize_instructions(input);
+        assert_eq!(result, "a<br>b");
+    }
+
+    #[test]
+    fn given_plain_text_when_sanitize_then_unchanged() {
+        let input = "Step 1\nStep 2";
+        let result = sanitize_instructions(input);
+        assert_eq!(result, "Step 1\nStep 2");
+    }
+
+    #[test]
+    fn given_whitespace_only_after_sanitize_then_empty_string() {
+        let input = "   ";
+        let result = sanitize_instructions(input);
+        assert_eq!(result, "");
+    }
+
+    #[test]
+    fn given_strong_and_br_when_sanitize_then_preserved() {
+        let input = "<strong>important</strong><br>";
+        let result = sanitize_instructions(input);
+        assert_eq!(result, "<strong>important</strong><br>");
     }
 }

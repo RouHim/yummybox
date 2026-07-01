@@ -203,7 +203,7 @@ fn build_draft_from_tool_args(args: &serde_json::Value) -> Result<recipe::Import
     Ok(recipe::ImportDraft {
         name,
         ingredients,
-        instructions: draft.instructions.unwrap_or_default(),
+        instructions: recipe::sanitize_instructions(&draft.instructions.unwrap_or_default()),
         image_base64: None,
     })
 }
