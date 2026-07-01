@@ -85,6 +85,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .route("/llm/models", get(routes::llm_models))
         .route("/import/paste", post(routes::import_from_paste))
         .route("/import/bulk", post(routes::import_bulk))
+        .route("/import/image-url", post(routes::load_image_from_url))
         .route("/plans", get(routes::get_plans).post(routes::create_plan))
         .route(
             "/plans/{year}/{week}",

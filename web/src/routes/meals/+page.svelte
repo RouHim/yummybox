@@ -1,5 +1,5 @@
 <script lang="ts">
-    import { listMeals, updateMeal, deleteMeal, mealImageUrl, createMeal, importFromUrl, importFromPaste, importFromLlm, importBulk, listLlmProviders, listLlmModels, ApiError } from '$lib/api';
+    import { listMeals, updateMeal, deleteMeal, mealImageUrl, createMeal, importFromUrl, importFromPaste, importFromLlm, importBulk, listLlmProviders, listLlmModels, ApiError, loadImageFromUrl } from '$lib/api';
 	import type { Meal, NewIngredientLine } from '$lib/types';
 import { readStoredLlmConfig, persistLlmConfig } from '$lib/llm-config.svelte';
 	import { t, formatDate } from '$lib/i18n';
@@ -48,6 +48,7 @@ import { readStoredLlmConfig, persistLlmConfig } from '$lib/llm-config.svelte';
     let importLlmCustomBaseUrl = $state('');
     let llmConfigRestored = false;
     let importLlmCustomApiKey = $state('');
+    let llmSettingsCollapsed = $state(false);
 
     let bulkUrls = $state('');
     let bulkImporting = $state(false);
@@ -110,37 +111,6 @@ import { readStoredLlmConfig, persistLlmConfig } from '$lib/llm-config.svelte';
     }
 
 
-    async function onBulkImport() {
-        bulkError = null;
-        bulkResult = null;
-        const lines = bulkUrls.split('\n').map(l => l.trim()).filter(l => l.length > 0);
-        if (lines.length === 0) return;
-        if (lines.length > 50) {
-            bulkError = t('importBulkErrorMaxUrls');
-            return;
-        }
-        bulkImporting = true;
-        try {
-            const result = await importBulk({ urls: lines });
-            if (result.created.length > 0) {
-                await loadMeals();
-                addOpen = false;
-                return;
-            }
-            bulkResult = result;
-        } catch (err) {
-            bulkError = err instanceof ApiError
-                ? (err.message === '__REQUEST_FAILED__' ? t('importErrorFetch') : err.message)
-                : (err instanceof Error ? err.message : '');
-        } finally {
-            bulkImporting = false;
-        }
-    }
-	function onImportImageChange(e: Event) {
-		const file = (e.target as HTMLInputElement).files?.[0] ?? null;
-		importLlmImage = file;
-	}
-
     async function loadLlmModels() {
         if (!importLlmProvider) return;
         if (importLlmProvider === 'custom' && !importLlmCustomBaseUrl.trim()) return;
@@ -153,9 +123,6 @@ import { readStoredLlmConfig, persistLlmConfig } from '$lib/llm-config.svelte';
                 importLlmProvider === 'custom' ? importLlmCustomApiKey || undefined : undefined,
             );
             llmModels = resp.models;
-            // Reconcile restored model: if it's not in the fetched list,
-            // fall back to free-text input by setting an error (the form
-            // renders a text input when llmModelsError is non-null).
             if (importLlmModel && !resp.models.includes(importLlmModel)) {
                 llmModelsError = t('llmModelsLoadError');
             }
@@ -183,8 +150,34 @@ import { readStoredLlmConfig, persistLlmConfig } from '$lib/llm-config.svelte';
             loadLlmModels();
         }
     }
+    async function onBulkImport() {
+        bulkError = null;
+        bulkResult = null;
+        const lines = bulkUrls.split('\n').map(l => l.trim()).filter(l => l.length > 0);
+        if (lines.length === 0) return;
+        if (lines.length > 50) {
+            bulkError = t('importBulkErrorMaxUrls');
+            return;
+        }
+        bulkImporting = true;
+        try {
+            const result = await importBulk({ urls: lines });
+            if (result.created.length > 0) {
+                await loadMeals();
+                addOpen = false;
+                return;
+            }
+            bulkResult = result;
+        } catch (err) {
+            bulkError = err instanceof ApiError
+                ? (err.message === '__REQUEST_FAILED__' ? t('importErrorFetch') : err.message)
+                : (err instanceof Error ? err.message : '');
+        } finally {
+            bulkImporting = false;
+        }
+    }
 
-    // Restore stored LLM config when LLM tab is first activated
+    // Restore stored LLM config when opening the import card
     $effect(() => {
         if (importMode === 'llm' && !llmConfigRestored) {
             llmConfigRestored = true;
@@ -198,6 +191,9 @@ import { readStoredLlmConfig, persistLlmConfig } from '$lib/llm-config.svelte';
                 // custom providers are picked up by the debounce effect below.
                 if (stored.provider && stored.provider !== 'custom') {
                     loadLlmModels();
+                }
+                if (stored.provider && stored.model) {
+                    llmSettingsCollapsed = true;
                 }
             }
         }
@@ -261,7 +257,9 @@ import { readStoredLlmConfig, persistLlmConfig } from '$lib/llm-config.svelte';
         formImage = null; removeImage = false; submitting = false; llmConfigRestored = false;
         importMode = 'url'; importUrl = ''; importPaste = '';
         importLlmProvider = ''; importLlmModel = ''; importLlmHint = '';
-        importLlmImage = null; importing = false; importError = null; importToken++;
+        importLlmImage = null;
+        llmSettingsCollapsed = false;
+        importing = false; importError = null; importToken++;
         bulkUrls = ''; bulkImporting = false; bulkResult = null; bulkError = null;
         addOpen = true;
         editHandled = false;
@@ -599,70 +597,80 @@ import { readStoredLlmConfig, persistLlmConfig } from '$lib/llm-config.svelte';
                             </button>
                         {/if}
                     {:else}
-                        <p class="import-info">{t('llmImportHint')}</p>
-
                         {#if llmProviders.length === 0 && !llmProvidersLoading}
                             <p class="form-error">{t('llmNoProviders')}</p>
                         {:else}
-                            <label class="import-field">
-                                <span>{t('llmProviderLabel')}</span>
-                                <select bind:value={importLlmProvider} onchange={onProviderChange}
-                                    disabled={llmProvidersLoading || importing}>
-                                    <option value="">{t('llmProviderPlaceholder')}</option>
-                                    {#each llmProviders as p}
-                                        <option value={p.id} disabled={!p.configured && p.id !== 'ollama'}>
-                                            {p.name}{p.configured ? '' : ` (${t('notConfigured')})`}
-                                        </option>
-                                    {/each}
-                                </select>
-                            </label>
-
-                            {#if importLlmProvider === 'custom'}
-                                <p class="import-info">{t('llmCustomHint')}</p>
-                                <label class="import-field">
-                                    <span>{t('llmCustomBaseUrlLabel')}</span>
-                                    <input type="url" bind:value={importLlmCustomBaseUrl} placeholder={t('llmCustomBaseUrlPlaceholder')} />
-                                </label>
-                                <label class="import-field">
-                                    <span>{t('llmCustomApiKeyLabel')}</span>
-                                    <input type="password" bind:value={importLlmCustomApiKey} placeholder={t('llmCustomApiKeyPlaceholder')} />
-                                </label>
-                            {/if}
-
                             {#if importLlmProvider}
-                                <label class="import-field">
-                                    <span>{t('llmModelLabel')}</span>
-                                    {#if llmModelsLoading}
-                                        <span class="import-loading">{t('llmModelLoading')}</span>
-                                    {:else if llmModelsError}
-                                        <input type="text" bind:value={importLlmModel} placeholder={t('importLlmModelPlaceholder')} />
-                                    {:else}
-                                        <select bind:value={importLlmModel} disabled={importing}>
-                                            <option value="">{t('llmModelPlaceholder')}</option>
-                                            {#each llmModels as m}
-                                                <option value={m}>{m}</option>
+                                <div class="llm-settings-toggle">
+                                    {#if llmSettingsCollapsed}
+                                        <span class="llm-settings-summary">
+                                            {t('llmProviderLabel')}: {llmProviders.find(p => p.id === importLlmProvider)?.name ?? importLlmProvider}
+                                            · {t('llmModelLabel')}: {importLlmModel}
+                                        </span>
+                                    {/if}
+                                    <button type="button" class="btn btn--ghost"
+                                        onclick={() => llmSettingsCollapsed = !llmSettingsCollapsed}>
+                                        {llmSettingsCollapsed ? t('llmSettingsChange') : t('llmSettingsHide')}
+                                    </button>
+                                </div>
+                            {/if}
+                            {#if !llmSettingsCollapsed || !importLlmProvider}
+                                <div transition:fly={{ y: -4, duration: 150 }}>
+                                    <div class="llm-provider-row">
+                                        <select bind:value={importLlmProvider} onchange={onProviderChange}
+                                            disabled={llmProvidersLoading || importing}>
+                                            <option value="">{t('llmProviderPlaceholder')}</option>
+                                            {#each llmProviders as p}
+                                                <option value={p.id} disabled={!p.configured && p.id !== 'ollama'}>
+                                                    {p.name}{p.configured ? '' : ` (${t('notConfigured')})`}
+                                                </option>
                                             {/each}
                                         </select>
+
+                                        {#if importLlmProvider}
+                                            {#if llmModelsLoading}
+                                                <span class="import-loading">{t('llmModelLoading')}</span>
+                                            {:else if llmModelsError}
+                                                <input type="text" bind:value={importLlmModel} placeholder={t('importLlmModelPlaceholder')} />
+                                            {:else}
+                                                <select bind:value={importLlmModel} disabled={importing}>
+                                                    <option value="">{t('llmModelPlaceholder')}</option>
+                                                    {#each llmModels as m}
+                                                        <option value={m}>{m}</option>
+                                                    {/each}
+                                                </select>
+                                            {/if}
+                                        {/if}
+                                    </div>
+
+                                    {#if importLlmProvider === 'custom'}
+                                        <p class="import-info">{t('llmCustomHint')}</p>
+                                        <label class="import-field">
+                                            <span>{t('llmCustomBaseUrlLabel')}</span>
+                                            <input type="url" bind:value={importLlmCustomBaseUrl} placeholder={t('llmCustomBaseUrlPlaceholder')} />
+                                        </label>
+                                        <label class="import-field">
+                                            <span>{t('llmCustomApiKeyLabel')}</span>
+                                            <input type="password" bind:value={importLlmCustomApiKey} placeholder={t('llmCustomApiKeyPlaceholder')} />
+                                        </label>
                                     {/if}
-                                </label>
-                                {#if llmModelsError}
-                                    <p class="form-error">{llmModelsError}</p>
-                                {/if}
+
+                                    {#if llmModelsError}
+                                        <p class="form-error">{llmModelsError}</p>
+                                    {/if}
+                                    {#if importLlmProvider === 'ollama' && llmModelsError}
+                                        <p class="import-info">{t('llmOllamaHint')}</p>
+                                    {/if}
+                                </div>
                             {/if}
 
-                            {#if importLlmProvider === 'ollama' && llmModelsError}
-                                <p class="import-info">{t('llmOllamaHint')}</p>
-                            {/if}
-
-                            <label class="import-field">
-                                <span>{t('llmHintLabel')}</span>
-                                <textarea bind:value={importLlmHint} placeholder={t('importLlmHintPlaceholder')} rows="3" maxlength={20000}></textarea>
-                            </label>
-
-                            <label class="import-field">
-                                <span>{t('llmImageLabel')}</span>
-                                <input type="file" accept="image/*" onchange={onImportImageChange} />
-                            </label>
+                            <textarea
+                                bind:value={importLlmHint}
+                                placeholder={t('importLlmHintPlaceholder')}
+                                rows="6"
+                                maxlength={20000}
+                                class="llm-hint-input"
+                            ></textarea>
 
                             <button type="button" class="btn btn--primary" onclick={onImport}
                                 disabled={importing || !importLlmModel.trim() || (!importLlmHint.trim() && !importLlmImage)}>
@@ -788,4 +796,32 @@ import { readStoredLlmConfig, persistLlmConfig } from '$lib/llm-config.svelte';
 		color: var(--color-primary);
 		font-weight: var(--weight-medium);
 	}
+
+    .llm-settings-toggle {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: var(--space-3);
+        flex-wrap: wrap;
+    }
+    .llm-settings-summary {
+        color: var(--color-text-secondary);
+        font-size: var(--text-sm);
+        text-wrap: pretty;
+    }
+
+    .llm-provider-row {
+        display: flex;
+        gap: var(--space-2);
+        align-items: flex-start;
+    }
+    .llm-provider-row > * {
+        flex: 1;
+        min-width: 0;
+    }
+    .llm-hint-input {
+        width: 100%;
+        min-height: 140px;
+        resize: vertical;
+    }
 </style>

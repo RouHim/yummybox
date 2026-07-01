@@ -3,7 +3,7 @@
 	import { t } from '$lib/i18n';
 	import Icon from '$lib/Icon.svelte';
 	import type { Meal, NewIngredientLine } from '$lib/types';
-	import { mealImageUrl } from '$lib/api';
+	import { mealImageUrl, loadImageFromUrl, ApiError } from '$lib/api';
 
 	let {
 		initialName = '',
@@ -44,6 +44,26 @@
 	let removeImage = $state(false);
 	let formError = $state<string | null>(null);
 
+	// Image URL load state
+	let imageUrl = $state('');
+	let imageUrlLoading = $state(false);
+	let imageUrlError = $state<string | null>(null);
+
+	// Object URL for staged-image thumbnail preview
+	let stagedImageUrl = $state<string | null>(null);
+
+	// Revoke old object URL when formImage changes or component unmounts
+	$effect(() => {
+		const file = formImage;
+		const url = file ? URL.createObjectURL(file) : null;
+		// Revoke previous URL before assigning new one
+		if (stagedImageUrl) URL.revokeObjectURL(stagedImageUrl);
+		stagedImageUrl = url;
+		return () => {
+			if (url) URL.revokeObjectURL(url);
+		};
+	});
+
 	function validIngredientLines(): NewIngredientLine[] {
 		return formIngredients.filter((r) => r.name.trim().length > 0);
 	}
@@ -56,15 +76,59 @@
 		formIngredients = formIngredients.filter((_, i) => i !== idx);
 	}
 
-	function onImageChange(e: Event) {
-		const file = (e.target as HTMLInputElement).files?.[0] ?? null;
+	function stageImage(file: File | null) {
 		formImage = file;
 		removeImage = false;
+		imageUrlError = null;
+	}
+
+	function onImageChange(e: Event) {
+		const file = (e.target as HTMLInputElement).files?.[0] ?? null;
+		stageImage(file);
+	}
+
+	function onPaste(e: ClipboardEvent) {
+		const items = e.clipboardData?.files;
+		if (!items || items.length === 0) return;
+		const imageFile = Array.from(items).find((f) => f.type.startsWith('image/'));
+		if (imageFile) {
+			e.preventDefault();
+			stageImage(imageFile);
+		}
 	}
 
 	function onRemoveImageClick() {
 		removeImage = true;
 		formImage = null;
+	}
+
+	async function onLoadImageUrl() {
+		imageUrlError = null;
+		const url = imageUrl.trim();
+		if (!url) return;
+		imageUrlLoading = true;
+		try {
+			const resp = await loadImageFromUrl(url);
+			const bytes = Uint8Array.from(atob(resp.imageBase64), (c) => c.charCodeAt(0));
+			const file = new File([bytes], 'imported.jpg', { type: 'image/jpeg' });
+			stageImage(file);
+			imageUrl = '';
+		} catch (err) {
+			if (err instanceof ApiError) {
+				const msg = err.message || '';
+				if (msg.includes('unreachable') || msg.includes('HTTP')) {
+					imageUrlError = t('imageErrorUrlUnreachable');
+				} else if (msg.includes('not a recognizable') || msg.includes('corrupt')) {
+					imageUrlError = t('imageErrorUrlNotImage');
+				} else {
+					imageUrlError = t('imageErrorUrlGeneric');
+				}
+			} else {
+				imageUrlError = t('imageErrorUrlGeneric');
+			}
+		} finally {
+			imageUrlLoading = false;
+		}
 	}
 
 	async function onSubmit() {
@@ -156,26 +220,62 @@
 			></textarea>
 		</label>
 
-		<!-- Image field -->
-		<div class="field">
+		<!-- Image field — file picker + clipboard paste + URL load -->
+		<!-- svelte-ignore a11y_no_noninteractive_tabindex -->
+		<div class="field" tabindex="0" onpaste={onPaste}>
 			<span class="field__label">{t('fieldImageLabel')}</span>
 			{#if editMode && editingMeal?.has_image && !removeImage}
 				<div class="meal-image-controls">
 					<img src={mealImageUrl(editingMeal.id)} alt="" class="meal-image-preview" />
+					<span class="image-status">{t('fieldImageCurrent')}</span>
 					<button type="button" class="btn btn--ghost" onclick={onRemoveImageClick}>
 						<Icon name="trash-2" size={14} /> {t('fieldImageRemove')}
 					</button>
 				</div>
 			{/if}
-			<input
-				type="file"
-				accept="image/*"
-				onchange={onImageChange}
-			/>
-			{#if formImage}
-				<span class="image-status">{t('imageStaged')}</span>
+
+			<!-- Staged image thumbnail preview -->
+			{#if stagedImageUrl}
+				<div class="meal-image-controls">
+					<img src={stagedImageUrl} alt="" class="staged-image-preview" />
+					<span class="image-status">{t('imageStaged')}</span>
+				</div>
 			{:else if removeImage}
 				<span class="image-status">{t('imageStagedRemove')}</span>
+			{/if}
+
+			<div class="image-input-row">
+				<input
+					type="file"
+					accept="image/*"
+					onchange={onImageChange}
+					aria-label={formImage ? t('fieldImageReplace') : t('fieldImageChoose')}
+				/>
+			</div>
+
+			<div class="image-url-row">
+				<input
+					type="url"
+					bind:value={imageUrl}
+					placeholder={t('fieldImageUrlPlaceholder')}
+					disabled={imageUrlLoading}
+				/>
+				<button
+					type="button"
+					class="btn btn--ghost"
+					onclick={onLoadImageUrl}
+					disabled={imageUrlLoading || !imageUrl.trim()}
+				>
+					{imageUrlLoading ? t('fieldImageUrlLoading') : t('fieldImageUrlLoad')}
+				</button>
+			</div>
+			<small class="image-paste-hint">Ctrl+V to paste from clipboard</small>
+
+			{#if imageUrlError}
+				<p class="form-error" role="alert">
+					<Icon name="circle-alert" size={18} />
+					<span>{imageUrlError}</span>
+				</p>
 			{/if}
 		</div>
 		{#if formError}
@@ -271,11 +371,36 @@
 		object-fit: cover;
 		border-radius: var(--radius-sm);
 	}
+	.staged-image-preview {
+		max-width: 120px;
+		max-height: 120px;
+		object-fit: cover;
+		border-radius: var(--radius-sm);
+		border: 2px solid var(--color-primary);
+	}
 	.image-status {
 		display: block;
 		margin-top: var(--space-1);
 		font-size: var(--text-xs);
 		color: var(--color-text-secondary);
+	}
+	.image-input-row {
+		margin-bottom: var(--space-2);
+	}
+	.image-url-row {
+		display: flex;
+		gap: var(--space-2);
+		align-items: center;
+		margin-bottom: var(--space-1);
+	}
+	.image-url-row input {
+		flex: 1;
+		min-width: 0;
+	}
+	.image-paste-hint {
+		display: block;
+		font-size: var(--text-xs);
+		color: var(--color-text-muted);
 	}
 	@keyframes shake {
 		0%, 100% { transform: translateX(0); }

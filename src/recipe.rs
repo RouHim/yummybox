@@ -340,6 +340,42 @@ pub(crate) async fn try_download_image(client: &reqwest::Client, url: &str) -> O
     Some(jpeg)
 }
 
+/// Download an image URL and convert to JPEG bytes via the standard pipeline
+/// (`convert_to_jpeg`, q82, 3840px max long edge). Returns a structured error
+/// on any failure so callers can surface actionable messages to the user.
+pub(crate) async fn download_image_from_url(url: &str) -> Result<Vec<u8>, AppError> {
+    let parsed_url =
+        reqwest::Url::parse(url).map_err(|_| AppError::BadRequest("invalid image URL".into()))?;
+
+    let client = reqwest::Client::builder()
+        .timeout(Duration::from_secs(30))
+        .connect_timeout(Duration::from_secs(10))
+        .user_agent("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36")
+        .build()
+        .map_err(|e| AppError::Internal(format!("failed to build HTTP client: {e}")))?;
+
+    let resp = client
+        .get(parsed_url)
+        .send()
+        .await
+        .map_err(|e| AppError::BadRequest(format!("image URL unreachable: {e}")))?;
+
+    if !resp.status().is_success() {
+        return Err(AppError::BadRequest(format!(
+            "image URL returned HTTP {}",
+            resp.status()
+        )));
+    }
+
+    let bytes = resp
+        .bytes()
+        .await
+        .map_err(|e| AppError::BadRequest(format!("failed to download image: {e}")))?;
+
+    let jpeg = crate::image::convert_to_jpeg(&bytes)?;
+    Ok(jpeg)
+}
+
 /// Sanitize HTML in imported instructions to a safe whitelist.
 /// Allows only: p, br, strong, em, b, i, ul, ol, li. Strips all attributes.
 /// Drops the *content* of script/style tags. Plain text passes through.

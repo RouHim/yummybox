@@ -287,6 +287,9 @@ pub async fn get_meal_image(
 #[serde(rename_all = "camelCase")]
 pub struct ImportFromUrlRequest {
     pub url: String,
+    /// Optional user-supplied image URL that takes precedence over the
+    /// recipe's own image. Server-side download, best-effort.
+    pub image_url: Option<String>,
 }
 
 #[instrument(skip(_state))]
@@ -294,14 +297,24 @@ pub async fn import_from_url(
     State(_state): State<Arc<AppState>>,
     Json(req): Json<ImportFromUrlRequest>,
 ) -> Result<Json<recipe::ImportDraft>, AppError> {
-    let draft = recipe::fetch_and_parse(&req.url).await?;
+    let mut draft = recipe::fetch_and_parse(&req.url).await?;
+    // User-supplied image URL takes precedence over the recipe's own image.
+    // Best-effort: failure falls back to whatever fetch_and_parse returned.
+    if let Some(image_url) = &req.image_url {
+        if let Ok(jpeg) = recipe::download_image_from_url(image_url).await {
+            let b64 = base64::engine::general_purpose::STANDARD.encode(&jpeg);
+            draft.image_base64 = Some(b64);
+        }
+    }
     Ok(Json(draft))
 }
-
 #[derive(Debug, serde::Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ImportFromPasteRequest {
     pub content: String,
+    /// Optional user-supplied image URL. Paste mode has no recipe image,
+    /// so this is the only source for image data. Best-effort download.
+    pub image_url: Option<String>,
 }
 
 #[instrument(skip(_state))]
@@ -309,8 +322,46 @@ pub async fn import_from_paste(
     State(_state): State<Arc<AppState>>,
     Json(req): Json<ImportFromPasteRequest>,
 ) -> Result<Json<recipe::ImportDraft>, AppError> {
-    let draft = recipe::parse_recipe(&req.content)?;
+    let mut draft = recipe::parse_recipe(&req.content)?;
+    // Paste mode has no recipe image; user-supplied URL is the only source.
+    // Best-effort: failure means the draft stays with no image.
+    if let Some(image_url) = &req.image_url {
+        if let Ok(jpeg) = recipe::download_image_from_url(image_url).await {
+            let b64 = base64::engine::general_purpose::STANDARD.encode(&jpeg);
+            draft.image_base64 = Some(b64);
+        }
+    }
     Ok(Json(draft))
+}
+
+// ---------------------------------------------------------------------------
+// Image-from-URL handler
+// ---------------------------------------------------------------------------
+
+/// Request body for loading an image from a URL.
+#[derive(Debug, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ImageFromUrlRequest {
+    pub url: String,
+}
+
+/// Response containing the base64-encoded JPEG.
+#[derive(Debug, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ImageFromUrlResponse {
+    pub image_base64: String,
+}
+
+/// Download an image from a URL, convert to JPEG (q82, max 3840px), and
+/// return the bytes as a base64 string. All failures return structured errors.
+#[instrument(skip(_state))]
+pub async fn load_image_from_url(
+    State(_state): State<Arc<AppState>>,
+    Json(req): Json<ImageFromUrlRequest>,
+) -> Result<Json<ImageFromUrlResponse>, AppError> {
+    let jpeg = recipe::download_image_from_url(&req.url).await?;
+    let b64 = base64::engine::general_purpose::STANDARD.encode(&jpeg);
+    Ok(Json(ImageFromUrlResponse { image_base64: b64 }))
 }
 
 #[instrument(skip(_state))]

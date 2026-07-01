@@ -76,6 +76,14 @@ export function mealImageUrl(id: number): string {
 	return `/api/meals/${id}/image`;
 }
 
+export async function loadImageFromUrl(url: string): Promise<{ imageBase64: string }> {
+	return request<{ imageBase64: string }>('/api/import/image-url', {
+		method: 'POST',
+		headers: { 'Content-Type': 'application/json' },
+		body: JSON.stringify({ url }),
+	});
+}
+
 // Plan API
 
 export async function listPlansForYear(year: number): Promise<PlanSummaryItem[]> {
@@ -127,20 +135,20 @@ export async function deletePlan(year: number, week: number): Promise<void> {
 
 // Recipe import API
 
-export async function importFromUrl(url: string): Promise<ImportDraft> {
+export async function importFromUrl(url: string, imageUrl?: string): Promise<ImportDraft> {
 	return request<ImportDraft>('/api/import/url', {
 		method: 'POST',
 		headers: { 'Content-Type': 'application/json' },
-		body: JSON.stringify({ url }),
-    });
+		body: JSON.stringify({ url, ...(imageUrl ? { imageUrl } : {}) }),
+	});
 }
 
-export async function importFromPaste(content: string): Promise<ImportDraft> {
-    return request<ImportDraft>('/api/import/paste', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ content }),
-    });
+export async function importFromPaste(content: string, imageUrl?: string): Promise<ImportDraft> {
+	return request<ImportDraft>('/api/import/paste', {
+		method: 'POST',
+		headers: { 'Content-Type': 'application/json' },
+		body: JSON.stringify({ content, ...(imageUrl ? { imageUrl } : {}) }),
+	});
 }
 export async function importFromLlm(
     model: string,

@@ -2,9 +2,17 @@
 default:
 	@just --list
 
-# Build the mealme binary
+# Build the mealme binary (forces fresh frontend build)
 build:
-	cargo build
+	rm -rf web/build && cargo build
+
+# Build release binary (forces fresh frontend build)
+release:
+	rm -rf web/build && cargo build --release
+
+# Run the mealme binary (forces fresh frontend build)
+run: build
+	cargo run
 
 # Install Playwright + Chromium (one-time per checkout)
 e2e-install:
