@@ -469,6 +469,36 @@ pub struct BringItemRequest {
     pub spec: Option<String>,
 }
 
+#[derive(Debug, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct BringStatusResponse {
+    pub configured: bool,
+    pub connected: bool,
+    pub error: Option<String>,
+}
+
+impl From<bring::BringStatus> for BringStatusResponse {
+    fn from(status: bring::BringStatus) -> Self {
+        match status {
+            bring::BringStatus::NotConfigured => BringStatusResponse {
+                configured: false,
+                connected: false,
+                error: None,
+            },
+            bring::BringStatus::Connected { .. } => BringStatusResponse {
+                configured: true,
+                connected: true,
+                error: None,
+            },
+            bring::BringStatus::Error(msg) => BringStatusResponse {
+                configured: true,
+                connected: false,
+                error: Some(msg),
+            },
+        }
+    }
+}
+
 #[instrument(skip(_state))]
 pub async fn add_bring_item(
     State(_state): State<Arc<AppState>>,
@@ -476,6 +506,15 @@ pub async fn add_bring_item(
 ) -> Result<Json<serde_json::Value>, AppError> {
     bring::push_item_to_bring(&req.name, req.spec.as_deref()).await?;
     Ok(Json(serde_json::json!({"sent": true})))
+}
+
+#[instrument(skip(_state))]
+pub async fn get_bring_status(
+    State(_state): State<Arc<AppState>>,
+) -> Result<Json<BringStatusResponse>, AppError> {
+    Ok(Json(BringStatusResponse::from(
+        bring::check_bring_status().await,
+    )))
 }
 
 // ===========================================================================
@@ -522,6 +561,7 @@ mod tests {
             .route("/plans", get(get_plans).post(create_plan))
             .route("/plans/{year}/{week}", put(update_plan).delete(delete_plan))
             .route("/bring/items", post(add_bring_item))
+            .route("/bring/status", get(get_bring_status))
             .layer(axum::extract::DefaultBodyLimit::max(50 * 1024 * 1024))
             .with_state(state);
         TestCtx { app, _dir: dir }
@@ -1991,5 +2031,44 @@ mod tests {
                 .contains("BRING_EMAIL and BRING_PASSWORD"),
             "expected credential error, got: {json}"
         );
+    }
+
+    #[tokio::test]
+    async fn given_missing_bring_credentials_when_status_then_returns_not_configured() {
+        // Ensure env vars are unset
+        let had_email = std::env::var("BRING_EMAIL").ok();
+        let had_password = std::env::var("BRING_PASSWORD").ok();
+        unsafe {
+            std::env::remove_var("BRING_EMAIL");
+            std::env::remove_var("BRING_PASSWORD");
+        }
+
+        let TestCtx { app, _dir } = setup().await;
+        let request = Request::builder()
+            .uri("/bring/status")
+            .method(Method::GET)
+            .body(axum::body::Body::empty())
+            .unwrap();
+
+        let response = app.oneshot(request).await.unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+        let body = to_bytes(response.into_body(), 4096).await.unwrap();
+        let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
+        assert_eq!(
+            json,
+            json!({"configured": false, "connected": false, "error": null})
+        );
+
+        // Restore env vars
+        if let Some(v) = had_email {
+            unsafe {
+                std::env::set_var("BRING_EMAIL", v);
+            }
+        }
+        if let Some(v) = had_password {
+            unsafe {
+                std::env::set_var("BRING_PASSWORD", v);
+            }
+        }
     }
 }

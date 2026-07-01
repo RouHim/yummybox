@@ -1,7 +1,7 @@
 use std::time::Duration;
 
 use reqwest::Client;
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use tracing::info;
 
 use crate::error::AppError;
@@ -22,6 +22,22 @@ struct BringAuthResponse {
 struct BringList {
     #[serde(rename = "listUuid")]
     list_uuid: String,
+}
+
+#[derive(Debug, Deserialize)]
+struct BringListsResponse {
+    lists: Vec<BringList>,
+}
+
+/// Status of the Bring! API connection, probed at startup.
+#[derive(Debug, Serialize)]
+pub enum BringStatus {
+    #[serde(rename = "notConfigured")]
+    NotConfigured,
+    Connected {
+        list_uuid: String,
+    },
+    Error(String),
 }
 
 /// Push a single ingredient to the user's first Bring! shopping list.
@@ -60,6 +76,7 @@ pub async fn push_item_to_bring(name: &str, spec: Option<&str>) -> Result<(), Ap
     bring_save_item(
         &client,
         &first_list.list_uuid,
+        &auth.uuid,
         &auth.access_token,
         &name,
         spec.unwrap_or(""),
@@ -68,6 +85,44 @@ pub async fn push_item_to_bring(name: &str, spec: Option<&str>) -> Result<(), Ap
 
     info!(name = %name, spec = ?spec, "pushed item to Bring! list");
     Ok(())
+}
+
+/// Probe Bring! credentials at startup. Returns the connection status without
+/// making a network call when env vars are missing.
+pub async fn check_bring_status() -> BringStatus {
+    let email = match std::env::var("BRING_EMAIL") {
+        Ok(v) => v,
+        Err(_) => return BringStatus::NotConfigured,
+    };
+    let password = match std::env::var("BRING_PASSWORD") {
+        Ok(v) => v,
+        Err(_) => return BringStatus::NotConfigured,
+    };
+
+    let client = match Client::builder()
+        .timeout(Duration::from_secs(10))
+        .connect_timeout(Duration::from_secs(5))
+        .build()
+    {
+        Ok(c) => c,
+        Err(e) => return BringStatus::Error(format!("failed to build HTTP client: {e}")),
+    };
+
+    let auth = match bring_login(&client, &email, &password).await {
+        Ok(a) => a,
+        Err(e) => return BringStatus::Error(e.to_string()),
+    };
+    info!(uuid = %auth.uuid, "authenticated with Bring! API (status probe)");
+
+    match bring_first_list(&client, &auth.uuid, &auth.access_token).await {
+        Ok(list) => {
+            info!(list_uuid = %list.list_uuid, "Bring! status probe successful");
+            BringStatus::Connected {
+                list_uuid: list.list_uuid,
+            }
+        }
+        Err(e) => BringStatus::Error(e.to_string()),
+    }
 }
 
 fn truncate_name(name: &str) -> String {
@@ -141,42 +196,55 @@ async fn bring_first_list(
         )));
     }
 
-    let lists: Vec<BringList> = resp.json().await.map_err(|e| {
+    let wrapper: BringListsResponse = resp.json().await.map_err(|e| {
         AppError::BringNetworkError(format!("failed to parse Bring! lists response: {e}"))
     })?;
 
-    lists.into_iter().next().ok_or(AppError::BringNoLists)
+    wrapper
+        .lists
+        .into_iter()
+        .next()
+        .ok_or(AppError::BringNoLists)
 }
-
 async fn bring_save_item(
     client: &Client,
     list_uuid: &str,
+    user_uuid: &str,
     access_token: &str,
     name: &str,
     spec: &str,
 ) -> Result<(), AppError> {
     let item_uuid = uuid_v4();
-    let body = serde_json::json!({
-        "itemId": name,
-        "spec": spec,
-        "uuid": item_uuid,
-    });
 
     let resp = client
-        .put(format!("{BRING_BASE_URL}/bringlists/{list_uuid}"))
+        .put(format!("{BRING_BASE_URL}/bringlists/{list_uuid}/items"))
         .header("X-BRING-API-KEY", BRING_API_KEY)
         .header("X-BRING-CLIENT", BRING_CLIENT)
         .header("X-BRING-APPLICATION", BRING_APPLICATION)
+        .header("X-BRING-USER-UUID", user_uuid)
         .bearer_auth(access_token)
-        .json(&body)
+        .json(&serde_json::json!({
+            "changes": [{
+                "accuracy": "0.0",
+                "altitude": "0.0",
+                "latitude": "0.0",
+                "longitude": "0.0",
+                "itemId": name,
+                "spec": spec,
+                "uuid": item_uuid,
+                "operation": "TO_PURCHASE"
+            }],
+            "sender": ""
+        }))
         .send()
         .await
         .map_err(|e| AppError::BringNetworkError(format!("failed to save Bring! item: {e}")))?;
 
     if !resp.status().is_success() {
+        let status = resp.status();
+        let body = resp.text().await.unwrap_or_default();
         return Err(AppError::BringNetworkError(format!(
-            "Bring! save item returned status {}",
-            resp.status()
+            "Bring! save item returned status {status}: {body}"
         )));
     }
 
@@ -256,5 +324,34 @@ mod tests {
         assert_eq!(uuid.chars().filter(|&c| c == '-').count(), 4);
         // Version nibble should be 4
         assert_eq!(uuid.as_bytes()[14] as char, '4');
+    }
+
+    #[tokio::test]
+    async fn given_no_bring_env_vars_when_check_status_then_not_configured() {
+        // Ensure env vars are unset for this test
+        let had_email = std::env::var("BRING_EMAIL").ok();
+        let had_password = std::env::var("BRING_PASSWORD").ok();
+        unsafe {
+            std::env::remove_var("BRING_EMAIL");
+            std::env::remove_var("BRING_PASSWORD");
+        }
+
+        let status = check_bring_status().await;
+        match status {
+            BringStatus::NotConfigured => {}
+            other => panic!("expected NotConfigured, got {other:?}"),
+        }
+
+        // Restore env vars
+        if let Some(v) = had_email {
+            unsafe {
+                std::env::set_var("BRING_EMAIL", v);
+            }
+        }
+        if let Some(v) = had_password {
+            unsafe {
+                std::env::set_var("BRING_PASSWORD", v);
+            }
+        }
     }
 }

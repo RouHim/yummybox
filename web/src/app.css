@@ -732,6 +732,50 @@ button {
   outline-offset: 2px;
 }
 
+.app-bar__bring {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  padding: 0;
+  border: 1px solid var(--glass-border);
+  background: var(--glass-bg);
+  color: var(--color-text-secondary);
+  border-radius: var(--radius-full);
+  cursor: pointer;
+  transition: color var(--transition-fast), border-color var(--transition-fast), background var(--transition-fast);
+}
+.app-bar__bring:hover {
+  color: var(--color-primary);
+  border-color: var(--color-border-strong);
+  background: var(--glass-bg-strong);
+}
+.app-bar__bring:focus-visible {
+  outline: 2px solid var(--color-primary);
+  outline-offset: 2px;
+}
+.app-bar__bring:disabled {
+  cursor: wait;
+  opacity: 0.6;
+}
+.app-bar__bring--connected {
+  color: var(--color-success);
+}
+.app-bar__bring--error {
+  color: var(--color-danger);
+}
+.app-bar__bring-error {
+  font-size: var(--text-sm);
+  color: var(--color-danger);
+  padding: var(--space-1) var(--space-2);
+}
+@media (prefers-reduced-motion: reduce) {
+  .app-bar__bring {
+    transition: none;
+  }
+}
+
 .nav-link {
   display: inline-flex;
   align-items: center;

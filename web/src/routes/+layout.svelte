@@ -6,6 +6,7 @@
 	import { page } from '$app/state';
 	import Icon from '$lib/Icon.svelte';
 	import { isLowPowerDevice } from '$lib/motion';
+	import { checkBringStatus } from '$lib/api';
 
 
 	let { children } = $props();
@@ -24,6 +25,32 @@
 		};
 		mq.addEventListener('change', handler);
 		return () => mq.removeEventListener('change', handler);
+	});
+
+	type BringBadgeState = 'hidden' | 'checking' | 'connected' | 'error';
+	let bringState = $state<BringBadgeState>('hidden');
+	let bringError = $state<string | null>(null);
+
+	$effect(() => {
+		checkBringStatus()
+			.then((res) => {
+				if (!res.configured) {
+					console.log('[Bring!] not configured — set BRING_EMAIL and BRING_PASSWORD to enable shopping list sync');
+					bringState = 'hidden';
+				} else if (res.connected) {
+					console.log('[Bring!] connected');
+					bringState = 'connected';
+				} else {
+					console.warn('[Bring!] error:', res.error);
+					bringState = 'error';
+					bringError = res.error;
+				}
+			})
+			.catch((e) => {
+				console.error('[Bring!] probe failed:', e);
+				bringState = 'error';
+				bringError = e instanceof Error ? e.message : String(e);
+			});
 	});
 </script>
 
@@ -50,6 +77,22 @@
 		</a>
 	</nav>
 	<div class="app-bar__actions">
+		{#if bringState !== 'hidden'}
+			<button
+				class="app-bar__bring"
+				class:app-bar__bring--connected={bringState === 'connected'}
+				class:app-bar__bring--error={bringState === 'error'}
+				type="button"
+				aria-label={bringState === 'checking' ? t('bringStatusChecking') : bringState === 'connected' ? t('bringStatusConnected') : t('bringStatusError')}
+				title={bringState === 'error' && bringError ? bringError : undefined}
+				disabled={bringState === 'checking'}
+			>
+				<Icon name={bringState === 'checking' ? 'loader-circle' : bringState === 'connected' ? 'check' : 'circle-alert'} size={16} />
+			</button>
+			{#if bringState === 'error' && bringError}
+				<span class="app-bar__bring-error" role="alert">{bringError}</span>
+			{/if}
+		{/if}
 		<button class="app-bar__theme" type="button"
 			onclick={cycleTheme}
 			aria-label={t('themeToggle')}

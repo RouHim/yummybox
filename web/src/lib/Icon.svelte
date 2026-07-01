@@ -1,5 +1,5 @@
 <script lang="ts">
-	type IconName = 'search' | 'empty-meals' | 'circle-alert' | 'calendar' | 'chevron-left' | 'chevron-right' | 'plus' | 'trash-2' | 'x' | 'check' | 'pen-line' | 'utensils' | 'sun' | 'moon' | 'monitor' | 'soup' | 'loader-circle';
+	type IconName = 'search' | 'empty-meals' | 'circle-alert' | 'calendar' | 'chevron-left' | 'chevron-right' | 'plus' | 'trash-2' | 'x' | 'check' | 'pen-line' | 'utensils' | 'sun' | 'moon' | 'monitor' | 'soup' | 'loader-circle' | 'shopping-bag';
 	let { name, class: className = '', size = 24 }: { name: IconName; class?: string; size?: number } = $props();
 </script>
 
@@ -108,6 +108,12 @@
 	<svg xmlns="http://www.w3.org/2000/svg" width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class={`${className} icon-spin`} aria-hidden="true">
 		<path d="M21 12a9 9 0 1 1-6.219-8.56" />
 	</svg>
+{:else if name === 'shopping-bag'}
+	<svg xmlns="http://www.w3.org/2000/svg" width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class={className} aria-hidden="true">
+		<path d="M6 2 3 6v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V6l-3-4Z" />
+		<path d="M3 6h18" />
+		<path d="M16 10a4 4 0 0 1-8 0" />
+	</svg>
 {/if}
 
 <style>
@@ -120,5 +126,11 @@
 	@keyframes icon-spin {
 		from { transform: rotate(0deg); }
 		to { transform: rotate(360deg); }
+	}
+
+	@media (prefers-reduced-motion: reduce) {
+		.icon-spin {
+			animation: none;
+		}
 	}
 </style>

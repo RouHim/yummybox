@@ -157,3 +157,13 @@ export async function sendToBring(name: string, spec: string | null): Promise<Br
 		body: JSON.stringify({ name, spec }),
 	});
 }
+
+export interface BringStatusResponse {
+	configured: boolean;
+	connected: boolean;
+	error: string | null;
+}
+
+export async function checkBringStatus(): Promise<BringStatusResponse> {
+	return request<BringStatusResponse>('/api/bring/status');
+}

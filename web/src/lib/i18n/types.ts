@@ -128,3 +128,6 @@ export type TranslationKey =
 	| 'bringSend'
 	| 'bringSent'
 	| 'bringSending'
+	| 'bringStatusConnected'
+	| 'bringStatusError'
+	| 'bringStatusChecking'

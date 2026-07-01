@@ -296,3 +296,22 @@ describe('sendToBring', () => {
 		);
 	});
 });
+
+import { checkBringStatus } from './api';
+
+describe('checkBringStatus', () => {
+	it('GETs /api/bring/status and returns the parsed body', async () => {
+		mockResponse(200, { configured: true, connected: true, error: null });
+
+		const result = await checkBringStatus();
+
+		expect(mockFetch).toHaveBeenCalledWith('/api/bring/status', undefined);
+		expect(result).toEqual({ configured: true, connected: true, error: null });
+	});
+
+	it('throws with error message on server error', async () => {
+		mockResponse(500, { error: 'internal server error' });
+
+		await expect(checkBringStatus()).rejects.toThrow('internal server error');
+	});
+});

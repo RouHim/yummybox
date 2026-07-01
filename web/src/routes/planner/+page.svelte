@@ -387,20 +387,21 @@
 										<span class="summary-item__text">{qty}</span>
 									{/each}
 									<button
-										class="btn btn--icon bring-btn"
+										class="bring-btn"
 										class:bring-btn--loading={bs.loading}
 										class:bring-btn--success={bs.success}
 										class:bring-btn--error={bs.error !== null}
 										onclick={() => onBringSend(entry)}
 										disabled={bs.loading || bs.success}
 										aria-label={bs.loading ? t('bringSending') : bs.success ? t('bringSent') : t('bringSend')}
+										title={bs.loading ? t('bringSending') : bs.success ? t('bringSent') : t('bringSend')}
 									>
 										{#if bs.loading}
-											<Icon name="loader-circle" size={14} />
+											<Icon name="loader-circle" size={16} />
 										{:else if bs.success}
-											<Icon name="check" size={14} />
+											<Icon name="check" size={16} />
 										{:else}
-											<Icon name="plus" size={14} />
+											<Icon name="shopping-bag" size={16} />
 										{/if}
 									</button>
 								</li>
@@ -760,18 +761,42 @@
 			min-width: 12ch;
 		}
 	}
-
 	/* ---- Bring! button ---- */
 	.bring-btn {
 		flex-shrink: 0;
 		margin-left: auto;
+		display: inline-flex;
+		align-items: center;
+		justify-content: center;
+		width: 32px;
+		height: 32px;
+		padding: 0;
+		border: 1px solid var(--glass-border);
+		background: var(--glass-bg);
+		color: var(--color-text-secondary);
+		border-radius: var(--radius-full);
+		cursor: pointer;
+		transition: color var(--transition-fast), border-color var(--transition-fast), background var(--transition-fast);
+	}
+	.bring-btn:hover {
+		color: var(--color-primary);
+		border-color: var(--color-border-strong);
+		background: var(--glass-bg-strong);
+	}
+	.bring-btn:focus-visible {
+		outline: 2px solid var(--color-primary);
+		outline-offset: 2px;
+	}
+	.bring-btn:disabled {
+		cursor: wait;
+		opacity: 0.6;
 	}
 	.bring-btn--loading {
 		opacity: 0.6;
 		cursor: wait;
 	}
 	.bring-btn--success {
-		color: var(--color-success, #22c55e);
+		color: var(--color-success);
 	}
 	.bring-btn--error {
 		color: var(--color-danger);
@@ -783,5 +808,10 @@
 		padding: var(--space-1) var(--space-2);
 		color: var(--color-danger);
 		font-size: var(--text-sm);
+	}
+	@media (prefers-reduced-motion: reduce) {
+		.bring-btn {
+			transition: none;
+		}
 	}
 </style>
