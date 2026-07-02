@@ -949,36 +949,79 @@ button {
 	margin: 0 auto;
 	display: flex;
 	flex-direction: column;
-	gap: var(--space-6);
+	gap: 0;
 	background: var(--color-surface);
 	border: 1px solid var(--color-border);
 	border-radius: var(--radius-lg);
-	padding: var(--space-6);
+	padding: 0;
+	overflow: hidden;
 }
 
-.cooking-view__back {
-	position: sticky;
-	top: calc(var(--app-bar-h) + var(--space-3));
-	z-index: 10;
-	align-self: flex-start;
-}
 
 .cooking-view__hero {
 	margin: 0;
+	position: relative;
+	aspect-ratio: 16 / 9;
+	background: var(--color-primary-soft);
 }
 
 .cooking-view__hero-img {
 	width: 100%;
-	aspect-ratio: 16 / 9;
+	height: 100%;
 	object-fit: cover;
-	border-radius: var(--radius-lg);
 	display: block;
+}
+
+.cooking-view__hero-placeholder {
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	width: 100%;
+	height: 100%;
+	color: var(--color-primary);
+	opacity: 0.55;
+}
+
+.cooking-view__hero-overlay {
+	position: absolute;
+	top: var(--space-2);
+	right: var(--space-2);
+	display: flex;
+	gap: var(--space-1);
+	padding: var(--space-1);
+	background: var(--glass-bg-strong);
+	border: 1px solid var(--glass-border);
+	border-radius: var(--radius-full);
+	box-shadow: var(--shadow-md);
+	opacity: 0;
+	pointer-events: none;
+	transition: opacity var(--transition-fast);
+}
+
+.cooking-view:hover .cooking-view__hero-overlay,
+.cooking-view:focus-within .cooking-view__hero-overlay {
+	opacity: 1;
+	pointer-events: auto;
+}
+
+@media (hover: none) {
+	.cooking-view__hero-overlay {
+		opacity: 1;
+		pointer-events: auto;
+	}
+}
+
+.cooking-view__action-btn {
+	min-height: 32px;
+	padding: var(--space-1) var(--space-2);
+	border: 0;
 }
 
 .cooking-view__header {
 	display: flex;
 	flex-direction: column;
 	gap: var(--space-3);
+	padding: var(--space-5) var(--space-6) var(--space-6);
 }
 
 .cooking-view__name {
@@ -1003,16 +1046,12 @@ button {
 	color: var(--color-text-muted);
 }
 
-.cooking-view__actions {
-	display: flex;
-	gap: var(--space-2);
-	flex-wrap: wrap;
-}
 
 .cooking-view__body {
 	display: grid;
 	grid-template-columns: 1fr;
 	gap: var(--space-8);
+	padding: 0 var(--space-6) var(--space-6);
 }
 
 @media (min-width: 768px) {

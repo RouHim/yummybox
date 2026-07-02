@@ -62,22 +62,42 @@
 		<p class="cooking-view__loading">Loading...</p>
 	{:else if notFound}
 		<p class="cooking-view__not-found">{t('cookingViewNotFound')}</p>
-		<a href="/meals" class="nav-link"><Icon name="utensils" size={16} /> {t('cookingViewBack')}</a>
 	{:else if meal}
 		<article class="cooking-view" in:fly={{ y: 8, duration: tierDuration(250) }}>
-			<a href="/meals" class="cooking-view__back nav-link">
-				<Icon name="utensils" size={16} /> {t('cookingViewBack')}
-			</a>
 
-			{#if meal.has_image}
-				<figure class="cooking-view__hero">
+			<figure class="cooking-view__hero">
+				{#if meal.has_image}
 					<img
 						src={mealImageUrl(meal.id)}
 						alt={meal.name}
 						class="cooking-view__hero-img"
 					/>
-				</figure>
-			{/if}
+				{:else}
+					<div class="cooking-view__hero-placeholder" aria-hidden="true">
+						<Icon name="utensils" size={48} />
+					</div>
+				{/if}
+				<div class="cooking-view__hero-overlay">
+					<button
+						type="button"
+						class="btn btn--ghost cooking-view__action-btn"
+						aria-label={t('buttonEdit')}
+						onclick={editMeal}
+						disabled={deleting}
+					>
+						<Icon name="pen-line" size={16} />
+					</button>
+					<button
+						type="button"
+						class="btn btn--danger-ghost cooking-view__action-btn"
+						aria-label={t('buttonDelete')}
+						onclick={openDelete}
+						disabled={deleting}
+					>
+						<Icon name="trash-2" size={16} />
+					</button>
+				</div>
+			</figure>
 
 			<header class="cooking-view__header">
 				<h1 class="cooking-view__name">{meal.name}</h1>
@@ -87,15 +107,6 @@
 					<span class="cooking-view__meta-sep" aria-hidden="true">·</span>
 					<span>{meal.last_planned_at ? t('lastPlanned', { date: formatDate(meal.last_planned_at, { month: 'short', day: 'numeric', year: 'numeric' }) }) : t('lastPlannedNever')}</span>
 				</p>
-
-				<div class="cooking-view__actions">
-					<button type="button" class="btn btn--ghost" onclick={editMeal} disabled={deleting}>
-						<Icon name="pen-line" size={16} /> {t('cookingViewEditMeal')}
-					</button>
-					<button type="button" class="btn btn--danger-ghost" onclick={openDelete} disabled={deleting}>
-						<Icon name="trash-2" size={16} /> {t('cookingViewDeleteMeal')}
-					</button>
-				</div>
 			</header>
 
 			<div class="cooking-view__body">
