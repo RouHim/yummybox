@@ -19,13 +19,12 @@ test.describe('planner operations', () => {
 	}
 
 	async function planMealCount(page): Promise<number> {
-		const text = await page.locator('.plan-meals h3').textContent();
-		return parseInt(text ?? '0', 10);
+		return page.locator('.plan-meal-card:not(.plan-meal-card--add)').count();
 	}
 
 	async function generatePlan(page): Promise<void> {
 		await page.getByRole('button', { name: 'Generate meal plan' }).click();
-		await expect(page.locator('.plan-meal-list')).toBeVisible({ timeout: 10000 });
+		await expect(page.locator('.plan-meal-grid')).toBeVisible({ timeout: 10000 });
 	}
 
 	// Each test uses a different cell index so they don't interfere with each other.
@@ -37,11 +36,9 @@ test.describe('planner operations', () => {
 
 		await generatePlan(page);
 
-		const h3 = page.locator('.plan-meals h3');
-		await expect(h3).toHaveText(/^\d+ meals?$/);
+		await expect(page.locator('.plan-meal-card:not(.plan-meal-card--add)').first()).toBeVisible();
 		const count = await planMealCount(page);
 		expect(count).toBeGreaterThanOrEqual(1);
-		await expect(page.locator('.plan-meal-item').first()).toBeVisible();
 
 		// Re-query the cell at the same index — it should now have has-plan class.
 		await expect(page.locator('.week-cell').nth(idx)).toHaveClass(/week-cell--has-plan/);
@@ -59,7 +56,7 @@ test.describe('planner operations', () => {
 		// Add a second meal for the picker.
 		await createMealViaApi(request, 'Salad', [{ name: 'lettuce' }]);
 
-		await page.locator('.plan-add-row').getByRole('button', { name: 'Add to plan' }).click();
+		await page.locator('.plan-meal-card--add').click();
 		const dialog = page.getByRole('dialog', { name: 'Pick meals' });
 		await expect(dialog).toBeVisible();
 
@@ -71,7 +68,7 @@ test.describe('planner operations', () => {
 		await dialog.getByRole('button', { name: 'Close' }).click();
 		await expect(dialog).not.toBeVisible();
 
-		await expect(page.locator('.plan-meal-list .plan-meal-item', { hasText: 'Salad' })).toBeVisible();
+		await expect(page.locator('.plan-meal-grid .plan-meal-card:not(.plan-meal-card--add)', { hasText: 'Salad' })).toBeVisible();
 		const afterCount = await planMealCount(page);
 		expect(afterCount).toBe(beforeCount + 1);
 	});
@@ -83,7 +80,7 @@ test.describe('planner operations', () => {
 		await generatePlan(page);
 		await createMealViaApi(request, 'Salad', [{ name: 'lettuce' }]);
 
-		await page.locator('.plan-add-row').getByRole('button', { name: 'Add to plan' }).click();
+		await page.locator('.plan-meal-card--add').click();
 		const dialog = page.getByRole('dialog', { name: 'Pick meals' });
 		await expect(dialog).toBeVisible();
 		await dialog
@@ -94,10 +91,10 @@ test.describe('planner operations', () => {
 		await expect(dialog).not.toBeVisible();
 
 		const beforeCount = await planMealCount(page);
-		const firstItem = page.locator('.plan-meal-item').first();
-		const removedName = await firstItem.locator('strong').textContent();
+		const firstItem = page.locator('.plan-meal-card:not(.plan-meal-card--add)').first();
+		const removedName = await firstItem.locator('.plan-meal-card__name').textContent();
 
-		await page.getByRole('button', { name: /^Remove / }).first().click();
+		await page.getByRole('button', { name: /^Remove / }).first().click({ force: true });
 
 		// Wait for the meal count to actually decrease (the API call is async).
 		await expect(async () => {
@@ -107,7 +104,7 @@ test.describe('planner operations', () => {
 
 		if (removedName) {
 			await expect(
-				page.locator('.plan-meal-list .plan-meal-item', { hasText: removedName })
+				page.locator('.plan-meal-grid .plan-meal-card:not(.plan-meal-card--add)', { hasText: removedName })
 			).toHaveCount(0);
 		}
 	});

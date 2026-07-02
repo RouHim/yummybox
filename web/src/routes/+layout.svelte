@@ -66,11 +66,13 @@
 	<nav class="app-bar__nav" aria-label={t('appTitle')}>
 		<a href="/meals" class="app-bar__link"
 			aria-current={pathname.startsWith('/meals') ? 'page' : undefined}>
-			<Icon name="utensils" size={16} /> {t('navMeals')}
+			<Icon name="utensils" size={16} />
+			<span class="app-bar__link-label">{t('navMeals')}</span>
 		</a>
 		<a href="/planner" class="app-bar__link"
 			aria-current={pathname === '/planner' ? 'page' : undefined}>
-			<Icon name="calendar" size={16} /> {t('navPlanner')}
+			<Icon name="calendar" size={16} />
+			<span class="app-bar__link-label">{t('navPlanner')}</span>
 		</a>
 	</nav>
 	<div class="app-bar__actions">

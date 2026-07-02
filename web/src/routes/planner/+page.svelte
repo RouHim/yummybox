@@ -1,10 +1,11 @@
 <script lang="ts">
-	import { listPlansForYear, getPlan, createPlan, updatePlan, deletePlan, listMeals, sendToBring } from '$lib/api';
+	import { listPlansForYear, getPlan, createPlan, updatePlan, deletePlan, listMeals, sendToBring, mealImageUrl } from '$lib/api';
 	import type { Plan, PlanSummaryItem, Meal } from '$lib/types';
 	import { t, formatDate } from '$lib/i18n';
 	import { weekOfDate, mondaySundayOf, isPastWeek, monthGrid, type MonthCell } from '$lib/week';
 	import Icon from '$lib/Icon.svelte';
 	import { fly, fade, scale } from 'svelte/transition';
+	import { flip } from 'svelte/animate';
 	import { tierDuration } from '$lib/motion';
 	import DeleteConfirmDialog from '$lib/DeleteConfirmDialog.svelte';
 	import { page } from '$app/state';
@@ -333,61 +334,85 @@
 	<!-- Plan detail panel -->
 	{#if selectedWeek !== null}
 		<section class="plan-detail glass" in:fly={{ y: 8, duration: tierDuration(250) }}>
-			<h2>{t('plannerOpen')}: Week {selectedWeek}</h2>
+			<header class="plan-detail__header">
+				<h2>{t('plannerOpen')}: Week {selectedWeek}</h2>
+				{#if selectedWeekYear !== null}
+					<p class="plan-detail__date-range">
+						{formatDateRange(selectedWeekYear, selectedWeek)}
+					</p>
+				{/if}
+			</header>
 
 			{#if loading}
 				<p>Loading...</p>
 			{:else if selectedPlan}
 				<!-- Existing plan -->
 				<div class="plan-meals">
-					<h3>{selectedPlan.meals.length} meal{selectedPlan.meals.length !== 1 ? 's' : ''}</h3>
 					{#if selectedPlan.meals.length === 0}
 						<p class="plan-empty-msg">{t('plannerNoMeals')}</p>
 					{:else}
-						<ul class="plan-meal-list">
+						<div class="plan-meal-grid">
 							{#each selectedPlan.meals as meal (meal.id)}
-								<li class="plan-meal-item">
-									<div>
-										<strong>{meal.name}</strong>
-										<span class="plan-meal-item__ings">
-											{meal.ingredients.map(i => i.quantity ? `${i.name} (${i.quantity})` : i.name).join(', ')}
-										</span>
-									</div>
-									<button class="btn btn--ghost btn--icon" onclick={() => onRemoveMeal(meal.id)}
-										aria-label="{t('plannerRemove')} {meal.name}">
-							<Icon name="trash-2" size={14} />
+								<article class="plan-meal-card" animate:flip={{ duration: tierDuration(200) }}>
+									<a href="/meals/{meal.id}" class="plan-meal-card__link" aria-label={t('mealCardCookAria', { name: meal.name })}>
+										<div class="plan-meal-card__media">
+											{#if meal.has_image}
+												<img src={mealImageUrl(meal.id)} alt={meal.name} class="plan-meal-card__img" loading="lazy" />
+											{:else}
+												<div class="plan-meal-card__placeholder" aria-hidden="true">
+													<Icon name="utensils" size={36} />
+												</div>
+											{/if}
+										</div>
+										<div class="plan-meal-card__body">
+											<h3 class="plan-meal-card__name">{meal.name}</h3>
+											<span class="plan-meal-card__chip">
+												{meal.ingredients.length === 1
+													? t('ingredientCountOne')
+													: t('ingredientCount', { count: String(meal.ingredients.length) })}
+											</span>
+										</div>
+									</a>
+									<button
+										class="plan-meal-card__remove"
+										onclick={() => onRemoveMeal(meal.id)}
+										aria-label="{t('plannerRemove')} {meal.name}"
+										title="{t('plannerRemove')} {meal.name}"
+									>
+										<Icon name="trash-2" size={14} />
 									</button>
-								</li>
+								</article>
 							{/each}
-						</ul>
-					{/if}
 
-					<!-- Add meal button -->
-					<div class="plan-add-row">
-						<button class="btn btn--ghost" onclick={openMealPicker}>
-							<Icon name="plus" size={14} /> {t('plannerAddMeal')}
-						</button>
-					</div>
+							<button class="plan-meal-card plan-meal-card--add" onclick={openMealPicker}>
+								<div class="plan-meal-card__add-icon">
+									<Icon name="plus" size={28} />
+								</div>
+								<span class="plan-meal-card__add-label">{t('plannerAddMeal')}</span>
+							</button>
+						</div>
+					{/if}
 				</div>
 
 				<!-- Ingredient summary -->
 				{#if selectedPlan.ingredient_summary.length > 0}
 					<div class="plan-summary">
 						<h3>{t('plannerIngredientSummary')}</h3>
-						<ul class="summary-list">
+						<div class="summary-grid">
 							{#each selectedPlan.ingredient_summary as entry (entry.name)}
 								{@const bs = bringStates[entry.name] ?? { loading: false, error: null, success: false }}
-								<li class="summary-item">
-									<span class="summary-item__name">{entry.name}</span>
-									{#if entry.numeric_total}
-										<span class="summary-item__num">
-											{entry.numeric_total.value}
-											{#if entry.numeric_total.unit} {entry.numeric_total.unit}{/if}
-										</span>
-									{/if}
-									{#each entry.non_numeric as qty}
-										<span class="summary-item__text">{qty}</span>
-									{/each}
+								<div class="summary-card" class:summary-card--ok={bs.success}>
+									<div class="summary-card__main">
+										<span class="summary-card__name">{entry.name}</span>
+										{#if entry.numeric_total}
+											<span class="summary-card__num">
+												{entry.numeric_total.value}{#if entry.numeric_total.unit} {entry.numeric_total.unit}{/if}
+											</span>
+										{/if}
+										{#each entry.non_numeric as qty}
+											<span class="summary-card__text">{qty}</span>
+										{/each}
+									</div>
 									<button
 										class="bring-btn"
 										class:bring-btn--loading={bs.loading}
@@ -406,15 +431,15 @@
 											<Icon name="shopping-bag" size={16} />
 										{/if}
 									</button>
-								</li>
-								{#if bs.error}
-									<li class="bring-error" role="alert">
-										<Icon name="circle-alert" size={14} />
-										<span>{bs.error}</span>
-									</li>
-								{/if}
+									{#if bs.error}
+										<p class="summary-card__error" role="alert">
+											<Icon name="circle-alert" size={12} />
+											{bs.error}
+										</p>
+									{/if}
+								</div>
 							{/each}
-						</ul>
+						</div>
 					</div>
 				{/if}
 
@@ -600,76 +625,241 @@
 		background: var(--color-primary);
 	}
 
-	/* ---- Plan Detail Panel (unchanged) ---- */
+	/* ---- Plan Detail Panel ---- */
 	.plan-detail {
 		border: 1px solid var(--glass-border);
 		border-radius: var(--radius-lg);
 		padding: var(--space-6);
 	}
-	.plan-detail h2 {
-		margin-top: 0;
+	.plan-detail__header {
+		margin-bottom: var(--space-5);
 	}
-	.plan-meals { margin-bottom: var(--space-4); }
-	.plan-empty-msg {
-		color: var(--color-text-secondary);
-	}
-	.plan-meal-list {
-		list-style: none;
-		padding: 0;
+	.plan-detail__header h2 {
 		margin: 0;
-		display: flex;
-		flex-direction: column;
-		gap: var(--space-2);
+		font-family: var(--font-display);
+		font-size: var(--text-xl);
+		font-weight: var(--weight-semibold);
 	}
-	.plan-meal-item {
-		display: flex;
-		justify-content: space-between;
-		align-items: center;
-		padding: var(--space-2) var(--space-3);
-		border: 1px solid var(--color-border);
-		border-radius: var(--radius-md);
-	}
-	.plan-meal-item__ings {
-		display: block;
+	.plan-detail__date-range {
+		margin: var(--space-1) 0 0;
 		font-size: var(--text-sm);
 		color: var(--color-text-secondary);
 	}
-	.plan-add-row { margin-top: var(--space-3); }
 
-	.summary-list {
-		list-style: none;
-		padding: 0;
-		margin: 0;
+	/* ---- Meal card grid ---- */
+	.plan-meals { margin-bottom: var(--space-6); }
+	.plan-empty-msg {
+		color: var(--color-text-secondary);
+		padding: var(--space-4) 0;
+	}
+	.plan-meal-grid {
+		display: grid;
+		grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+		gap: var(--space-3);
+	}
+	.plan-meal-card {
+		position: relative;
+		border: 1px solid var(--color-border);
+		border-radius: var(--radius-md);
+		background: var(--color-surface);
+		overflow: hidden;
+		transition: border-color var(--transition-base), box-shadow var(--transition-base), transform var(--transition-base);
+	}
+	.plan-meal-card:hover {
+		border-color: var(--color-border-strong);
+		box-shadow: var(--shadow-md);
+		transform: translateY(-2px);
+	}
+	.plan-meal-card__link {
+		display: block;
+		text-decoration: none;
+		color: inherit;
+	}
+	.plan-meal-card__media {
+		aspect-ratio: 16 / 9;
+		background: var(--color-surface-2);
+		overflow: hidden;
+	}
+	.plan-meal-card__img {
+		width: 100%;
+		height: 100%;
+		object-fit: cover;
+		display: block;
+	}
+	.plan-meal-card__placeholder {
+		width: 100%;
+		height: 100%;
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		color: var(--color-text-muted);
+		background: var(--color-primary-soft);
+	}
+	.plan-meal-card__body {
+		padding: var(--space-2) var(--space-3);
 		display: flex;
 		flex-direction: column;
 		gap: var(--space-1);
 	}
-	.summary-item {
-		display: flex;
-		align-items: baseline;
-		gap: var(--space-2);
-		padding: var(--space-1) 0;
-		border-bottom: 1px solid var(--color-border);
+	.plan-meal-card__name {
+		margin: 0;
+		font-family: var(--font-display);
+		font-size: var(--text-base);
+		font-weight: var(--weight-semibold);
+		line-height: 1.3;
 	}
-	.summary-item__name {
+	.plan-meal-card__chip {
+		font-size: var(--text-xs);
 		font-weight: var(--weight-medium);
-		flex: 1;
+		color: var(--color-text-muted);
 	}
-	.summary-item__num {
+	.plan-meal-card__remove {
+		position: absolute;
+		top: var(--space-1);
+		right: var(--space-1);
+		display: inline-flex;
+		align-items: center;
+		justify-content: center;
+		width: 28px;
+		height: 28px;
+		padding: 0;
+		border: 0;
+		border-radius: var(--radius-full);
+		background: var(--glass-bg-strong);
+		color: var(--color-text-secondary);
+		cursor: pointer;
+		opacity: 0;
+		pointer-events: none;
+		transition: opacity var(--transition-fast), color var(--transition-fast), background var(--transition-fast);
+		backdrop-filter: blur(var(--glass-blur-low));
+		-webkit-backdrop-filter: blur(var(--glass-blur-low));
+	}
+	.plan-meal-card:hover .plan-meal-card__remove,
+	.plan-meal-card:focus-within .plan-meal-card__remove {
+		opacity: 1;
+		pointer-events: auto;
+	}
+	.plan-meal-card__remove:hover {
+		color: var(--color-danger);
+		background: var(--color-danger-soft);
+	}
+	.plan-meal-card__remove:focus-visible {
+		outline: 2px solid var(--color-primary);
+		outline-offset: 2px;
+		opacity: 1;
+		pointer-events: auto;
+	}
+	@media (hover: none) {
+		.plan-meal-card__remove {
+			opacity: 1;
+			pointer-events: auto;
+		}
+	}
+
+	/* ---- Add-meal tile ---- */
+	.plan-meal-card--add {
+		display: flex;
+		flex-direction: column;
+		align-items: center;
+		justify-content: center;
+		gap: var(--space-2);
+		padding: var(--space-4);
+		border-style: dashed;
+		border-color: var(--color-border-strong);
+		background: transparent;
+		color: var(--color-text-secondary);
+		cursor: pointer;
+	}
+	.plan-meal-card--add:hover {
+		border-color: var(--color-primary);
+		color: var(--color-primary);
+		background: var(--color-primary-soft);
+		transform: translateY(-2px);
+	}
+	.plan-meal-card__add-icon {
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		color: inherit;
+	}
+	.plan-meal-card__add-label {
+		font-size: var(--text-sm);
+		font-weight: var(--weight-medium);
+	}
+
+	/* ---- Ingredient summary grid ---- */
+	.plan-summary {
+		margin-bottom: var(--space-4);
+	}
+	.plan-summary h3 {
+		margin: 0 0 var(--space-3);
+		font-family: var(--font-display);
+		font-size: var(--text-lg);
+		font-weight: var(--weight-semibold);
+	}
+	.summary-grid {
+		display: grid;
+		grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+		gap: var(--space-2);
+	}
+	.summary-card {
+		display: flex;
+		align-items: center;
+		gap: var(--space-2);
+		padding: var(--space-2) var(--space-3);
+		border: 1px solid var(--color-border);
+		border-radius: var(--radius-md);
+		background: var(--color-surface);
+		transition: border-color var(--transition-fast);
+	}
+	.summary-card--ok {
+		border-color: var(--color-success);
+		background: var(--color-success-bg);
+	}
+	.summary-card__main {
+		flex: 1;
+		min-width: 0;
+		display: flex;
+		flex-wrap: wrap;
+		align-items: baseline;
+		gap: var(--space-1);
+	}
+	.summary-card__name {
+		font-weight: var(--weight-medium);
+		font-size: var(--text-sm);
+	}
+	.summary-card__num {
 		font-weight: var(--weight-semibold);
 		color: var(--color-primary);
-	}
-	.summary-item__text {
 		font-size: var(--text-sm);
+	}
+	.summary-card__text {
+		font-size: var(--text-xs);
 		color: var(--color-text-secondary);
 	}
-	.plan-actions { margin-top: var(--space-4); }
+	.summary-card__error {
+		display: flex;
+		align-items: center;
+		gap: var(--space-1);
+		margin: var(--space-1) 0 0;
+		color: var(--color-danger);
+		font-size: var(--text-xs);
+	}
 
+	/* ---- Actions ---- */
+	.plan-actions {
+		margin-top: var(--space-4);
+		display: flex;
+		justify-content: flex-end;
+	}
+
+	/* ---- Generate form ---- */
 	.plan-generate {
 		display: flex;
 		flex-direction: column;
-		gap: var(--space-3);
+		gap: var(--space-4);
 		align-items: flex-start;
+		padding: var(--space-2) 0;
 	}
 	.plan-count-input {
 		max-width: 80px;
@@ -763,6 +953,13 @@
 		.cal-nav__label {
 			min-width: 12ch;
 		}
+		.plan-meal-grid {
+			grid-template-columns: repeat(2, 1fr);
+			gap: var(--space-2);
+		}
+		.summary-grid {
+			grid-template-columns: 1fr;
+		}
 	}
 	/* ---- Bring! button ---- */
 	.bring-btn {
@@ -803,14 +1000,6 @@
 	}
 	.bring-btn--error {
 		color: var(--color-danger);
-	}
-	.bring-error {
-		display: flex;
-		align-items: center;
-		gap: var(--space-2);
-		padding: var(--space-1) var(--space-2);
-		color: var(--color-danger);
-		font-size: var(--text-sm);
 	}
 	@media (prefers-reduced-motion: reduce) {
 		.bring-btn {

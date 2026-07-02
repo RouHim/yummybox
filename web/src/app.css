@@ -719,14 +719,6 @@ button {
   align-items: center;
   gap: var(--space-2);
 }
-.app-bar__nav::before {
-  content: '';
-  width: 1px;
-  height: 20px;
-  background: var(--color-border);
-  margin-right: var(--space-1);
-  flex-shrink: 0;
-}
 .app-bar__link {
   display: inline-flex;
   align-items: center;
@@ -782,6 +774,35 @@ button {
 .app-bar__theme:focus-visible {
   outline: 2px solid var(--color-primary);
   outline-offset: 2px;
+}
+
+@media (max-width: 767px) {
+  .app-bar {
+    gap: var(--space-1);
+    padding: var(--space-1) var(--space-2);
+  }
+  .app-bar__brand {
+    margin-right: auto;
+    font-size: var(--text-base);
+  }
+  .app-bar__link {
+    padding: var(--space-1) var(--space-2);
+  }
+  .app-bar__link-label {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    padding: 0;
+    margin: -1px;
+    overflow: hidden;
+    clip: rect(0, 0, 0, 0);
+    white-space: nowrap;
+    border: 0;
+  }
+  .app-bar__actions {
+    gap: 0;
+    padding: var(--space-0-5);
+  }
 }
 
 .site-footer__bring-error {

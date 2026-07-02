@@ -30,7 +30,7 @@ test.describe('Bring! integration', () => {
 		await page.getByRole('button', { name: 'Generate meal plan' }).click();
 		await page.waitForSelector('.plan-summary', { state: 'visible' });
 
-		const flourButton = page.locator('.plan-summary li', { hasText: 'flour' }).getByRole('button');
+		const flourButton = page.locator('.summary-card', { hasText: 'flour' }).getByRole('button');
 		await expect(flourButton).toHaveAttribute('aria-label', 'Send to Bring!');
 
 		await page.route('**/api/bring/items', async (route) => {
