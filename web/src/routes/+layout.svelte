@@ -28,8 +28,6 @@
 		return () => mq.removeEventListener('change', handler);
 	});
 
-	type BringBadgeState = 'hidden' | 'checking' | 'connected' | 'error';
-	let bringState = $state<BringBadgeState>('hidden');
 	let bringError = $state<string | null>(null);
 
 	$effect(() => {
@@ -37,19 +35,17 @@
 			.then((res) => {
 				if (!res.configured) {
 					console.log('[Bring!] not configured — set BRING_EMAIL and BRING_PASSWORD to enable shopping list sync');
-					bringState = 'hidden';
+					bringError = null;
 				} else if (res.connected) {
 					console.log('[Bring!] connected');
-					bringState = 'connected';
+					bringError = null;
 				} else {
 					console.warn('[Bring!] error:', res.error);
-					bringState = 'error';
 					bringError = res.error;
 				}
 			})
 			.catch((e) => {
 				console.error('[Bring!] probe failed:', e);
-				bringState = 'error';
 				bringError = e instanceof Error ? e.message : String(e);
 			});
 	});
@@ -94,23 +90,7 @@
 	<p class="attribution">
 		{t('bgPhoto')}: <a href="https://www.pexels.com/photo/cooked-food-with-sesame-seeds-8481834/" target="_blank" rel="noopener">Sergey Meshkov</a> / Pexels
 	</p>
-	{#if bringState !== 'hidden'}
-		<div class="site-footer__bring">
-			<button
-				class="site-footer__bring-btn"
-				class:site-footer__bring-btn--connected={bringState === 'connected'}
-				class:site-footer__bring-btn--error={bringState === 'error'}
-				type="button"
-				aria-label={bringState === 'checking' ? t('bringStatusChecking') : bringState === 'connected' ? t('bringStatusConnected') : t('bringStatusError')}
-				title={bringState === 'error' && bringError ? bringError : undefined}
-				disabled={bringState === 'checking'}
-			>
-				<Icon name="shopping-bag" size={16} spin={bringState === 'checking'} />
-				Bring!
-			</button>
-			{#if bringState === 'error' && bringError}
-				<span class="site-footer__bring-error" role="alert">{bringError}</span>
-			{/if}
-		</div>
+	{#if bringError}
+		<span class="site-footer__bring-error" role="alert">{bringError}</span>
 	{/if}
 </footer>

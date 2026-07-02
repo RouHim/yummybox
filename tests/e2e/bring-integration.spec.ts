@@ -19,8 +19,7 @@ test.describe('Bring! integration', () => {
 			});
 		});
 
-		await page.goto('/meals');
-		await expect(page.getByRole('button', { name: 'Bring! connected' })).toBeVisible();
+		await page.goto('/planner');
 
 		// Generate a plan: pick the last week row (guaranteed empty after resetPlans).
 		await page.goto('/planner');
@@ -48,7 +47,7 @@ test.describe('Bring! integration', () => {
 		await expect(flourButton).toHaveAttribute('aria-label', 'Sent!');
 	});
 
-	test('given_bring_not_configured_when_app_loads_then_badge_hidden', async ({ page }) => {
+	test('given_bring_not_configured_when_app_loads_then_no_error_message_shown', async ({ page }) => {
 		await page.route('**/api/bring/status', async (route) => {
 			await route.fulfill({
 				status: 200,
@@ -58,10 +57,10 @@ test.describe('Bring! integration', () => {
 		});
 
 		await page.goto('/meals');
-		await expect(page.getByRole('button', { name: /Bring!/ })).toHaveCount(0);
+		await expect(page.locator('.site-footer__bring-error')).toHaveCount(0);
 	});
 
-	test('given_bring_error_state_when_app_loads_then_error_badge_shown', async ({ page }) => {
+	test('given_bring_error_state_when_app_loads_then_error_message_shown', async ({ page }) => {
 		await page.route('**/api/bring/status', async (route) => {
 			await route.fulfill({
 				status: 200,
@@ -71,7 +70,6 @@ test.describe('Bring! integration', () => {
 		});
 
 		await page.goto('/meals');
-		await expect(page.getByRole('button', { name: 'Bring! error' })).toBeVisible();
 		await expect(page.locator('.site-footer__bring-error[role="alert"]')).toContainText('Auth failed');
 	});
 });
