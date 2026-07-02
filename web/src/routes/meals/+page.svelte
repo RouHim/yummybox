@@ -67,6 +67,7 @@ import { readStoredLlmConfig, persistLlmConfig } from '$lib/llm-config.svelte';
                     importLlmProvider === 'custom' ? importLlmCustomBaseUrl : undefined,
                     importLlmProvider === 'custom' ? importLlmCustomApiKey : undefined,
                 );
+            formName = draft.name;
             formIngredients = draft.ingredients.length > 0
                 ? draft.ingredients.map(i => ({ name: i.name, quantity: i.quantity }))
                 : [{ name: '', quantity: null }];
@@ -564,131 +565,127 @@ import { readStoredLlmConfig, persistLlmConfig } from '$lib/llm-config.svelte';
 										<span>{t('importTabBulk')}</span>
 									</button>
 								</div>
-								{#key importMode}
-									<div transition:fly={{ y: -4, duration: 150 }}>
-										{#if importMode === 'link'}
-										<label class="import-field">
-											<span>{t('importLinkLabel')}</span>
-											<textarea bind:value={importInput} placeholder={t('importLinkPlaceholder')} rows="6"></textarea>
-										</label>
-										<button type="button" class="btn btn--primary" onclick={onImport} disabled={importing || !importInput.trim()}>
-											{t('importButtonFetch')}
-										</button>
-									{:else if importMode === 'bulk'}
-										{#if bulkResult}
-											<div class="bulk-results">
-												<p class="bulk-results__success">
-													{t('importBulkResultsSuccess', { count: String(bulkResult.created.length) })}
-												</p>
-												{#if bulkResult.failed.length > 0}
-													<ul class="bulk-results__failures">
-														{#each bulkResult.failed as f}
-															<li class="form-error">
-																<Icon name="circle-alert" size={16} />
-																<span class="bulk-results__url">{f.url}</span>
-																<span class="bulk-results__reason">{t(f.reason === 'fetch failed' ? 'importBulkReasonFetch' : f.reason === 'no recipe found' ? 'importBulkReasonNoRecipe' : 'importBulkReasonValidation')}</span>
-															</li>
-														{/each}
-													</ul>
-												{/if}
-												<button type="button" class="btn btn--ghost" onclick={() => { bulkResult = null; bulkUrls = ''; bulkError = null; }}>
-													{t('importBulkNewBatch')}
-												</button>
-											</div>
-										{:else}
-											<label class="import-field">
-												<span>{t('importBulkPlaceholder')}</span>
-												<textarea bind:value={bulkUrls} placeholder={t('importBulkPlaceholder')} rows="8" disabled={bulkImporting}></textarea>
-											</label>
-											<button type="button" class="btn btn--primary" onclick={onBulkImport}
-												disabled={bulkImporting || !bulkUrls.trim() || bulkUrls.split('\n').filter(l => l.trim().length > 0).length > 50}>
-												{bulkImporting ? t('importButtonBulkLoading') : t('importButtonBulk')}
-											</button>
+								{#if importMode === 'link'}
+								<label class="import-field">
+									<span>{t('importLinkLabel')}</span>
+									<textarea bind:value={importInput} placeholder={t('importLinkPlaceholder')} rows="6"></textarea>
+								</label>
+								<button type="button" class="btn btn--primary" onclick={onImport} disabled={importing || !importInput.trim()}>
+									{t('importButtonFetch')}
+								</button>
+								{:else if importMode === 'bulk'}
+								{#if bulkResult}
+									<div class="bulk-results">
+										<p class="bulk-results__success">
+											{t('importBulkResultsSuccess', { count: String(bulkResult.created.length) })}
+										</p>
+										{#if bulkResult.failed.length > 0}
+											<ul class="bulk-results__failures">
+												{#each bulkResult.failed as f}
+													<li class="form-error">
+														<Icon name="circle-alert" size={16} />
+														<span class="bulk-results__url">{f.url}</span>
+														<span class="bulk-results__reason">{t(f.reason === 'fetch failed' ? 'importBulkReasonFetch' : f.reason === 'no recipe found' ? 'importBulkReasonNoRecipe' : 'importBulkReasonValidation')}</span>
+													</li>
+												{/each}
+											</ul>
 										{/if}
-									{:else}
-										{#if llmProviders.length === 0 && !llmProvidersLoading}
-											<p class="form-error">{t('llmNoProviders')}</p>
-										{:else}
-											{#if importLlmProvider}
-												<div class="llm-settings-toggle">
-													{#if llmSettingsCollapsed}
-														<span class="llm-settings-summary">
-															{t('llmProviderLabel')}: {llmProviders.find(p => p.id === importLlmProvider)?.name ?? importLlmProvider}
-															· {t('llmModelLabel')}: {importLlmModel}
-														</span>
-													{/if}
-													<button type="button" class="btn btn--ghost"
-														onclick={() => llmSettingsCollapsed = !llmSettingsCollapsed}>
-														{llmSettingsCollapsed ? t('llmSettingsChange') : t('llmSettingsHide')}
-													</button>
-												</div>
+										<button type="button" class="btn btn--ghost" onclick={() => { bulkResult = null; bulkUrls = ''; bulkError = null; }}>
+											{t('importBulkNewBatch')}
+										</button>
+									</div>
+								{:else}
+									<label class="import-field">
+										<span>{t('importBulkPlaceholder')}</span>
+										<textarea bind:value={bulkUrls} placeholder={t('importBulkPlaceholder')} rows="8" disabled={bulkImporting}></textarea>
+									</label>
+									<button type="button" class="btn btn--primary" onclick={onBulkImport}
+										disabled={bulkImporting || !bulkUrls.trim() || bulkUrls.split('\n').filter(l => l.trim().length > 0).length > 50}>
+										{bulkImporting ? t('importButtonBulkLoading') : t('importButtonBulk')}
+									</button>
+								{/if}
+								{:else}
+								{#if llmProviders.length === 0 && !llmProvidersLoading}
+									<p class="form-error">{t('llmNoProviders')}</p>
+								{:else}
+									{#if importLlmProvider}
+										<div class="llm-settings-toggle">
+											{#if llmSettingsCollapsed}
+												<span class="llm-settings-summary">
+													{t('llmProviderLabel')}: {llmProviders.find(p => p.id === importLlmProvider)?.name ?? importLlmProvider}
+													· {t('llmModelLabel')}: {importLlmModel}
+												</span>
 											{/if}
-											{#if !llmSettingsCollapsed || !importLlmProvider}
-												<div class="import-subsection" transition:fly={{ y: -4, duration: 150 }}>
-													<div class="llm-provider-row">
-														<select bind:value={importLlmProvider} onchange={onProviderChange}
-															disabled={llmProvidersLoading || importing}>
-															<option value="">{t('llmProviderPlaceholder')}</option>
-															{#each llmProviders as p}
-																<option value={p.id} disabled={!p.configured && p.id !== 'ollama'}>
-																	{p.name}{p.configured ? '' : ` (${t('notConfigured')})`}
-																</option>
+											<button type="button" class="btn btn--ghost"
+												onclick={() => llmSettingsCollapsed = !llmSettingsCollapsed}>
+												{llmSettingsCollapsed ? t('llmSettingsChange') : t('llmSettingsHide')}
+											</button>
+										</div>
+									{/if}
+									{#if !llmSettingsCollapsed || !importLlmProvider}
+										<div class="import-subsection" transition:fly={{ y: -4, duration: 150 }}>
+											<div class="llm-provider-row">
+												<select bind:value={importLlmProvider} onchange={onProviderChange}
+													disabled={llmProvidersLoading || importing}>
+													<option value="">{t('llmProviderPlaceholder')}</option>
+													{#each llmProviders as p}
+														<option value={p.id} disabled={!p.configured && p.id !== 'ollama'}>
+															{p.name}{p.configured ? '' : ` (${t('notConfigured')})`}
+														</option>
+													{/each}
+												</select>
+
+												{#if importLlmProvider}
+													{#if llmModelsLoading}
+														<span class="import-loading">{t('llmModelLoading')}</span>
+													{:else if llmModelsError}
+														<input type="text" bind:value={importLlmModel} placeholder={t('importLlmModelPlaceholder')} />
+													{:else}
+														<select bind:value={importLlmModel} disabled={importing}>
+															<option value="">{t('llmModelPlaceholder')}</option>
+															{#each llmModels as m}
+																<option value={m}>{m}</option>
 															{/each}
 														</select>
-
-														{#if importLlmProvider}
-															{#if llmModelsLoading}
-																<span class="import-loading">{t('llmModelLoading')}</span>
-															{:else if llmModelsError}
-																<input type="text" bind:value={importLlmModel} placeholder={t('importLlmModelPlaceholder')} />
-															{:else}
-																<select bind:value={importLlmModel} disabled={importing}>
-																	<option value="">{t('llmModelPlaceholder')}</option>
-																	{#each llmModels as m}
-																		<option value={m}>{m}</option>
-																	{/each}
-																</select>
-															{/if}
-														{/if}
-													</div>
-
-													{#if importLlmProvider === 'custom'}
-														<p class="import-info">{t('llmCustomHint')}</p>
-														<label class="import-field">
-															<span>{t('llmCustomBaseUrlLabel')}</span>
-															<input type="url" bind:value={importLlmCustomBaseUrl} placeholder={t('llmCustomBaseUrlPlaceholder')} />
-														</label>
-														<label class="import-field">
-															<span>{t('llmCustomApiKeyLabel')}</span>
-															<input type="password" bind:value={importLlmCustomApiKey} placeholder={t('llmCustomApiKeyPlaceholder')} />
-														</label>
 													{/if}
+												{/if}
+											</div>
 
-													{#if llmModelsError}
-														<p class="form-error">{llmModelsError}</p>
-													{/if}
-													{#if importLlmProvider === 'ollama' && llmModelsError}
-														<p class="import-info">{t('llmOllamaHint')}</p>
-													{/if}
-												</div>
+											{#if importLlmProvider === 'custom'}
+												<p class="import-info">{t('llmCustomHint')}</p>
+												<label class="import-field">
+													<span>{t('llmCustomBaseUrlLabel')}</span>
+													<input type="url" bind:value={importLlmCustomBaseUrl} placeholder={t('llmCustomBaseUrlPlaceholder')} />
+												</label>
+												<label class="import-field">
+													<span>{t('llmCustomApiKeyLabel')}</span>
+													<input type="password" bind:value={importLlmCustomApiKey} placeholder={t('llmCustomApiKeyPlaceholder')} />
+												</label>
 											{/if}
 
-											<textarea
-												bind:value={importLlmHint}
-												placeholder={t('importLlmHintPlaceholder')}
-												rows="6"
-												maxlength={20000}
-												class="llm-hint-input"
-											></textarea>
-
-											<button type="button" class="btn btn--primary" onclick={onImport}
-												disabled={importing || !importLlmModel.trim() || !importLlmHint.trim()}>
-												{importing ? t('importButtonLlmLoading') : t('importButtonLlm')}
-											</button>
-										{/if}
+											{#if llmModelsError}
+												<p class="form-error">{llmModelsError}</p>
+											{/if}
+											{#if importLlmProvider === 'ollama' && llmModelsError}
+												<p class="import-info">{t('llmOllamaHint')}</p>
+											{/if}
+										</div>
 									{/if}
-									</div>
-								{/key}
+
+									<textarea
+										bind:value={importLlmHint}
+										placeholder={t('importLlmHintPlaceholder')}
+										rows="6"
+										maxlength={20000}
+										class="llm-hint-input"
+									></textarea>
+
+									<button type="button" class="btn btn--primary" onclick={onImport}
+										disabled={importing || !importLlmModel.trim() || !importLlmHint.trim()}>
+										{importing ? t('importButtonLlmLoading') : t('importButtonLlm')}
+									</button>
+								{/if}
+								{/if}
 								{#if importError || (importMode === 'bulk' && bulkError)}
 									<p class="form-error" role="alert">
 										<Icon name="circle-alert" size={18} />
