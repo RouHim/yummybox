@@ -277,14 +277,14 @@
 
 	<!-- Month navigation -->
 	<div class="cal-nav glass">
-		<button class="btn btn--ghost btn--icon" onclick={prevMonth} aria-label={t('plannerMonthPrev')}>
+		<button class="btn btn--ghost btn--icon" onclick={prevMonth} aria-label={t('plannerMonthPrev')} title={t('plannerMonthPrev')}>
 			<Icon name="chevron-left" size={20} />
 		</button>
 		<span class="cal-nav__label">{formatDate(new Date(viewYear, viewMonth, 1), { month: 'long', year: 'numeric' })}</span>
-		<button class="btn btn--ghost btn--icon" onclick={nextMonth} aria-label={t('plannerMonthNext')}>
+		<button class="btn btn--ghost btn--icon" onclick={nextMonth} aria-label={t('plannerMonthNext')} title={t('plannerMonthNext')}>
 			<Icon name="chevron-right" size={20} />
 		</button>
-		<button class="btn btn--ghost btn--icon" onclick={goToday} aria-label={t('plannerToday')}>
+		<button class="btn btn--ghost btn--icon" onclick={goToday} aria-label={t('plannerToday')} title={t('plannerToday')}>
 			<Icon name="calendar" size={20} />
 		</button>
 	</div>
@@ -478,7 +478,7 @@
 			<div class="meal-picker" use:focusTrap in:scale={{ duration: tierDuration(250), start: 0.95 }} onclick={(e) => e.stopPropagation()} onkeydown={() => {}}>
 				<div class="meal-picker__header">
 					<h3>{t('plannerPickMeals')}</h3>
-					<button class="btn btn--ghost btn--icon" onclick={() => mealPickerOpen = false} aria-label={t('plannerClose')}>
+					<button class="btn btn--ghost btn--icon" onclick={() => mealPickerOpen = false} aria-label={t('plannerClose')} title={t('plannerClose')}>
 						<Icon name="x" size={18} />
 					</button>
 				</div>

@@ -1,4 +1,4 @@
-import type { Meal, MealPayload, ImportDraft, Plan, PlanSummaryItem, NewPlanRequest, PlanPatch, LlmProviderInfo, LlmModelsResponse, BulkImportRequest, BulkImportResult } from './types';
+import type { Meal, MealPayload, NewIngredientLine, ImportDraft, Plan, PlanSummaryItem, NewPlanRequest, PlanPatch, LlmProviderInfo, LlmModelsResponse, BulkImportRequest, BulkImportResult } from './types';
 
 
 export class ApiError extends Error {
@@ -176,6 +176,25 @@ export async function listLlmModels(provider: string, baseUrl?: string, apiKey?:
     if (baseUrl) params.set('base_url', baseUrl);
     if (apiKey) params.set('api_key', apiKey);
     return request<LlmModelsResponse>(`/api/llm/models?${params}`);
+}
+
+export async function polishInstructions(
+    model: string,
+    name: string,
+    ingredients: NewIngredientLine[],
+    instructions: string,
+    baseUrl?: string,
+    apiKey?: string,
+): Promise<string> {
+    const form = new FormData();
+    form.set('model', model);
+    form.set('name', name);
+    form.set('ingredients', JSON.stringify(ingredients));
+    form.set('instructions', instructions);
+    if (baseUrl) form.set('base_url', baseUrl);
+    if (apiKey) form.set('api_key', apiKey);
+    const data = await request<{ instructions: string }>('/api/llm/polish', { method: 'POST', body: form });
+    return data.instructions;
 }
 
 // Bring! shopping list API

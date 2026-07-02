@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { getMeal, deleteMeal, mealImageUrl } from '$lib/api';
+	import { getMeal, updateMeal, deleteMeal, mealImageUrl, polishInstructions, ApiError } from '$lib/api';
 	import Icon from '$lib/Icon.svelte';
 	import { t, formatDate } from '$lib/i18n';
 	import { page } from '$app/state';
@@ -8,6 +8,7 @@
 	import { fly } from 'svelte/transition';
 	import { tierDuration } from '$lib/motion';
 	import DeleteConfirmDialog from '$lib/DeleteConfirmDialog.svelte';
+	import { readStoredLlmConfig } from '$lib/llm-config.svelte';
 
 	let meal = $state<Meal | null>(null);
 	let loading = $state(true);
@@ -17,6 +18,12 @@
 
 	let deleteOpen = $state(false);
 	let deleting = $state(false);
+	let polishing = $state(false);
+	let polishError = $state<string | null>(null);
+	let hasLlmConfig = $derived.by(() => {
+		const config = readStoredLlmConfig();
+		return !!config && !!config.model;
+	});
 
 	async function loadMeal() {
 		loading = true;
@@ -55,6 +62,41 @@
 		if (!meal) return;
 		goto('/meals?edit=' + meal.id);
 	}
+
+	async function doPolish() {
+		if (!meal || polishing) return;
+		const config = readStoredLlmConfig();
+		if (!config || !config.model) return;
+		polishing = true;
+		polishError = null;
+		try {
+			const polished = await polishInstructions(
+				config.model,
+				meal.name,
+				meal.ingredients,
+				meal.instructions,
+				config.provider === 'custom' ? config.customBaseUrl : undefined,
+				config.provider === 'custom' ? config.customApiKey : undefined,
+			);
+			await updateMeal(meal.id, {
+				name: meal.name,
+				ingredients: meal.ingredients,
+				instructions: polished,
+			});
+			await loadMeal();
+		} catch (err) {
+			if (err instanceof ApiError) {
+				if (err.code === 'llm_timeout') polishError = t('llmErrorTimeout');
+				else if (err.code === 'llm_parse_failed') polishError = t('llmErrorParseFailed');
+				else if (err.code === 'llm_api_key_missing') polishError = t('llmErrorApiKey', { envVar: '' });
+				else polishError = t('polishErrorFailed');
+			} else {
+				polishError = t('polishErrorFailed');
+			}
+		} finally {
+			polishing = false;
+		}
+	}
 </script>
 
 <main>
@@ -82,15 +124,33 @@
 						type="button"
 						class="btn btn--ghost cooking-view__action-btn"
 						aria-label={t('buttonEdit')}
+						title={t('buttonEdit')}
 						onclick={editMeal}
 						disabled={deleting}
 					>
 						<Icon name="pen-line" size={16} />
-					</button>
+				</button>
+				{#if hasLlmConfig}
 					<button
+						type="button"
+						class="btn btn--ghost cooking-view__action-btn"
+						aria-label={t('buttonPolish')}
+						title={t('buttonPolish')}
+						onclick={doPolish}
+						disabled={polishing || deleting}
+					>
+						{#if polishing}
+							<Icon name="loader-circle" size={16} spin={true} />
+						{:else}
+							<Icon name="sparkles" size={16} />
+						{/if}
+					</button>
+				{/if}
+				<button
 						type="button"
 						class="btn btn--danger-ghost cooking-view__action-btn"
 						aria-label={t('buttonDelete')}
+						title={t('buttonDelete')}
 						onclick={openDelete}
 						disabled={deleting}
 					>
@@ -99,6 +159,10 @@
 				</div>
 			</figure>
 
+
+			{#if polishError}
+				<p class="cooking-view__polish-error" role="alert">{polishError}</p>
+			{/if}
 			<header class="cooking-view__header">
 				<h1 class="cooking-view__name">{meal.name}</h1>
 
@@ -174,5 +238,12 @@
 	.cooking-view__instructions-text {
 		white-space: pre-wrap;
 		line-height: 1.6;
+	}
+
+	.cooking-view__polish-error {
+		color: var(--color-error);
+		font-size: var(--text-sm);
+		padding: var(--space-2) var(--space-3);
+		margin: 0 var(--space-3);
 	}
 </style>

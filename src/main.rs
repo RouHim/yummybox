@@ -83,6 +83,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .route("/import/llm", post(routes::import_from_llm))
         .route("/llm/providers", get(routes::llm_providers))
         .route("/llm/models", get(routes::llm_models))
+        .route("/llm/polish", post(routes::polish_instructions))
         .route("/import/paste", post(routes::import_from_paste))
         .route("/import/bulk", post(routes::import_bulk))
         .route("/import/image-url", post(routes::load_image_from_url))

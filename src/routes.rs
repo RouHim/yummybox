@@ -507,6 +507,106 @@ pub async fn import_from_llm(
     .await?;
     Ok(Json(draft))
 }
+// ---------------------------------------------------------------------------
+// Polish instructions handler
+// ---------------------------------------------------------------------------
+
+#[instrument(skip(_state))]
+pub async fn polish_instructions(
+    State(_state): State<Arc<AppState>>,
+    mut multipart: Multipart,
+) -> Result<Json<serde_json::Value>, AppError> {
+    let mut model: Option<String> = None;
+    let mut name: Option<String> = None;
+    let mut ingredients_json: Option<String> = None;
+    let mut instructions: Option<String> = None;
+    let mut base_url: Option<String> = None;
+    let mut api_key: Option<String> = None;
+
+    while let Some(field) = multipart
+        .next_field()
+        .await
+        .map_err(|e| AppError::BadRequest(format!("invalid multipart data: {e}")))?
+    {
+        match field.name() {
+            Some("model") => {
+                let text = field.text().await.map_err(|e| {
+                    AppError::BadRequest(format!("failed to read model field: {e}"))
+                })?;
+                model = Some(text);
+            }
+            Some("name") => {
+                let text = field
+                    .text()
+                    .await
+                    .map_err(|e| AppError::BadRequest(format!("failed to read name field: {e}")))?;
+                name = Some(text);
+            }
+            Some("ingredients") => {
+                let text = field.text().await.map_err(|e| {
+                    AppError::BadRequest(format!("failed to read ingredients field: {e}"))
+                })?;
+                ingredients_json = Some(text);
+            }
+            Some("instructions") => {
+                let text = field.text().await.map_err(|e| {
+                    AppError::BadRequest(format!("failed to read instructions field: {e}"))
+                })?;
+                instructions = Some(text);
+            }
+            Some("base_url") => {
+                let text = field.text().await.map_err(|e| {
+                    AppError::BadRequest(format!("failed to read base_url field: {e}"))
+                })?;
+                base_url = Some(text);
+            }
+            Some("api_key") => {
+                let text = field.text().await.map_err(|e| {
+                    AppError::BadRequest(format!("failed to read api_key field: {e}"))
+                })?;
+                api_key = Some(text);
+            }
+            _ => {}
+        }
+    }
+
+    let model = model
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty())
+        .ok_or_else(|| AppError::BadRequest("missing 'model' field".into()))?;
+    let name = name
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty())
+        .ok_or_else(|| AppError::BadRequest("missing 'name' field".into()))?;
+    let ingredients_json = ingredients_json
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty())
+        .ok_or_else(|| AppError::BadRequest("missing 'ingredients' field".into()))?;
+    let instructions = instructions
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty())
+        .ok_or_else(|| AppError::BadRequest("missing 'instructions' field".into()))?;
+    let base_url = base_url
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty());
+    let api_key = api_key
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty());
+
+    let ingredients: Vec<crate::model::NewIngredientLine> = serde_json::from_str(&ingredients_json)
+        .map_err(|e| AppError::BadRequest(format!("invalid ingredients JSON: {e}")))?;
+
+    let polished = crate::llm_import::polish_instructions(
+        &model,
+        &name,
+        &ingredients,
+        &instructions,
+        base_url.as_deref(),
+        api_key.as_deref(),
+    )
+    .await?;
+    Ok(Json(serde_json::json!({ "instructions": polished })))
+}
 
 // ---------------------------------------------------------------------------
 // Bulk URL import handler
@@ -798,6 +898,7 @@ mod tests {
             .route("/import/bulk", post(import_bulk))
             .route("/llm/providers", get(llm_providers))
             .route("/llm/models", get(llm_models))
+            .route("/llm/polish", post(polish_instructions))
             .route("/plans", get(get_plans).post(create_plan))
             .route("/plans/{year}/{week}", put(update_plan).delete(delete_plan))
             .route("/bring/items", post(add_bring_item))
@@ -2450,6 +2551,42 @@ mod tests {
     fn given_not_found_error_when_classify_fetch_then_no_recipe_found() {
         let err = AppError::NotFound;
         assert_eq!(classify_fetch_error(&err), "no recipe found");
+    }
+
+    // -----------------------------------------------------------------------
+    // Polish instructions tests
+    // -----------------------------------------------------------------------
+
+    #[tokio::test]
+    async fn given_missing_model_when_polish_instructions_then_returns_400() {
+        let ctx = setup().await;
+        let boundary = "testpolishboundary";
+        let mut body = Vec::new();
+        // name field
+        body.extend_from_slice(b"--");
+        body.extend_from_slice(boundary.as_bytes());
+        body.extend_from_slice(b"\r\n");
+        body.extend_from_slice(b"Content-Disposition: form-data; name=\"name\"\r\n\r\n");
+        body.extend_from_slice(b"Test Meal\r\n");
+        // closing boundary — no model field
+        body.extend_from_slice(b"--");
+        body.extend_from_slice(boundary.as_bytes());
+        body.extend_from_slice(b"--\r\n");
+        let content_type = format!("multipart/form-data; boundary={boundary}");
+        let response = ctx
+            .app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method(Method::POST)
+                    .uri("/llm/polish")
+                    .header("content-type", &content_type)
+                    .body(axum::body::Body::from(body))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::BAD_REQUEST);
     }
 
     #[test]

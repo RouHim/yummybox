@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { listMeals, getMeal, createMeal, updateMeal, deleteMeal, mealImageUrl, listPlansForYear, getPlan, createPlan, updatePlan, deletePlan, importFromUrl, importFromPaste, importFromLlm, importBulk, listLlmProviders, listLlmModels, ApiError } from './api';
-import type { Meal, MealPayload, Plan, PlanSummaryItem, NewPlanRequest, PlanPatch } from './types';
+import { listMeals, getMeal, createMeal, updateMeal, deleteMeal, mealImageUrl, listPlansForYear, getPlan, createPlan, updatePlan, deletePlan, importFromUrl, importFromPaste, importFromLlm, importBulk, listLlmProviders, listLlmModels, polishInstructions, ApiError } from './api';
+import type { Meal, MealPayload, NewIngredientLine, Plan, PlanSummaryItem, NewPlanRequest, PlanPatch } from './types';
 
 const mockFetch = vi.fn();
 globalThis.fetch = mockFetch;
@@ -422,6 +422,52 @@ describe('importFromLlm', () => {
         const draft = { name: 'Pasta', ingredients: [], instructions: '', imageBase64: null };
         mockResponse(200, draft);
         await importFromLlm('gpt-4o-mini', 'pasta', null);
+        const fd = mockFetch.mock.calls[0][1].body as FormData;
+        expect(fd.get('base_url')).toBeNull();
+        expect(fd.get('api_key')).toBeNull();
+    });
+});
+
+// ---------------------------------------------------------------------------
+// Polish instructions API
+// ---------------------------------------------------------------------------
+
+describe('polishInstructions', () => {
+    it('sends model, name, ingredients, and instructions as multipart', async () => {
+        mockResponse(200, { instructions: '<p>Step 1</p>' });
+        const ings: NewIngredientLine[] = [{ name: 'flour', quantity: '200g' }];
+        await polishInstructions('gpt-4o-mini', 'Cake', ings, 'Mix everything');
+        expect(mockFetch).toHaveBeenCalledTimes(1);
+        const [url, opts] = mockFetch.mock.calls[0];
+        expect(url).toBe('/api/llm/polish');
+        expect(opts.method).toBe('POST');
+        const fd = opts.body as FormData;
+        expect(fd.get('model')).toBe('gpt-4o-mini');
+        expect(fd.get('name')).toBe('Cake');
+        expect(fd.get('ingredients')).toBe(JSON.stringify(ings));
+        expect(fd.get('instructions')).toBe('Mix everything');
+    });
+
+    it('returns the polished instructions from response', async () => {
+        mockResponse(200, { instructions: '<p>Step 1. Mix.</p>' });
+        const ings: NewIngredientLine[] = [{ name: 'salt', quantity: null }];
+        const result = await polishInstructions('gpt-4o', 'Soup', ings, 'Add salt');
+        expect(result).toBe('<p>Step 1. Mix.</p>');
+    });
+
+    it('sends base_url and api_key when provided', async () => {
+        mockResponse(200, { instructions: '<p>ok</p>' });
+        const ings: NewIngredientLine[] = [];
+        await polishInstructions('local-model', 'Test', ings, 'do it', 'http://localhost:8080/v1/', 'sk-123');
+        const fd = mockFetch.mock.calls[0][1].body as FormData;
+        expect(fd.get('base_url')).toBe('http://localhost:8080/v1/');
+        expect(fd.get('api_key')).toBe('sk-123');
+    });
+
+    it('omits base_url and api_key when not provided', async () => {
+        mockResponse(200, { instructions: '<p>ok</p>' });
+        const ings: NewIngredientLine[] = [{ name: 'x', quantity: null }];
+        await polishInstructions('gpt-4o', 'Test', ings, 'do it');
         const fd = mockFetch.mock.calls[0][1].body as FormData;
         expect(fd.get('base_url')).toBeNull();
         expect(fd.get('api_key')).toBeNull();

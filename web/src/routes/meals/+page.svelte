@@ -459,6 +459,7 @@ import { readStoredLlmConfig, persistLlmConfig } from '$lib/llm-config.svelte';
 										type="button"
 										class="btn btn--ghost meal-card__action-btn"
 										aria-label={t('buttonEdit')}
+										title={t('buttonEdit')}
 										onclick={(e) => { e.preventDefault(); e.stopPropagation(); openEdit(meal); }}
 									>
 										<Icon name="pen-line" size={16} />
@@ -467,6 +468,7 @@ import { readStoredLlmConfig, persistLlmConfig } from '$lib/llm-config.svelte';
 										type="button"
 										class="btn btn--danger-ghost meal-card__action-btn"
 										aria-label={t('buttonDelete')}
+										title={t('buttonDelete')}
 										onclick={(e) => { e.preventDefault(); e.stopPropagation(); onDelete(meal); }}
 									>
 										<Icon name="trash-2" size={16} />
@@ -532,7 +534,7 @@ import { readStoredLlmConfig, persistLlmConfig } from '$lib/llm-config.svelte';
 			<div class="add-modal" onclick={(e) => e.stopPropagation()} onkeydown={() => {}}>
 				<div class="add-modal__header">
 					<h2 class="add-modal__title">{t('addMealTitle')}</h2>
-					<button class="add-modal__close" onclick={closeAdd} aria-label={t('lightboxClose')}>
+					<button class="add-modal__close" onclick={closeAdd} aria-label={t('lightboxClose')} title={t('lightboxClose')}>
 						<Icon name="x" size={20} />
 					</button>
 				</div>

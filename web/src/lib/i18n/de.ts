@@ -163,5 +163,8 @@ export const de: Record<TranslationKey, string> = {
 	languageLabel: 'Sprache',
 	languageSystem: 'System',
 	languageEnglish: 'English',
+	buttonPolish: 'Anleitung verbessern',
+	polishLoading: 'Verbessere...',
+	polishErrorFailed: 'Anleitung konnte nicht verbessert werden',
 	languageGerman: 'Deutsch',
 };

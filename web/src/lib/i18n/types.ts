@@ -168,5 +168,8 @@ export type TranslationKey =
 	| 'importCollapsedExpand'
 	| 'languageLabel'
 	| 'languageSystem'
+	| 'buttonPolish'
+	| 'polishLoading'
+	| 'polishErrorFailed'
 	| 'languageEnglish'
 	| 'languageGerman';

@@ -194,6 +194,7 @@
 						<button type="button" class="btn btn--ghost btn--icon"
 							onclick={() => removeIngredientRow(i)}
 							aria-label={t('fieldIngredientRemove')}
+							title={t('fieldIngredientRemove')}
 							disabled={formIngredients.length <= 1}
 						>
 							<Icon name="trash-2" size={16} />

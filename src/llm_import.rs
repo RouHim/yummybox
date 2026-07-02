@@ -197,6 +197,43 @@ fn build_user_content(hint: Option<&str>, image: Option<&LlmImage>) -> genai::ch
 // Main import function
 // ---------------------------------------------------------------------------
 
+// ---------------------------------------------------------------------------
+// Shared model spec builder
+// ---------------------------------------------------------------------------
+
+fn build_model_spec(
+    model: &str,
+    base_url: Option<&str>,
+    api_key: Option<&str>,
+) -> genai::ModelSpec {
+    use genai::resolver::{AuthData, Endpoint};
+
+    if let Some(base_url) = base_url.map(|s| s.trim()).filter(|s| !s.is_empty()) {
+        let base_url = if base_url.ends_with('/') {
+            base_url.to_string()
+        } else {
+            format!("{base_url}/")
+        };
+        let endpoint = Endpoint::from_owned(base_url);
+        let auth = match api_key.map(|s| s.trim()).filter(|s| !s.is_empty()) {
+            Some(key) => AuthData::from_single(key),
+            None => AuthData::None,
+        };
+        genai::ServiceTarget {
+            endpoint,
+            auth,
+            model: genai::ModelIden::new(AdapterKind::OpenAI, model),
+        }
+        .into()
+    } else {
+        model.into()
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Main import function
+// ---------------------------------------------------------------------------
+
 pub async fn import_via_llm(
     model: &str,
     hint: Option<&str>,
@@ -213,28 +250,7 @@ pub async fn import_via_llm(
         genai::chat::ChatMessage::user(user_content),
     ])
     .with_tools(vec![recipe_tool()]);
-    use genai::ModelSpec;
-    let model_spec: ModelSpec =
-        if let Some(base_url) = base_url.map(|s| s.trim()).filter(|s| !s.is_empty()) {
-            let base_url = if base_url.ends_with('/') {
-                base_url.to_string()
-            } else {
-                format!("{base_url}/")
-            };
-            let endpoint = Endpoint::from_owned(base_url);
-            let auth = match api_key.map(|s| s.trim()).filter(|s| !s.is_empty()) {
-                Some(key) => AuthData::from_single(key),
-                None => AuthData::None,
-            };
-            genai::ServiceTarget {
-                endpoint,
-                auth,
-                model: genai::ModelIden::new(AdapterKind::OpenAI, model),
-            }
-            .into()
-        } else {
-            model.into()
-        };
+    let model_spec = build_model_spec(model, base_url, api_key);
     let chat_fut = client.exec_chat(model_spec, chat_req, None);
 
     let chat_res = match tokio::time::timeout(std::time::Duration::from_secs(60), chat_fut).await {
@@ -256,6 +272,66 @@ pub async fn import_via_llm(
         )
     })?;
     build_draft_from_tool_args(&first.fn_arguments, has_user_image).await
+}
+
+// ---------------------------------------------------------------------------
+// Polish instructions
+// ---------------------------------------------------------------------------
+
+const POLISH_SYSTEM_PROMPT: &str = "You are a cooking assistant. Improve the given cooking instructions for clarity, structure, and readability. Preserve the original meaning and the same language as the input. Format the result as HTML using only these tags: p, br, strong, em, b, i, ul, ol, li. Return only the improved instructions, no commentary or preamble.";
+
+pub async fn polish_instructions(
+    model: &str,
+    meal_name: &str,
+    ingredients: &[NewIngredientLine],
+    instructions: &str,
+    base_url: Option<&str>,
+    api_key: Option<&str>,
+) -> Result<String, AppError> {
+    let client = genai::Client::default();
+
+    let mut user_text = format!("Meal: {meal_name}\n\nIngredients:\n");
+    for ing in ingredients {
+        user_text.push_str(&format!("- {}\n", ing.name));
+    }
+    if instructions.trim().is_empty() {
+        user_text.push_str("\nNo instructions provided yet.");
+    } else {
+        user_text.push_str(&format!("\nInstructions:\n{instructions}"));
+    }
+
+    let chat_req = genai::chat::ChatRequest::new(vec![
+        genai::chat::ChatMessage::system(POLISH_SYSTEM_PROMPT),
+        genai::chat::ChatMessage::user(user_text),
+    ]);
+    let model_spec = build_model_spec(model, base_url, api_key);
+    let chat_fut = client.exec_chat(model_spec, chat_req, None);
+
+    let chat_res = match tokio::time::timeout(std::time::Duration::from_secs(60), chat_fut).await {
+        Ok(r) => r,
+        Err(_) => {
+            return Err(AppError::Llm(
+                "LLM request timed out after 60 seconds".into(),
+                "llm_timeout",
+            ));
+        }
+    };
+    let chat_res = chat_res.map_err(map_genai_error)?;
+
+    let text = chat_res.into_first_text().ok_or_else(|| {
+        AppError::Llm(
+            "LLM returned no polished instructions".into(),
+            "llm_parse_failed",
+        )
+    })?;
+    let text = text.trim();
+    if text.is_empty() {
+        return Err(AppError::Llm(
+            "LLM returned no polished instructions".into(),
+            "llm_parse_failed",
+        ));
+    }
+    Ok(recipe::sanitize_instructions(text))
 }
 
 // ---------------------------------------------------------------------------
@@ -387,6 +463,29 @@ async fn try_download_llm_image(url: Option<&str>) -> Option<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn given_valid_args_when_build_model_spec_then_succeeds() {
+        // Standard model name (no custom endpoint)
+        let spec = build_model_spec("gpt-4o-mini", None, None);
+        let debug = format!("{:?}", spec);
+        assert!(debug.contains("gpt-4o-mini"));
+
+        // Custom endpoint with api key
+        let spec = build_model_spec(
+            "local-model",
+            Some("http://localhost:8080/v1/"),
+            Some("sk-123"),
+        );
+        let debug = format!("{:?}", spec);
+        assert!(debug.contains("localhost:8080"));
+        assert!(debug.contains("local-model"));
+
+        // Custom endpoint without trailing slash gets normalized
+        let spec = build_model_spec("llama3", Some("http://127.0.0.1:11434/v1"), None);
+        let debug = format!("{:?}", spec);
+        assert!(debug.contains("127.0.0.1:11434"));
+    }
 
     #[tokio::test]
     async fn given_empty_name_when_build_draft_then_422() {
