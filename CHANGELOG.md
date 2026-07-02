@@ -1,3 +1,20 @@
+# [1.5.0](https://github.com/RouHim/mealme/compare/v1.4.0...v1.5.0) (2026-07-02)
+
+
+### Bug Fixes
+
+* avoid effect_update_depth_exceeded in MealForm image preview ([4697b88](https://github.com/RouHim/mealme/commit/4697b88ee942deeb4d535da55cc846adc80dca7e))
+* correct SvelteKit SSR config and i18n test assertion ([533c9d2](https://github.com/RouHim/mealme/commit/533c9d299ad1b76903bc249ab5cedbdcf3d22e4f))
+* populate meal name on URL import and repair import panel reactivity ([a66d52c](https://github.com/RouHim/mealme/commit/a66d52cb033694fe124e62c665cab7c66791f897))
+* restore planner weekday header grid layout ([fdf360e](https://github.com/RouHim/mealme/commit/fdf360e3a6ae6c4e407e280422ccb40c2245b7f4))
+
+
+### Features
+
+* image URL loading in meal form + recipe import, collapsible LLM settings ([701b8a8](https://github.com/RouHim/mealme/commit/701b8a840ad84ddd28c108730ca16e64503249bb))
+* redesign add-meal popup with header, icon tabs, and collapsible import section ([91cabc1](https://github.com/RouHim/mealme/commit/91cabc19d73932284a2c76de0193d15c429ae765))
+* user-selectable language dropdown (System / English / Deutsch) ([46a2bda](https://github.com/RouHim/mealme/commit/46a2bdaae8265354220cd99305ac9ef532ae6c82))
+
 # [1.4.0](https://github.com/RouHim/mealme/compare/v1.3.2...v1.4.0) (2026-07-01)
 
 
