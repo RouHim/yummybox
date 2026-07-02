@@ -13,8 +13,5 @@ export default defineConfig({
 				fallback: 'index.html'
 			})
 		})
-	],
-	kit: {
-		ssr: false
-	}
+	]
 });

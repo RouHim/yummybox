@@ -38,8 +38,8 @@ test.describe('i18n', () => {
 		const dialog = page.getByRole('dialog', { name: 'Mahlzeit hinzufügen' });
 		await expect(dialog).toBeVisible();
 
-		// Form heading
-		await expect(dialog.getByRole('heading', { name: 'Mahlzeit hinzufügen' })).toBeVisible();
+		// Form heading (the add-meal dialog contains two "Mahlzeit hinzufügen" headings: modal title + form card)
+		await expect(dialog.getByRole('heading', { name: 'Mahlzeit hinzufügen' }).first()).toBeVisible();
 
 		// Form labels
 		await expect(dialog.getByLabel('Name', { exact: true })).toBeVisible();
