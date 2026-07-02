@@ -1,3 +1,10 @@
+## [1.5.1](https://github.com/RouHim/mealme/compare/v1.5.0...v1.5.1) (2026-07-02)
+
+
+### Bug Fixes
+
+* remove stale photo hint from AI import placeholder text ([6903e02](https://github.com/RouHim/mealme/commit/6903e025f6d679903d5f0e14d753eea31a1fd64f))
+
 # [1.5.0](https://github.com/RouHim/mealme/compare/v1.4.0...v1.5.0) (2026-07-02)
 
 
