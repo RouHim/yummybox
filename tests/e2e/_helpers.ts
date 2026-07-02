@@ -58,3 +58,28 @@ export async function createMeal(
 	await expect(page.getByRole('dialog')).not.toBeVisible();
 	await expect(page.getByRole('listitem').filter({ hasText: name })).toBeVisible();
 }
+
+export async function createMealViaApi(
+	request: APIRequestContext,
+	name: string,
+	ingredients: Array<{ name: string; quantity?: string }> = [{ name: 'flour' }],
+	instructions = 'Cooking steps'
+): Promise<{ id: number; name: string; ingredients: unknown; instructions: string; has_image: boolean }> {
+	const response = await request.post('/api/meals', {
+		multipart: {
+			name,
+			ingredients: JSON.stringify(ingredients),
+			instructions,
+		},
+	});
+	expect(response.ok()).toBe(true);
+	return response.json();
+}
+
+export async function resetPlans(request: APIRequestContext): Promise<void> {
+	const year = new Date().getUTCFullYear();
+	const res = await request.get(`/api/plans?year=${year}`);
+	if (!res.ok()) return;
+	const summaries = (await res.json()) as Array<{ year: number; week_number: number }>;
+	await Promise.all(summaries.map((p) => request.delete(`/api/plans/${p.year}/${p.week_number}`).catch(() => {})));
+}

@@ -1,37 +1,19 @@
-import { test, expect, type APIRequestContext } from '@playwright/test';
-import { resetMeals, setLocale } from './_helpers';
-
-async function createMealViaApi(
-	request: APIRequestContext,
-	name: string,
-	ingredients: Array<{ name: string; quantity?: string }>,
-	instructions: string,
-): Promise<number> {
-	const response = await request.post('/api/meals', {
-		multipart: {
-			name,
-			ingredients: JSON.stringify(ingredients),
-			instructions,
-		},
-	});
-	expect(response.ok()).toBe(true);
-	const meal = await response.json();
-	return meal.id as number;
-}
+import { test, expect } from '@playwright/test';
+import { resetMeals, setLocale, createMealViaApi } from './_helpers';
 
 test.describe('Cooking view instructions rendering', () => {
 	test('renders sanitized HTML instructions as formatted paragraphs', async ({ page, request }) => {
 		await resetMeals(request);
 		await setLocale(page, 'en');
 
-		const id = await createMealViaApi(
+		const meal = await createMealViaApi(
 			request,
 			'HTML Meal',
 			[{ name: 'flour' }],
 			'<p>Step 1</p><p>Step 2</p>',
 		);
 
-		await page.goto(`/meals/${id}`);
+		await page.goto(`/meals/${meal.id}`);
 
 		const container = page.locator('.cooking-view__instructions-text');
 		await expect(container.locator('p')).toHaveCount(2);
@@ -45,14 +27,14 @@ test.describe('Cooking view instructions rendering', () => {
 		await resetMeals(request);
 		await setLocale(page, 'en');
 
-		const id = await createMealViaApi(
+		const meal = await createMealViaApi(
 			request,
 			'Plain Text Meal',
 			[{ name: 'egg' }],
 			'Step 1\nStep 2\nStep 3',
 		);
 
-		await page.goto(`/meals/${id}`);
+		await page.goto(`/meals/${meal.id}`);
 
 		const container = page.locator('.cooking-view__instructions-text');
 		const whiteSpace = await container.evaluate(el => getComputedStyle(el).whiteSpace);
