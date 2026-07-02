@@ -291,11 +291,13 @@
 	<!-- Month calendar -->
 	<div class="cal-grid">
 		<!-- Weekday headers -->
-		{#each weekdayDates as d}
-			<div class="cal-grid__dow" role="columnheader">
-				{formatDate(d, { weekday: 'short' }).replace(/\.$/, '')}
-			</div>
-		{/each}
+		<div class="cal-grid__header">
+			{#each weekdayDates as d}
+				<div class="cal-grid__dow" role="columnheader">
+					{formatDate(d, { weekday: 'short' }).replace(/\.$/, '')}
+				</div>
+			{/each}
+		</div>
 
 		<!-- 6 week rows -->
 		{#each weekRows as row}
@@ -527,9 +529,10 @@
 		text-transform: none;
 	}
 
-	/* Weekday header row — show as grid row inside flex column */
-	.cal-grid::before {
-		content: none;
+	.cal-grid__header {
+		display: grid;
+		grid-template-columns: repeat(7, 1fr);
+		gap: var(--space-1);
 	}
 
 	/* ---- Week Row (the clickable .week-cell) ---- */
