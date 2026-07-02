@@ -52,12 +52,11 @@
 	// Object URL for staged-image thumbnail preview
 	let stagedImageUrl = $state<string | null>(null);
 
-	// Revoke old object URL when formImage changes or component unmounts
+	// Revoke old object URL when formImage changes or component unmounts.
+	// Uses a local var so the effect never reads stagedImageUrl (avoids effect_update_depth_exceeded).
 	$effect(() => {
 		const file = formImage;
 		const url = file ? URL.createObjectURL(file) : null;
-		// Revoke previous URL before assigning new one
-		if (stagedImageUrl) URL.revokeObjectURL(stagedImageUrl);
 		stagedImageUrl = url;
 		return () => {
 			if (url) URL.revokeObjectURL(url);
