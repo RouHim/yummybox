@@ -1,3 +1,10 @@
+# [1.7.0](https://github.com/RouHim/mealme/compare/v1.6.0...v1.7.0) (2026-07-02)
+
+
+### Features
+
+* add LLM polish button to improve cooking instructions ([66d900f](https://github.com/RouHim/mealme/commit/66d900f445763deb0a10504b36037c0a81fb55bb))
+
 # [1.6.0](https://github.com/RouHim/mealme/compare/v1.5.1...v1.6.0) (2026-07-02)
 
 
