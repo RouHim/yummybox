@@ -1,3 +1,10 @@
+# [1.6.0](https://github.com/RouHim/mealme/compare/v1.5.1...v1.6.0) (2026-07-02)
+
+
+### Features
+
+* meal detail — edge-to-edge hero image with hover overlay actions ([cdf5a21](https://github.com/RouHim/mealme/commit/cdf5a214d4ffc2ad27564d20b9bc126d683747f1))
+
 ## [1.5.1](https://github.com/RouHim/mealme/compare/v1.5.0...v1.5.1) (2026-07-02)
 
 
