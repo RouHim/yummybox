@@ -717,7 +717,15 @@ button {
 .app-bar__nav {
   display: inline-flex;
   align-items: center;
-  gap: var(--space-1);
+  gap: var(--space-2);
+}
+.app-bar__nav::before {
+  content: '';
+  width: 1px;
+  height: 20px;
+  background: var(--color-border);
+  margin-right: var(--space-1);
+  flex-shrink: 0;
 }
 .app-bar__link {
   display: inline-flex;
@@ -738,7 +746,7 @@ button {
 }
 .app-bar__link[aria-current="page"] {
   color: var(--color-primary);
-  background: var(--glass-scrim);
+  background: var(--color-primary-soft);
   font-weight: var(--weight-semibold);
 }
 .app-bar__link:focus-visible {
@@ -748,25 +756,27 @@ button {
 .app-bar__actions {
   display: inline-flex;
   align-items: center;
+  gap: var(--space-0-5);
+  padding: var(--space-0-5);
+  background: var(--glass-scrim);
+  border-radius: var(--radius-lg);
 }
 .app-bar__theme {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 36px;
-  height: 36px;
+  width: 32px;
+  height: 32px;
   padding: 0;
-  border: 1px solid var(--glass-border);
-  background: var(--glass-bg);
+  border: none;
+  background: transparent;
   color: var(--color-text-secondary);
   border-radius: var(--radius-full);
   cursor: pointer;
-  transition: color var(--transition-fast), border-color var(--transition-fast), background var(--transition-fast);
+  transition: color var(--transition-fast), background var(--transition-fast);
 }
-
 .app-bar__theme:hover {
   color: var(--color-primary);
-  border-color: var(--color-border-strong);
   background: var(--glass-bg-strong);
 }
 .app-bar__theme:focus-visible {
@@ -832,23 +842,22 @@ button {
 	align-items: center;
 	justify-content: center;
 	gap: 2px;
-	height: 36px;
-	padding: 0 6px;
-	border: 1px solid var(--glass-border);
-	background: var(--glass-bg);
+	height: 32px;
+	padding: 0 8px;
+	border: none;
+	background: transparent;
 	color: var(--color-text-secondary);
 	border-radius: var(--radius-full);
 	cursor: pointer;
 	font-size: var(--text-sm);
 	font-weight: var(--weight-medium);
-	transition: color var(--transition-fast), border-color var(--transition-fast), background var(--transition-fast);
+	transition: color var(--transition-fast), background var(--transition-fast);
 }
 .lang-switcher__trigger .lang-switcher__label {
 	display: none;
 }
 .lang-switcher__trigger:hover {
 	color: var(--color-primary);
-	border-color: var(--color-border-strong);
 	background: var(--glass-bg-strong);
 }
 .lang-switcher__trigger:focus-visible {
