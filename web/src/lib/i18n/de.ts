@@ -115,7 +115,7 @@ export const de: Record<TranslationKey, string> = {
 	importButtonUseDraft: 'In Formular übernehmen',
 	importTabLlm: 'KI-Import',
     importLlmModelPlaceholder: 'Modellname (z. B. gpt-4o-mini)',
-    importLlmHintPlaceholder: 'Beschreibe das Gericht oder füge eine Rezept-URL ein (optional, wenn ein Foto angehängt ist)...',
+    importLlmHintPlaceholder: 'Beschreibe das Gericht oder füge eine Rezept-URL ein...',
     importButtonLlm: 'Mit KI parsen',
     llmProviderLabel: 'Anbieter',
     llmProviderPlaceholder: 'Anbieter wählen…',

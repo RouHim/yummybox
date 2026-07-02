@@ -115,7 +115,7 @@ export const en: Record<TranslationKey, string> = {
 	importButtonUseDraft: 'Apply to form',
 	importTabLlm: 'AI import',
     importLlmModelPlaceholder: 'Model name (e.g. gpt-4o-mini)',
-    importLlmHintPlaceholder: 'Describe the dish or paste a recipe URL (optional if a photo is attached)...',
+    importLlmHintPlaceholder: 'Describe the dish or paste a recipe URL...',
     importButtonLlm: 'Parse with AI',
     llmProviderLabel: 'Provider',
     llmProviderPlaceholder: 'Select a provider…',

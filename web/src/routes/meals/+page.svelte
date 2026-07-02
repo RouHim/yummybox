@@ -554,16 +554,16 @@ import { readStoredLlmConfig, persistLlmConfig } from '$lib/llm-config.svelte';
 										<Icon name="link" size={16} />
 										<span>{t('importTabLink')}</span>
 									</button>
-									<button type="button" class="import-tab" class:import-tab--active={importMode === 'llm'}
-										onclick={() => importMode = 'llm'}>
-										<Icon name="sparkles" size={16} />
-										<span>{t('importTabLlm')}</span>
-									</button>
-									<button type="button" class="import-tab" class:import-tab--active={importMode === 'bulk'}
-										onclick={() => importMode = 'bulk'}>
-										<Icon name="layers" size={16} />
-										<span>{t('importTabBulk')}</span>
-									</button>
+					<button type="button" class="import-tab" class:import-tab--active={importMode === 'bulk'}
+						onclick={() => importMode = 'bulk'}>
+						<Icon name="layers" size={16} />
+						<span>{t('importTabBulk')}</span>
+					</button>
+					<button type="button" class="import-tab" class:import-tab--active={importMode === 'llm'}
+						onclick={() => importMode = 'llm'}>
+						<Icon name="sparkles" size={16} />
+						<span>{t('importTabLlm')}</span>
+					</button>
 								</div>
 								{#if importMode === 'link'}
 								<label class="import-field">
