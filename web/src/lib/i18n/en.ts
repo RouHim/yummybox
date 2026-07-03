@@ -180,4 +180,8 @@ export const en: Record<TranslationKey, string> = {
 	importZipErrorTooManyRecipes: 'Too many recipes (max 500)',
 	importZipReasonValidation: 'validation failed',
 	importZipReasonOther: 'import error',
+	imageImportUpload: 'Upload',
+	imageImportUrl: 'From URL',
+	imageImportPaste: 'Paste',
+	imageImportDragDrop: 'Drag & drop',
 };

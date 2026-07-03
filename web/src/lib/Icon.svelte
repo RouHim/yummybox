@@ -1,5 +1,5 @@
 <script lang="ts">
-	type IconName = 'search' | 'empty-meals' | 'circle-alert' | 'calendar' | 'chevron-left' | 'chevron-right' | 'chevron-down' | 'plus' | 'trash-2' | 'x' | 'check' | 'pen-line' | 'utensils' | 'sun' | 'moon' | 'monitor' | 'soup' | 'loader-circle' | 'shopping-bag' | 'image' | 'link' | 'archive' | 'sparkles' | 'layers' | 'download' | 'ellipsis-vertical' | 'upload';
+	type IconName = 'search' | 'empty-meals' | 'circle-alert' | 'calendar' | 'chevron-left' | 'chevron-right' | 'chevron-down' | 'plus' | 'trash-2' | 'x' | 'check' | 'pen-line' | 'utensils' | 'sun' | 'moon' | 'monitor' | 'soup' | 'loader-circle' | 'shopping-bag' | 'image' | 'link' | 'archive' | 'sparkles' | 'layers' | 'download' | 'ellipsis-vertical' | 'upload' | 'clipboard' | 'image-down';
 	let { name, class: className = '', size = 24, spin = false }: { name: IconName; class?: string; size?: number; spin?: boolean } = $props();
 
 	let iconClass = $derived(spin ? `${className} icon-spin`.trim() : className);
@@ -168,6 +168,19 @@
 		<path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
 		<polyline points="17 8 12 3 7 8" />
 		<line x1="12" x2="12" y1="3" y2="15" />
+	</svg>
+{:else if name === 'clipboard'}
+	<svg xmlns="http://www.w3.org/2000/svg" width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class={iconClass} aria-hidden="true">
+		<path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2" />
+		<rect x="8" y="2" width="8" height="4" rx="1" ry="1" />
+	</svg>
+{:else if name === 'image-down'}
+	<svg xmlns="http://www.w3.org/2000/svg" width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class={iconClass} aria-hidden="true">
+		<rect x="3" y="3" width="18" height="18" rx="2" ry="2" />
+		<circle cx="8.5" cy="8.5" r="1.5" />
+		<polyline points="21 15 16 10 5 21" />
+		<line x1="12" y1="12" x2="12" y2="18" />
+		<polyline points="9 15 12 18 15 15" />
 	</svg>
 {/if}
 

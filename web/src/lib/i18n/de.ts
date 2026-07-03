@@ -180,4 +180,8 @@ export const de: Record<TranslationKey, string> = {
 	importZipErrorTooManyRecipes: 'Zu viele Rezepte (max. 500)',
 	importZipReasonValidation: 'Validierung fehlgeschlagen',
 	importZipReasonOther: 'Importfehler',
+	imageImportUpload: 'Hochladen',
+	imageImportUrl: 'Via URL',
+	imageImportPaste: 'Einf\u00fcgen',
+	imageImportDragDrop: 'Drag & Drop',
 };

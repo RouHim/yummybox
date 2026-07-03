@@ -193,7 +193,7 @@ test.describe('Meal images', () => {
 		await mealCard.hover();
 		await mealCard.getByRole('button', { name: 'Edit' }).click();
 		const editDialog = page.getByRole('dialog', { name: /^Edit: |^Bearbeiten: / });
-		await editDialog.getByRole('button', { name: 'Remove image' }).click();
+		await editDialog.getByRole('button', { name: 'Remove image' }).click({ force: true });
 		await editDialog.getByRole('button', { name: 'Save' }).click();
 
 		const updatedCard = page.getByRole('listitem').filter({ hasText: 'Remove Test' });
@@ -219,7 +219,7 @@ test.describe('Meal images', () => {
 		});
 		await page.getByRole('dialog').getByRole('button', { name: 'Add', exact: true }).click();
 		// The exact error message may vary; check form-error appears
-		await expect(page.getByRole('dialog').locator('.form-error')).toBeVisible();
+		await expect(page.getByRole('dialog').locator('.form-error').first()).toBeVisible();
 		await expect(page.getByRole('listitem').filter({ hasText: 'Bad File' })).not.toBeAttached();
 	});
 

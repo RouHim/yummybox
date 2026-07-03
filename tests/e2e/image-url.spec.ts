@@ -28,8 +28,11 @@ test.describe('Meal image via URL', () => {
 		await page.getByRole('textbox', { name: 'Ingredient name 1' }).fill('x');
 		await page.getByLabel('Instructions').fill('Cook.');
 
+		// Click the "From URL" tile to expand the URL input row
+		await page.getByText('From URL').click();
+
 		await page.getByPlaceholder('https://example.com/photo.jpg').fill('https://example.com/photo.jpg');
-		await page.getByRole('button', { name: 'Load' }).click();
+		await page.getByRole('button', { name: 'Load', exact: true }).click();
 
 		await expect(page.locator('img.staged-image-preview')).toBeVisible();
 		await expect(page.getByText('New image selected')).toBeVisible();
@@ -53,8 +56,11 @@ test.describe('Meal image via URL', () => {
 		await page.getByRole('button', { name: /^Add meal$|^Mahlzeit hinzufügen$/ }).click();
 		await expect(page.getByRole('dialog')).toBeVisible();
 
+		// Click the "From URL" tile to expand the URL input row
+		await page.getByText('From URL').click();
+
 		await page.getByPlaceholder('https://example.com/photo.jpg').fill('https://bad.example/404.jpg');
-		await page.getByRole('button', { name: 'Load' }).click();
+		await page.getByRole('button', { name: 'Load', exact: true }).click();
 
 		// t('imageErrorUrlUnreachable') = 'Could not reach image URL'
 		const error = page.locator('.form-error').filter({ hasText: 'Could not reach image URL' });

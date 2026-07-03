@@ -28,8 +28,9 @@ test.describe('Clipboard image paste', () => {
 		test.skip(!supportsSyntheticPaste, 'ClipboardEvent not supported in headless Chromium');
 
 		// Focus the image field container that handles paste
-		const imageField = page.locator('.field[tabindex="0"]').first();
-		await imageField.focus();
+		// Focus the paste tile that handles paste events
+		const pasteZone = page.locator('.image-tile--paste').first();
+		await pasteZone.focus();
 
 		// Dispatch a synthetic paste event carrying a PNG file
 		await page.evaluate(() => {
@@ -41,7 +42,7 @@ test.describe('Clipboard image paste', () => {
 					{ type: 'image/png' }
 				)
 			);
-			const el = document.querySelector('.field[tabindex="0"]');
+			const el = document.querySelector('.image-tile--paste');
 			el?.dispatchEvent(new ClipboardEvent('paste', { clipboardData: dt, bubbles: true }));
 		});
 

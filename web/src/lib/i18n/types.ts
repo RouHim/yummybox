@@ -185,4 +185,8 @@ export type TranslationKey =
 	| 'importZipErrorArchiveTooLarge'
 	| 'importZipErrorTooManyRecipes'
 	| 'importZipReasonValidation'
+	| 'imageImportUpload'
+	| 'imageImportUrl'
+	| 'imageImportPaste'
+	| 'imageImportDragDrop'
 	| 'importZipReasonOther';
