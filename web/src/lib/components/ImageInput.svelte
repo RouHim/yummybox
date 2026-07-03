@@ -38,8 +38,14 @@
 		};
 	});
 
+	function looksLikeImage(file: File): boolean {
+		if (file.type.startsWith('image/')) return true;
+		const ext = file.name.split('.').pop()?.toLowerCase();
+		return ['png', 'jpg', 'jpeg', 'webp', 'gif', 'avif', 'bmp', 'tiff'].includes(ext ?? '');
+	}
+
 	function stageImage(file: File | null) {
-		if (file && !file.type.startsWith('image/')) {
+		if (file && !looksLikeImage(file)) {
 			imageError = t('imageErrorNotImage');
 			onerror(imageError);
 			return;
@@ -55,8 +61,17 @@
 
 	// --- DnD handlers (whole component surface) ---
 
+	function isFileDrag(dt: DataTransfer | null): boolean {
+		if (!dt) return false;
+		// Browsers protect the file list during dragenter/dragover, so it can
+		// be empty even when the user is dragging files. The `types` list is
+		// the reliable signal that files are being dragged.
+		if (dt.files.length > 0) return true;
+		return dt.types.includes('Files');
+	}
+
 	function onDragEnter(e: DragEvent) {
-		if (e.dataTransfer?.files?.length) {
+		if (isFileDrag(e.dataTransfer)) {
 			isDragging = true;
 		}
 		e.preventDefault();
@@ -84,11 +99,6 @@
 	let fileInput: HTMLInputElement | undefined = $state();
 
 	function onBrowseClick() {
-		fileInput?.click();
-	}
-
-	function onBrowseClickStop(e: MouseEvent) {
-		e.stopPropagation();
 		fileInput?.click();
 	}
 
@@ -197,8 +207,8 @@
 		aria-label={formImage ? t('fieldImageReplace') : t('fieldImageChoose')}
 	/>
 
-	<!-- 4-tile grid: empty state -->
-	{#if !hasStaged && !hasExisting && !removeImage}
+	<!-- 4-tile grid: always visible except when removing -->
+	{#if !removeImage}
 		<div class="image-tiles">
 			<button
 				type="button"
@@ -249,14 +259,6 @@
 				<button
 					type="button"
 					class="image-preview__action-btn btn btn--ghost"
-					onclick={onBrowseClickStop}
-					aria-label={t('fieldImageReplace')}
-				>
-					<Icon name="image" size={16} />
-				</button>
-				<button
-					type="button"
-					class="image-preview__action-btn btn btn--ghost"
 					onclick={onRemoveImageClickStop}
 					aria-label={t('fieldImageRemove')}
 				>
@@ -269,14 +271,6 @@
 		<div class="image-preview">
 			<img src={mealImageUrl(editingMeal!.id)} alt="" />
 			<div class="image-preview__overlay">
-				<button
-					type="button"
-					class="image-preview__action-btn btn btn--ghost"
-					onclick={onBrowseClickStop}
-					aria-label={t('fieldImageReplace')}
-				>
-					<Icon name="image" size={16} />
-				</button>
 				<button
 					type="button"
 					class="image-preview__action-btn btn btn--ghost"
@@ -297,18 +291,6 @@
 		</div>
 	{/if}
 
-	<!-- URL row toggle (always visible when image is shown) -->
-	{#if hasStaged || hasExisting}
-		<div class="image-meta">
-			<button
-				type="button"
-				class="image-url-toggle"
-				onclick={toggleUrlRow}
-			>
-				{urlRowOpen ? t('buttonCancel') : t('fieldImageUrlLoad')}
-			</button>
-		</div>
-	{/if}
 
 	<!-- URL input row -->
 	{#if urlRowOpen}
@@ -509,28 +491,7 @@
 		font-size: var(--text-sm);
 	}
 
-	/* --- URL toggle + row --- */
-
-	.image-meta {
-		display: flex;
-		align-items: center;
-		gap: var(--space-2);
-		font-size: var(--text-sm);
-	}
-
-	.image-url-toggle {
-		background: none;
-		border: 0;
-		padding: 0;
-		font-size: var(--text-sm);
-		color: var(--color-primary);
-		cursor: pointer;
-		text-decoration: underline;
-	}
-
-	.image-url-toggle:hover {
-		color: var(--color-primary-hover);
-	}
+	/* --- URL input row --- */
 
 	.image-url-row {
 		display: flex;

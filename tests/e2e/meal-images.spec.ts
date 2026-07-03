@@ -231,6 +231,50 @@ test.describe('Meal images', () => {
 		await expect(mealCard.locator('img')).not.toBeAttached();
 	});
 
+	test('highlights the drop zone while dragging an image file over it', async ({ page }) => {
+		await page.goto('/meals');
+		await page.getByRole('button', { name: /^Add meal$|^Mahlzeit hinzufügen$/ }).click();
+		await expect(page.getByRole('dialog')).toBeVisible();
+
+		await page.evaluate(() => {
+			// Real OS drags expose files only on drop; during dragenter/dragover the
+			// list is empty but `types` contains 'Files'.
+			const dt = new DataTransfer();
+			Object.defineProperty(dt, 'files', { value: [], configurable: true });
+			Object.defineProperty(dt, 'types', { value: ['Files'], configurable: true });
+			const el = document.querySelector('.image-input');
+			if (!el) throw new Error('.image-input not found');
+			el.dispatchEvent(
+				new DragEvent('dragenter', { bubbles: true, cancelable: true, dataTransfer: dt })
+			);
+			el.dispatchEvent(
+				new DragEvent('dragover', { bubbles: true, cancelable: true, dataTransfer: dt })
+			);
+		});
+
+		await expect(page.locator('.image-input')).toHaveClass(/drop-active/);
+		await expect(page.locator('.image-tile--drop')).toHaveClass(/image-tile--drop-active/);
+	});
+
+	test('stages an image file dropped on the input', async ({ page }) => {
+		await page.goto('/meals');
+		await page.getByRole('button', { name: /^Add meal$|^Mahlzeit hinzufügen$/ }).click();
+		await expect(page.getByRole('dialog')).toBeVisible();
+
+		await page.evaluate((pngBytes) => {
+			const file = new File([new Uint8Array(pngBytes)], 'dropped.png', { type: 'image/png' });
+			const dt = new DataTransfer();
+			dt.items.add(file);
+			const el = document.querySelector('.image-input');
+			if (!el) throw new Error('.image-input not found');
+			el.dispatchEvent(
+				new DragEvent('drop', { bubbles: true, cancelable: true, dataTransfer: dt })
+			);
+		}, new Uint8Array(TINY_PNG));
+
+		await expect(page.locator('img.staged-image-preview')).toBeVisible();
+	});
+
 	test('uploading an image larger than 4K downscales on the longer edge', async ({ page, request }) => {
 		test.setTimeout(60_000);
 
