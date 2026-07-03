@@ -1085,3 +1085,25 @@ button {
 	font-size: var(--text-lg);
 	margin-bottom: var(--space-4);
 }
+
+/* Edit modal overlay — shared by meals overview and meal detail */
+.edit-modal-overlay {
+	position: fixed;
+	inset: 0;
+	z-index: 1000;
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	padding: var(--space-4);
+	background: var(--glass-scrim-dark);
+}
+.edit-modal {
+	max-width: 640px;
+	width: 100%;
+	max-height: 88vh;
+	overflow-y: auto;
+	background: var(--color-surface);
+	border: 1px solid var(--color-border);
+	border-radius: var(--radius-lg);
+	padding: var(--space-6);
+}

@@ -4,11 +4,12 @@
 	import { t, formatDate } from '$lib/i18n';
 	import { page } from '$app/state';
 	import { goto } from '$app/navigation';
-	import type { Meal } from '$lib/types';
-	import { fly } from 'svelte/transition';
+	import type { Meal, NewIngredientLine } from '$lib/types';
+	import { fly, fade } from 'svelte/transition';
 	import { tierDuration } from '$lib/motion';
 	import DeleteConfirmDialog from '$lib/DeleteConfirmDialog.svelte';
 	import { readStoredLlmConfig } from '$lib/llm-config.svelte';
+	import MealForm from '$lib/MealForm.svelte';
 
 	let meal = $state<Meal | null>(null);
 	let loading = $state(true);
@@ -18,6 +19,9 @@
 
 	let deleteOpen = $state(false);
 	let deleting = $state(false);
+
+	let editOpen = $state(false);
+	let editSubmitting = $state(false);
 	let polishing = $state(false);
 	let polishError = $state<string | null>(null);
 	let hasLlmConfig = $derived.by(() => {
@@ -60,7 +64,58 @@
 
 	function editMeal() {
 		if (!meal) return;
-		goto('/meals?edit=' + meal.id);
+		editOpen = true;
+	}
+
+	function closeEdit() {
+		editOpen = false;
+	}
+
+	async function onSubmitEdit(payload: {
+		name: string; ingredients: NewIngredientLine[]; instructions: string;
+		image: File | null; removeImage: boolean;
+	}) {
+		if (!meal) return;
+		editSubmitting = true;
+		try {
+			await updateMeal(meal.id, { name: payload.name, ingredients: payload.ingredients, instructions: payload.instructions }, {
+				image: payload.image,
+				removeImage: payload.removeImage,
+			});
+			await loadMeal();
+			closeEdit();
+		} finally {
+			editSubmitting = false;
+		}
+	}
+
+	// matches DeleteConfirmDialog.svelte and meals/+page.svelte focusTrap
+	function focusTrap(node: HTMLElement) {
+		const previouslyFocused = document.activeElement as HTMLElement | null;
+		node.focus();
+		function onKey(e: KeyboardEvent) {
+			if (e.key !== 'Tab') return;
+			const focusables = node.querySelectorAll<HTMLElement>(
+				'button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])'
+			);
+			if (focusables.length === 0) return;
+			const first = focusables[0];
+			const last = focusables[focusables.length - 1];
+			if (e.shiftKey && document.activeElement === first) {
+				e.preventDefault();
+				last.focus();
+			} else if (!e.shiftKey && document.activeElement === last) {
+				e.preventDefault();
+				first.focus();
+			}
+		}
+		node.addEventListener('keydown', onKey);
+		return {
+			destroy() {
+				node.removeEventListener('keydown', onKey);
+				previouslyFocused?.focus?.();
+			},
+		};
 	}
 
 	async function doPolish() {
@@ -198,6 +253,25 @@
 		</article>
 	{/if}
 
+
+	{#if editOpen && meal}
+		<!-- svelte-ignore a11y_click_events_have_key_events -->
+		<!-- svelte-ignore a11y_no_static_element_interactions -->
+		<div class="edit-modal-overlay glass--strong" role="dialog" aria-label={t('formEditHeading', { name: meal.name || t('formUntitled') })} tabindex="-1" transition:fade={{ duration: tierDuration(200) }} onclick={closeEdit} onkeydown={(e) => { if (e.key === 'Escape') closeEdit(); }} use:focusTrap>
+			<div class="edit-modal" onclick={(e) => e.stopPropagation()} onkeydown={() => {}}>
+				<MealForm
+					editMode={true}
+					editingMeal={meal}
+					initialName={meal.name}
+					initialIngredients={meal.ingredients.length > 0 ? meal.ingredients.map(i => ({ name: i.name, quantity: i.quantity })) : [{ name: '', quantity: null }]}
+					initialInstructions={meal.instructions}
+					submitting={editSubmitting}
+					onsubmit={onSubmitEdit}
+					oncancel={closeEdit}
+				/>
+			</div>
+		</div>
+	{/if}
 	<DeleteConfirmDialog
 		open={deleteOpen}
 		title={t('buttonDelete')}

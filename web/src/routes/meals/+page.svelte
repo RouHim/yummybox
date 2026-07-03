@@ -4,7 +4,6 @@
 import { readStoredLlmConfig, persistLlmConfig } from '$lib/llm-config.svelte';
 	import { t, formatDate } from '$lib/i18n';
 	import { page } from '$app/state';
-	import { goto } from '$app/navigation';
 
 	import { fly, fade, scale } from 'svelte/transition';
 	import { flip } from 'svelte/animate';
@@ -17,7 +16,6 @@ import { readStoredLlmConfig, persistLlmConfig } from '$lib/llm-config.svelte';
 	let loadError = $state<string | null>(null);
 	let reduced = $state(prefersReducedMotion());
 	let deleteTarget = $state<Meal | null>(null);
-	let editHandled = false;
 
 	let editTarget = $state<Meal | null>(null);
 	let editSubmitting = $state(false);
@@ -260,7 +258,6 @@ import { readStoredLlmConfig, persistLlmConfig } from '$lib/llm-config.svelte';
         importCollapsed = false;
         bulkUrls = ''; bulkImporting = false; bulkResult = null; bulkError = null;
         addOpen = true;
-        editHandled = false;
     }
 	function closeAdd() {
 		if (bulkResult && bulkResult.created.length > 0) {
@@ -290,20 +287,6 @@ import { readStoredLlmConfig, persistLlmConfig } from '$lib/llm-config.svelte';
 
 	$effect(() => {
 		loadMeals();
-	});
-
-	// Deep-link: open the edit modal for ?edit=<id>
-	$effect(() => {
-		const raw = page.url.searchParams.get('edit');
-		if (!raw || editHandled || meals.length === 0) return;
-		const id = Number(raw);
-		if (Number.isNaN(id)) return;
-		const meal = meals.find(m => m.id === id);
-		if (meal) {
-			editHandled = true;
-			openEdit(meal);
-			goto('/meals', { replaceState: true, keepFocus: true, noScroll: true });
-		}
 	});
 
 	$effect(() => {
@@ -828,26 +811,6 @@ import { readStoredLlmConfig, persistLlmConfig } from '$lib/llm-config.svelte';
 		}
 	}
 
-	.edit-modal-overlay {
-		position: fixed;
-		inset: 0;
-		z-index: 1000;
-		display: flex;
-		align-items: center;
-		justify-content: center;
-		padding: var(--space-4);
-		background: var(--glass-scrim-dark);
-	}
-	.edit-modal {
-		max-width: 640px;
-		width: 100%;
-		max-height: 88vh;
-		overflow-y: auto;
-		background: var(--color-surface);
-		border: 1px solid var(--color-border);
-		border-radius: var(--radius-lg);
-		padding: var(--space-6);
-	}
 
 	.import-section--collapsed {
 		display: flex;
