@@ -1,9 +1,10 @@
 <script lang="ts">
-    import { listMeals, updateMeal, deleteMeal, mealImageUrl, createMeal, importFromUrl, importFromPaste, importFromLlm, importBulk, listLlmProviders, listLlmModels, ApiError, loadImageFromUrl } from '$lib/api';
+    import { listMeals, updateMeal, deleteMeal, mealImageUrl, createMeal, importFromLlm, importBulk, listLlmProviders, listLlmModels, ApiError, loadImageFromUrl } from '$lib/api';
 	import type { Meal, NewIngredientLine } from '$lib/types';
 import { readStoredLlmConfig, persistLlmConfig } from '$lib/llm-config.svelte';
 	import { t, formatDate } from '$lib/i18n';
 	import { page } from '$app/state';
+	import { goto } from '$app/navigation';
 
 	import { fly, fade, scale } from 'svelte/transition';
 	import { flip } from 'svelte/animate';
@@ -27,9 +28,8 @@ import { readStoredLlmConfig, persistLlmConfig } from '$lib/llm-config.svelte';
 	let formImage = $state<File | null>(null);
 	let removeImage = $state(false);
 	let submitting = $state(false);
-	let importMode = $state<'link' | 'llm' | 'bulk'>('link');
+	let importMode = $state<'urls' | 'llm'>('urls');
 	let importCollapsed = $state(false);
-	let importInput = $state('');
     let importLlmProvider = $state('');
     let importLlmModel = $state('');
     let importLlmHint = $state('');
@@ -55,16 +55,11 @@ import { readStoredLlmConfig, persistLlmConfig } from '$lib/llm-config.svelte';
         importError = null;
         importing = true;
         try {
-            const input = importInput.trim();
-            const draft = importMode === 'link'
-                ? (input.startsWith('http://') || input.startsWith('https://')
-                    ? await importFromUrl(input)
-                    : await importFromPaste(importInput))
-                : await importFromLlm(
-                    importLlmModel, importLlmHint || null, null,
-                    importLlmProvider === 'custom' ? importLlmCustomBaseUrl : undefined,
-                    importLlmProvider === 'custom' ? importLlmCustomApiKey : undefined,
-                );
+            const draft = await importFromLlm(
+                importLlmModel, importLlmHint || null, null,
+                importLlmProvider === 'custom' ? importLlmCustomBaseUrl : undefined,
+                importLlmProvider === 'custom' ? importLlmCustomApiKey : undefined,
+            );
             formName = draft.name;
             formIngredients = draft.ingredients.length > 0
                 ? draft.ingredients.map(i => ({ name: i.name, quantity: i.quantity }))
@@ -75,15 +70,12 @@ import { readStoredLlmConfig, persistLlmConfig } from '$lib/llm-config.svelte';
                 formImage = new File([bytes], 'imported.jpg', { type: 'image/jpeg' });
                 removeImage = false;
             }
-            if (importMode === 'llm') {
-                persistLlmConfig({
-                    provider: importLlmProvider,
-                    model: importLlmModel,
-                    customBaseUrl: importLlmCustomBaseUrl,
-                    customApiKey: importLlmCustomApiKey,
-                });
-            }
-            importInput = '';
+            persistLlmConfig({
+                provider: importLlmProvider,
+                model: importLlmModel,
+                customBaseUrl: importLlmCustomBaseUrl,
+                customApiKey: importLlmCustomApiKey,
+            });
             importLlmHint = '';
             importToken++;
             importCollapsed = true;
@@ -155,15 +147,27 @@ import { readStoredLlmConfig, persistLlmConfig } from '$lib/llm-config.svelte';
             bulkError = t('importBulkErrorMaxUrls');
             return;
         }
+        const nonUrls = lines.filter(l => !l.startsWith('http://') && !l.startsWith('https://'));
+        if (nonUrls.length > 0) {
+            bulkError = t('importBulkErrorNonUrl');
+            return;
+        }
         bulkImporting = true;
         try {
             const result = await importBulk({ urls: lines });
-            if (result.created.length > 0) {
+            bulkResult = result;
+            const createdCount = result.created.length;
+            if (createdCount === 1) {
+                await goto(`/meals/${result.created[0].id}`);
+                addOpen = false;
+                return;
+            }
+            if (createdCount > 1) {
                 await loadMeals();
                 addOpen = false;
                 return;
             }
-            bulkResult = result;
+            // createdCount === 0  → keep modal open, show failures via bulkResult
         } catch (err) {
             bulkError = err instanceof ApiError
                 ? (err.message === '__REQUEST_FAILED__' ? t('importErrorFetch') : err.message)
@@ -251,7 +255,7 @@ import { readStoredLlmConfig, persistLlmConfig } from '$lib/llm-config.svelte';
     function openAdd() {
         formName = ''; formIngredients = [{ name: '', quantity: null }]; formInstructions = '';
         formImage = null; removeImage = false; submitting = false; llmConfigRestored = false;
-        importMode = 'link'; importInput = '';
+        importMode = 'urls';
         importLlmProvider = ''; importLlmModel = ''; importLlmHint = '';
         llmSettingsCollapsed = false;
         importing = false; importError = null; importToken++;
@@ -521,9 +525,9 @@ import { readStoredLlmConfig, persistLlmConfig } from '$lib/llm-config.svelte';
 						<Icon name="x" size={20} />
 					</button>
 				</div>
-				<div class="add-modal__body" class:add-modal__body--two-panel={!importCollapsed && importMode !== 'bulk'}>
+				<div class="add-modal__body" class:add-modal__body--two-panel={!importCollapsed}>
 					<section class="add-modal__panel add-modal__panel--import">
-						{#if importCollapsed && importMode !== 'bulk'}
+						{#if importCollapsed && importMode === 'llm'}
 							<div class="import-section--collapsed">
 								<Icon name="check" size={18} />
 								<span class="import-section__summary">{t('importCollapsedSummary')}</span>
@@ -534,15 +538,10 @@ import { readStoredLlmConfig, persistLlmConfig } from '$lib/llm-config.svelte';
 						{:else}
 							<section class="import-card">
 								<div class="import-tabs">
-									<button type="button" class="import-tab" class:import-tab--active={importMode === 'link'}
-										onclick={() => importMode = 'link'}>
-										<Icon name="link" size={16} />
-										<span>{t('importTabLink')}</span>
-									</button>
-					<button type="button" class="import-tab" class:import-tab--active={importMode === 'bulk'}
-						onclick={() => importMode = 'bulk'}>
+					<button type="button" class="import-tab" class:import-tab--active={importMode === 'urls'}
+						onclick={() => importMode = 'urls'}>
 						<Icon name="layers" size={16} />
-						<span>{t('importTabBulk')}</span>
+						<span>{t('importTabUrls')}</span>
 					</button>
 					<button type="button" class="import-tab" class:import-tab--active={importMode === 'llm'}
 						onclick={() => importMode = 'llm'}>
@@ -550,15 +549,7 @@ import { readStoredLlmConfig, persistLlmConfig } from '$lib/llm-config.svelte';
 						<span>{t('importTabLlm')}</span>
 					</button>
 								</div>
-								{#if importMode === 'link'}
-								<label class="import-field">
-									<span>{t('importLinkLabel')}</span>
-									<textarea bind:value={importInput} placeholder={t('importLinkPlaceholder')} rows="6"></textarea>
-								</label>
-								<button type="button" class="btn btn--primary" onclick={onImport} disabled={importing || !importInput.trim()}>
-									{t('importButtonFetch')}
-								</button>
-								{:else if importMode === 'bulk'}
+								{#if importMode === 'urls'}
 								{#if bulkResult}
 									<div class="bulk-results">
 										<p class="bulk-results__success">
@@ -589,7 +580,7 @@ import { readStoredLlmConfig, persistLlmConfig } from '$lib/llm-config.svelte';
 										{bulkImporting ? t('importButtonBulkLoading') : t('importButtonBulk')}
 									</button>
 								{/if}
-								{:else}
+								{:else if importMode === 'llm'}
 								{#if llmProviders.length === 0 && !llmProvidersLoading}
 									<p class="form-error">{t('llmNoProviders')}</p>
 								{:else}
@@ -671,16 +662,15 @@ import { readStoredLlmConfig, persistLlmConfig } from '$lib/llm-config.svelte';
 									</button>
 								{/if}
 								{/if}
-								{#if importError || (importMode === 'bulk' && bulkError)}
+								{#if importError || (importMode === 'urls' && bulkError)}
 									<p class="form-error" role="alert">
 										<Icon name="circle-alert" size={18} />
-										<span>{importMode === 'bulk' && bulkError ? bulkError : importError}</span>
+										<span>{importMode === 'urls' && bulkError ? bulkError : importError}</span>
 									</p>
 								{/if}
 							</section>
 						{/if}
 					</section>
-					{#if importMode !== 'bulk'}
 						<section class="add-modal__panel add-modal__panel--form">
 							{#key importToken}
 								<MealForm
@@ -694,7 +684,6 @@ import { readStoredLlmConfig, persistLlmConfig } from '$lib/llm-config.svelte';
 								/>
 							{/key}
 						</section>
-					{/if}
 				</div>
 			</div>
 	</div>

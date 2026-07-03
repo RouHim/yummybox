@@ -1,42 +1,42 @@
 import { test, expect, type Page } from '@playwright/test';
 import { resetMeals, setLocale } from './_helpers';
 
-test.describe('Bulk import meals', () => {
+test.describe('Import URLs — bulk', () => {
 	test.beforeEach(async ({ request, page }) => {
 		await setLocale(page, 'en');
 		await resetMeals(request);
 		await page.goto('/meals');
 	});
 
-	async function openBulkImport(page: Page) {
+	async function openImportUrls(page: Page) {
 		await page.getByRole('button', { name: /^Add meal$|^Mahlzeit hinzufügen$/ }).click();
 		await expect(page.getByRole('dialog')).toBeVisible();
-		await page.getByRole('button', { name: 'Bulk URL' }).click();
+		await page.getByRole('button', { name: 'Import URLs' }).click();
 	}
 
-	test('given_bulk_import_returns_created_meals_when_imported_then_modal_closes_and_meals_appear', async ({ page }) => {
-		await openBulkImport(page);
+	test('given_multiple_urls_when_imported_then_modal_closes_and_meals_appear', async ({ page }) => {
+		await openImportUrls(page);
 
 		await page.getByPlaceholder('Paste recipe URLs, one per line…').fill('https://example.com/r1\nhttps://example.com/r2');
 
-		const fakeMeal = { id: 1, name: 'Imported Meal 1', ingredients: [{ name: 'a', quantity: null }], instructions: 'x', has_image: false };
+		const fakeMeal1 = { id: 1, name: 'Imported Meal 1', ingredients: [{ name: 'a', quantity: null }], instructions: 'x', has_image: false };
+		const fakeMeal2 = { id: 2, name: 'Imported Meal 2', ingredients: [{ name: 'b', quantity: null }], instructions: 'y', has_image: false };
 
 		await page.route('**/api/import/bulk', async (route) => {
 			await route.fulfill({
 				status: 200,
 				contentType: 'application/json',
-				body: JSON.stringify({ created: [fakeMeal], failed: [] }),
+				body: JSON.stringify({ created: [fakeMeal1, fakeMeal2], failed: [] }),
 			});
 		});
 
-		// After bulk import succeeds, the page reloads meals via GET /api/meals.
-		// Stub that too so the fake meal appears in the list without a real DB write.
+		// After bulk import succeeds with multiple meals, the page reloads meals via GET /api/meals.
 		await page.route('**/api/meals', async (route) => {
 			if (route.request().method() === 'GET') {
 				await route.fulfill({
 					status: 200,
 					contentType: 'application/json',
-					body: JSON.stringify([fakeMeal]),
+					body: JSON.stringify([fakeMeal1, fakeMeal2]),
 				});
 			} else {
 				await route.continue();
@@ -47,10 +47,11 @@ test.describe('Bulk import meals', () => {
 
 		await expect(page.getByRole('dialog')).not.toBeVisible();
 		await expect(page.getByRole('listitem').filter({ hasText: 'Imported Meal 1' })).toBeVisible();
+		await expect(page.getByRole('listitem').filter({ hasText: 'Imported Meal 2' })).toBeVisible();
 	});
 
 	test('given_bulk_import_returns_failures_when_imported_then_results_shown', async ({ page }) => {
-		await openBulkImport(page);
+		await openImportUrls(page);
 
 		await page.getByPlaceholder('Paste recipe URLs, one per line…').fill('https://example.com/r1\nhttps://example.com/r2');
 
@@ -86,5 +87,26 @@ test.describe('Bulk import meals', () => {
 
 		await page.getByRole('button', { name: 'New batch' }).click();
 		await expect(page.getByPlaceholder('Paste recipe URLs, one per line…')).toBeVisible();
+	});
+
+	test('given_51_urls_when_import_clicked_then_max_urls_error_and_no_request', async ({ page }) => {
+		await openImportUrls(page);
+
+		const urls = Array.from({ length: 51 }, (_, i) => `https://example.com/r${i + 1}`).join('\n');
+		await page.getByPlaceholder('Paste recipe URLs, one per line…').fill(urls);
+
+		let bulkCalled = false;
+		await page.route('**/api/import/bulk', async (route) => {
+			bulkCalled = true;
+			await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ created: [], failed: [] }) });
+		});
+
+		// Button is disabled when >50 URLs; force-enable to trigger the handler
+		await page.getByRole('button', { name: 'Import all' }).evaluate(el => (el as HTMLButtonElement).disabled = false);
+		await page.getByRole('button', { name: 'Import all' }).click();
+
+		await expect(page.getByRole('dialog')).toBeVisible();
+		await expect(page.locator('.form-error')).toContainText('Maximum 50 URLs allowed');
+		expect(bulkCalled).toBe(false);
 	});
 });
