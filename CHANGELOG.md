@@ -1,3 +1,10 @@
+# [1.8.0](https://github.com/RouHim/mealme/compare/v1.7.0...v1.8.0) (2026-07-03)
+
+
+### Features
+
+* edit meal from detail page stays on detail page ([cd53a1a](https://github.com/RouHim/mealme/commit/cd53a1ad66b84e9eb8ca03f1b0fc13e8ff45b35a))
+
 # [1.7.0](https://github.com/RouHim/mealme/compare/v1.6.0...v1.7.0) (2026-07-02)
 
 
