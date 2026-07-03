@@ -239,10 +239,12 @@ h2 {
 }
 
 .page-toolbar {
-  display: inline-flex;
+  display: flex;
   align-items: center;
+  justify-content: space-between;
   gap: var(--space-3);
   flex-wrap: wrap;
+  width: 100%;
 }
 
 p {

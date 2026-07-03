@@ -1,5 +1,5 @@
 <script lang="ts">
-    import { listMeals, updateMeal, deleteMeal, mealImageUrl, createMeal, importFromLlm, importBulk, listLlmProviders, listLlmModels, ApiError, loadImageFromUrl } from '$lib/api';
+    import { listMeals, updateMeal, deleteMeal, mealImageUrl, createMeal, importFromLlm, importBulk, importZip, exportMealsUrl, listLlmProviders, listLlmModels, ApiError, loadImageFromUrl } from '$lib/api';
 	import type { Meal, NewIngredientLine } from '$lib/types';
 import { readStoredLlmConfig, persistLlmConfig } from '$lib/llm-config.svelte';
 	import { t, formatDate } from '$lib/i18n';
@@ -28,7 +28,7 @@ import { readStoredLlmConfig, persistLlmConfig } from '$lib/llm-config.svelte';
 	let formImage = $state<File | null>(null);
 	let removeImage = $state(false);
 	let submitting = $state(false);
-	let importMode = $state<'urls' | 'llm'>('urls');
+	let importMode = $state<'urls' | 'llm' | 'zip'>('urls');
 	let importCollapsed = $state(false);
     let importLlmProvider = $state('');
     let importLlmModel = $state('');
@@ -51,6 +51,12 @@ import { readStoredLlmConfig, persistLlmConfig } from '$lib/llm-config.svelte';
     let bulkImporting = $state(false);
     let bulkResult = $state<import('$lib/types').BulkImportResult | null>(null);
     let bulkError = $state<string | null>(null);
+    let zipFile = $state<File | null>(null);
+    let zipImporting = $state(false);
+    let zipResult = $state<import('$lib/types').ZipImportResult | null>(null);
+    let zipError = $state<string | null>(null);
+    let menuOpen = $state(false);
+
     async function onImport() {
         importError = null;
         importing = true;
@@ -177,6 +183,33 @@ import { readStoredLlmConfig, persistLlmConfig } from '$lib/llm-config.svelte';
         }
     }
 
+    async function onZipImport() {
+        if (!zipFile) return;
+        zipError = null;
+        zipResult = null;
+        zipImporting = true;
+        try {
+            const result = await importZip(zipFile);
+            zipResult = result;
+            if (result.created.length === 1 && result.skipped === 0 && result.failed.length === 0) {
+                await goto(`/meals/${result.created[0].id}`);
+                addOpen = false;
+                return;
+            }
+            if (result.created.length > 0) {
+                await loadMeals();
+                addOpen = false;
+                return;
+            }
+        } catch (err) {
+            zipError = err instanceof ApiError
+                ? (err.message === '__REQUEST_FAILED__' ? t('importErrorFetch') : err.message)
+                : (err instanceof Error ? err.message : '');
+        } finally {
+            zipImporting = false;
+        }
+    }
+
     // Restore stored LLM config when opening the import card
     $effect(() => {
         if (importMode === 'llm' && !llmConfigRestored) {
@@ -261,7 +294,15 @@ import { readStoredLlmConfig, persistLlmConfig } from '$lib/llm-config.svelte';
         importing = false; importError = null; importToken++;
         importCollapsed = false;
         bulkUrls = ''; bulkImporting = false; bulkResult = null; bulkError = null;
+        zipFile = null; zipImporting = false; zipResult = null; zipError = null;
         addOpen = true;
+    }
+
+    function openImport() {
+        menuOpen = false;
+        openAdd();
+        // Focus the import section — ensure it's not collapsed
+        importCollapsed = false;
     }
 	function closeAdd() {
 		if (bulkResult && bulkResult.created.length > 0) {
@@ -380,6 +421,7 @@ import { readStoredLlmConfig, persistLlmConfig } from '$lib/llm-config.svelte';
 	}
 </script>
 
+<svelte:window onclick={() => { if (menuOpen) menuOpen = false; }} />
 <main>
 	<div class="page-toolbar">
 		<div class="search">
@@ -389,9 +431,30 @@ import { readStoredLlmConfig, persistLlmConfig } from '$lib/llm-config.svelte';
 				placeholder={t('searchPlaceholder')}
 				aria-label={t('searchAriaLabel')} />
 		</div>
-		<button type="button" class="btn btn--primary" onclick={openAdd}>
-			<Icon name="plus" size={16} /> {t('navAddMeal')}
-		</button>
+		<div class="toolbar-actions">
+			<button type="button" class="btn btn--primary" onclick={openAdd} aria-label={t('navAddMeal')}>
+				<Icon name="plus" size={18} />
+				<span>{t('navAddMeal')}</span>
+			</button>
+			<div class="menu-container">
+				<button type="button" class="btn btn--ghost" onclick={(e) => { e.stopPropagation(); menuOpen = !menuOpen; }}
+					aria-label={t('buttonMore')} title={t('buttonMore')}>
+					<Icon name="ellipsis-vertical" size={20} />
+				</button>
+				{#if menuOpen}
+					<!-- svelte-ignore a11y_click_events_have_key_events -->
+					<!-- svelte-ignore a11y_no_static_element_interactions -->
+					<div class="menu-dropdown" role="menu" tabindex="-1" onclick={(e) => { e.stopPropagation(); menuOpen = false; }} onkeydown={() => {}}>
+						<button type="button" class="menu-dropdown__item" role="menuitem" onclick={openImport}>
+							<Icon name="upload" size={16} /> {t('buttonImport')}
+						</button>
+						<a href={exportMealsUrl()} class="menu-dropdown__item" role="menuitem" download title={t('exportMeals')}>
+							<Icon name="download" size={16} /> {t('exportMeals')}
+						</a>
+					</div>
+				{/if}
+			</div>
+		</div>
 	</div>
 
 	{#if loadError}
@@ -548,6 +611,11 @@ import { readStoredLlmConfig, persistLlmConfig } from '$lib/llm-config.svelte';
 						<Icon name="sparkles" size={16} />
 						<span>{t('importTabLlm')}</span>
 					</button>
+					<button type="button" class="import-tab" class:import-tab--active={importMode === 'zip'}
+						onclick={() => importMode = 'zip'}>
+						<Icon name="archive" size={16} />
+						<span>{t('importTabZip')}</span>
+					</button>
 								</div>
 								{#if importMode === 'urls'}
 								{#if bulkResult}
@@ -578,6 +646,37 @@ import { readStoredLlmConfig, persistLlmConfig } from '$lib/llm-config.svelte';
 									<button type="button" class="btn btn--primary" onclick={onBulkImport}
 										disabled={bulkImporting || !bulkUrls.trim() || bulkUrls.split('\n').filter(l => l.trim().length > 0).length > 50}>
 										{bulkImporting ? t('importButtonBulkLoading') : t('importButtonBulk')}
+									</button>
+								{/if}
+								{:else if importMode === 'zip'}
+								{#if zipResult}
+									<div class="bulk-results">
+										<p class="bulk-results__success">
+											{t('importZipResultsSuccess', { count: String(zipResult.created.length), skipped: String(zipResult.skipped) })}
+										</p>
+										{#if zipResult.failed.length > 0}
+											<ul class="bulk-results__failures">
+												{#each zipResult.failed as f}
+													<li class="form-error">
+														<Icon name="circle-alert" size={16} />
+														<span class="bulk-results__url">{f.source}</span>
+														<span class="bulk-results__reason">{t(f.reason.startsWith('validation failed') ? 'importZipReasonValidation' : 'importZipReasonOther')}</span>
+													</li>
+												{/each}
+											</ul>
+										{/if}
+										<button type="button" class="btn btn--ghost" onclick={() => { zipResult = null; zipFile = null; zipError = null; }}>
+											{t('importBulkNewBatch')}
+										</button>
+									</div>
+								{:else}
+									<label class="import-field">
+										<span>{t('importZipLabel')}</span>
+										<input type="file" accept=".zip" onchange={(e) => { const files = (e.target as HTMLInputElement).files; zipFile = files?.[0] ?? null; }} disabled={zipImporting} />
+									</label>
+									<button type="button" class="btn btn--primary" onclick={onZipImport}
+										disabled={zipImporting || !zipFile}>
+										{zipImporting ? t('importZipButtonLoading') : t('importZipButton')}
 									</button>
 								{/if}
 								{:else if importMode === 'llm'}
@@ -662,10 +761,10 @@ import { readStoredLlmConfig, persistLlmConfig } from '$lib/llm-config.svelte';
 									</button>
 								{/if}
 								{/if}
-								{#if importError || (importMode === 'urls' && bulkError)}
+								{#if importError || (importMode === 'urls' && bulkError) || (importMode === 'zip' && zipError)}
 									<p class="form-error" role="alert">
 										<Icon name="circle-alert" size={18} />
-										<span>{importMode === 'urls' && bulkError ? bulkError : importError}</span>
+										<span>{importMode === 'urls' && bulkError ? bulkError : importMode === 'zip' && zipError ? zipError : importError}</span>
 									</p>
 								{/if}
 							</section>
@@ -940,4 +1039,54 @@ import { readStoredLlmConfig, persistLlmConfig } from '$lib/llm-config.svelte';
         min-height: 140px;
         resize: vertical;
     }
+
+	.toolbar-actions {
+		display: flex;
+		align-items: center;
+		gap: var(--space-1);
+	}
+
+	.btn--primary {
+		display: inline-flex;
+		align-items: center;
+		gap: var(--space-2);
+	}
+
+	.menu-container {
+		position: relative;
+	}
+
+	.menu-dropdown {
+		position: absolute;
+		right: 0;
+		top: calc(100% + var(--space-1));
+		z-index: 50;
+		min-width: 160px;
+		background: var(--color-surface);
+		border: 1px solid var(--color-border);
+		border-radius: var(--radius-md);
+		box-shadow: 0 4px 16px rgb(0 0 0 / 0.12);
+		padding: var(--space-1);
+	}
+
+	.menu-dropdown__item {
+		display: flex;
+		align-items: center;
+		gap: var(--space-2);
+		width: 100%;
+		padding: var(--space-2) var(--space-3);
+		font: inherit;
+		font-size: var(--text-sm);
+		color: var(--color-text);
+		background: transparent;
+		border: none;
+		border-radius: var(--radius-sm);
+		cursor: pointer;
+		text-align: left;
+		white-space: nowrap;
+	}
+
+	.menu-dropdown__item:hover {
+		background: var(--color-surface-hover);
+	}
 </style>

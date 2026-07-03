@@ -91,6 +91,17 @@ export interface BulkImportResult {
 	failed: BulkImportFailure[];
 }
 
+export interface ZipImportFailure {
+	source: string;
+	reason: string;
+}
+
+export interface ZipImportResult {
+	created: Meal[];
+	skipped: number;
+	failed: ZipImportFailure[];
+}
+
 
 export interface LlmProviderInfo {
     id: string;

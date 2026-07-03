@@ -1,4 +1,4 @@
-import type { Meal, MealPayload, NewIngredientLine, ImportDraft, Plan, PlanSummaryItem, NewPlanRequest, PlanPatch, LlmProviderInfo, LlmModelsResponse, BulkImportRequest, BulkImportResult } from './types';
+import type { Meal, MealPayload, NewIngredientLine, ImportDraft, Plan, PlanSummaryItem, NewPlanRequest, PlanPatch, LlmProviderInfo, LlmModelsResponse, BulkImportRequest, BulkImportResult, ZipImportResult } from './types';
 
 
 export class ApiError extends Error {
@@ -226,5 +226,20 @@ export async function importBulk(payload: BulkImportRequest): Promise<BulkImport
 		method: 'POST',
 		headers: { 'Content-Type': 'application/json' },
 		body: JSON.stringify(payload),
+	});
+}
+
+// --- Export / Import ZIP ---
+
+export function exportMealsUrl(): string {
+	return '/api/export/meals.zip';
+}
+
+export async function importZip(file: File): Promise<ZipImportResult> {
+	const formData = new FormData();
+	formData.append('file', file);
+	return request<ZipImportResult>('/api/import/zip', {
+		method: 'POST',
+		body: formData,
 	});
 }

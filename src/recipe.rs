@@ -189,7 +189,7 @@ fn parse_recipe_with_image_url(text: &str) -> Result<(ImportDraft, Option<String
 /// Split an ingredient line into name and optional quantity.
 /// Best-effort: if the line starts with a quantity prefix (number + unit word),
 /// the prefix is the quantity and the rest is the name. Otherwise the whole line is the name.
-fn split_ingredient_line(line: &str) -> NewIngredientLine {
+pub(crate) fn split_ingredient_line(line: &str) -> NewIngredientLine {
     let units = [
         "cup",
         "cups",
