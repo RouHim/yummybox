@@ -3,7 +3,8 @@
 	import { t } from '$lib/i18n';
 	import Icon from '$lib/Icon.svelte';
 	import type { Meal, NewIngredientLine } from '$lib/types';
-	import { mealImageUrl, loadImageFromUrl, ApiError } from '$lib/api';
+	import ImageInput from '$lib/components/ImageInput.svelte';
+	import { ApiError } from '$lib/api';
 
 	let {
 		initialName = '',
@@ -14,6 +15,7 @@
 		editingMeal = null,
 		submitting = false,
 		onsubmit,
+		existingNames = new Set<string>(),
 		oncancel,
 	}: {
 		initialName?: string;
@@ -23,6 +25,7 @@
 		editMode?: boolean;
 		editingMeal?: Meal | null;
 		submitting?: boolean;
+		existingNames?: Set<string>;
 		onsubmit: (payload: {
 			name: string;
 			ingredients: NewIngredientLine[];
@@ -40,28 +43,31 @@
 			: [{ name: '', quantity: null }]
 	);
 	let formInstructions = $state(initialInstructions);
+
 	let formImage = $state<File | null>(initialImage);
 	let removeImage = $state(false);
+	let imageError = $state<string | null>(null);
 	let formError = $state<string | null>(null);
 
-	// Image URL load state
-	let imageUrl = $state('');
-	let imageUrlLoading = $state(false);
-	let imageUrlError = $state<string | null>(null);
+	function normalizeName(name: string): string {
+		return name.trim().toLowerCase().split(/\s+/).join(' ');
+	}
 
-	// Object URL for staged-image thumbnail preview
-	let stagedImageUrl = $state<string | null>(null);
-
-	// Revoke old object URL when formImage changes or component unmounts.
-	// Uses a local var so the effect never reads stagedImageUrl (avoids effect_update_depth_exceeded).
-	$effect(() => {
-		const file = formImage;
-		const url = file ? URL.createObjectURL(file) : null;
-		stagedImageUrl = url;
-		return () => {
-			if (url) URL.revokeObjectURL(url);
-		};
+	let isDuplicate = $derived.by(() => {
+		const norm = normalizeName(formName);
+		if (norm.length === 0) return false;
+		if (editMode && editingMeal && norm === normalizeName(editingMeal.name)) return false;
+		return existingNames.has(norm);
 	});
+
+	function onImageChange(file: File | null, rm: boolean) {
+		formImage = file;
+		removeImage = rm;
+	}
+
+	function onImageError(error: string | null) {
+		imageError = error;
+	}
 
 	function validIngredientLines(): NewIngredientLine[] {
 		return formIngredients.filter((r) => r.name.trim().length > 0);
@@ -75,67 +81,16 @@
 		formIngredients = formIngredients.filter((_, i) => i !== idx);
 	}
 
-	function stageImage(file: File | null) {
-		formImage = file;
-		removeImage = false;
-		imageUrlError = null;
-	}
-
-	function onImageChange(e: Event) {
-		const file = (e.target as HTMLInputElement).files?.[0] ?? null;
-		stageImage(file);
-	}
-
-	function onPaste(e: ClipboardEvent) {
-		const items = e.clipboardData?.files;
-		if (!items || items.length === 0) return;
-		const imageFile = Array.from(items).find((f) => f.type.startsWith('image/'));
-		if (imageFile) {
-			e.preventDefault();
-			stageImage(imageFile);
-		}
-	}
-
-	function onRemoveImageClick() {
-		removeImage = true;
-		formImage = null;
-	}
-
-	async function onLoadImageUrl() {
-		imageUrlError = null;
-		const url = imageUrl.trim();
-		if (!url) return;
-		imageUrlLoading = true;
-		try {
-			const resp = await loadImageFromUrl(url);
-			const bytes = Uint8Array.from(atob(resp.imageBase64), (c) => c.charCodeAt(0));
-			const file = new File([bytes], 'imported.jpg', { type: 'image/jpeg' });
-			stageImage(file);
-			imageUrl = '';
-		} catch (err) {
-			if (err instanceof ApiError) {
-				const msg = err.message || '';
-				if (msg.includes('unreachable') || msg.includes('HTTP')) {
-					imageUrlError = t('imageErrorUrlUnreachable');
-				} else if (msg.includes('not a recognizable') || msg.includes('corrupt')) {
-					imageUrlError = t('imageErrorUrlNotImage');
-				} else {
-					imageUrlError = t('imageErrorUrlGeneric');
-				}
-			} else {
-				imageUrlError = t('imageErrorUrlGeneric');
-			}
-		} finally {
-			imageUrlLoading = false;
-		}
-	}
-
 	async function onSubmit() {
 		formError = null;
 		const valid = validIngredientLines();
 		const result = validateMeal(formName, valid, formInstructions);
 		if (!result.ok) {
 			formError = t(result.messageKey);
+			return;
+		}
+		if (imageError) {
+			formError = imageError;
 			return;
 		}
 		try {
@@ -147,8 +102,12 @@
 				removeImage,
 			});
 		} catch (err) {
-			const raw = err instanceof Error ? err.message : String(err ?? '');
-			formError = raw === '__REQUEST_FAILED__' ? t('errorSaveFailed') : raw;
+			if (err instanceof ApiError && err.status === 409) {
+				formError = t('errorDuplicateMeal');
+			} else {
+				const raw = err instanceof Error ? err.message : String(err ?? '');
+				formError = raw === '__REQUEST_FAILED__' ? t('errorSaveFailed') : raw;
+			}
 		}
 	}
 </script>
@@ -220,64 +179,19 @@
 			></textarea>
 		</label>
 
-		<!-- Image field — file picker + clipboard paste + URL load -->
-		<!-- svelte-ignore a11y_no_noninteractive_tabindex -->
-		<div class="field" tabindex="0" onpaste={onPaste}>
-			<span class="field__label">{t('fieldImageLabel')}</span>
-			{#if editMode && editingMeal?.has_image && !removeImage}
-				<div class="meal-image-controls">
-					<img src={mealImageUrl(editingMeal.id)} alt="" class="meal-image-preview" />
-					<span class="image-status">{t('fieldImageCurrent')}</span>
-					<button type="button" class="btn btn--ghost" onclick={onRemoveImageClick}>
-						<Icon name="trash-2" size={14} /> {t('fieldImageRemove')}
-					</button>
-				</div>
-			{/if}
-
-			<!-- Staged image thumbnail preview -->
-			{#if stagedImageUrl}
-				<div class="meal-image-controls">
-					<img src={stagedImageUrl} alt="" class="staged-image-preview" />
-					<span class="image-status">{t('imageStaged')}</span>
-				</div>
-			{:else if removeImage}
-				<span class="image-status">{t('imageStagedRemove')}</span>
-			{/if}
-
-			<div class="image-input-row">
-				<input
-					type="file"
-					accept="image/*"
-					onchange={onImageChange}
-					aria-label={formImage ? t('fieldImageReplace') : t('fieldImageChoose')}
-				/>
-			</div>
-
-			<div class="image-url-row">
-				<input
-					type="url"
-					bind:value={imageUrl}
-					placeholder={t('fieldImageUrlPlaceholder')}
-					disabled={imageUrlLoading}
-				/>
-				<button
-					type="button"
-					class="btn btn--ghost"
-					onclick={onLoadImageUrl}
-					disabled={imageUrlLoading || !imageUrl.trim()}
-				>
-					{imageUrlLoading ? t('fieldImageUrlLoading') : t('fieldImageUrlLoad')}
-				</button>
-			</div>
-			<small class="image-paste-hint">Ctrl+V to paste from clipboard</small>
-
-			{#if imageUrlError}
-				<p class="form-error" role="alert">
-					<Icon name="circle-alert" size={18} />
-					<span>{imageUrlError}</span>
-				</p>
-			{/if}
-		</div>
+		<ImageInput
+			{editMode}
+			{editingMeal}
+			initialImage={initialImage}
+			onchange={onImageChange}
+			onerror={onImageError}
+		/>
+		{#if isDuplicate}
+			<p class="form-error" role="alert">
+				<Icon name="circle-alert" size={18} />
+				<span>{t('formDuplicateWarning')}</span>
+			</p>
+		{/if}
 		{#if formError}
 			<p class="form-error" role="alert">
 				<Icon name="circle-alert" size={18} />
@@ -285,7 +199,7 @@
 			</p>
 		{/if}
 		<div class="form-card__actions">
-			<button type="submit" class="btn btn--primary" disabled={submitting}>
+			<button type="submit" class="btn btn--primary" disabled={submitting || isDuplicate}>
 				{#if editMode}
 					<Icon name="check" size={16} />
 					{t('buttonSave')}
@@ -358,49 +272,6 @@
 		display: flex;
 		gap: var(--space-2);
 		flex-wrap: wrap;
-	}
-	.meal-image-controls {
-		display: flex;
-		align-items: center;
-		gap: var(--space-2);
-		margin-bottom: var(--space-2);
-	}
-	.meal-image-preview {
-		max-width: 100px;
-		max-height: 100px;
-		object-fit: cover;
-		border-radius: var(--radius-sm);
-	}
-	.staged-image-preview {
-		max-width: 120px;
-		max-height: 120px;
-		object-fit: cover;
-		border-radius: var(--radius-sm);
-		border: 2px solid var(--color-primary);
-	}
-	.image-status {
-		display: block;
-		margin-top: var(--space-1);
-		font-size: var(--text-xs);
-		color: var(--color-text-secondary);
-	}
-	.image-input-row {
-		margin-bottom: var(--space-2);
-	}
-	.image-url-row {
-		display: flex;
-		gap: var(--space-2);
-		align-items: center;
-		margin-bottom: var(--space-1);
-	}
-	.image-url-row input {
-		flex: 1;
-		min-width: 0;
-	}
-	.image-paste-hint {
-		display: block;
-		font-size: var(--text-xs);
-		color: var(--color-text-muted);
 	}
 	@keyframes shake {
 		0%, 100% { transform: translateX(0); }

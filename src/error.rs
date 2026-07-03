@@ -39,6 +39,8 @@ pub enum AppError {
 
     #[error("{0}")]
     Llm(String, &'static str), // (message, error_code)
+    #[error("a meal with this name already exists")]
+    DuplicateName,
 }
 
 impl IntoResponse for AppError {
@@ -64,6 +66,7 @@ impl IntoResponse for AppError {
                 };
                 (status, msg.clone(), Some(*code))
             }
+            AppError::DuplicateName => (StatusCode::CONFLICT, self.to_string(), None),
         };
         (status, Json(json!({ "error": message, "code": code }))).into_response()
     }
@@ -282,6 +285,16 @@ mod tests {
             StatusCode::INTERNAL_SERVER_ERROR,
             "request failed",
             "llm_request_failed",
+        )
+        .await;
+    }
+
+    #[tokio::test]
+    async fn given_duplicate_name_error_when_response_then_returns_409() {
+        assert_response(
+            AppError::DuplicateName,
+            StatusCode::CONFLICT,
+            "a meal with this name already exists",
         )
         .await;
     }

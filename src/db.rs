@@ -83,6 +83,13 @@ pub fn normalize_ingredient_name(name: &str) -> String {
         .collect::<Vec<_>>()
         .join(" ")
 }
+pub fn normalize_meal_name(name: &str) -> String {
+    name.trim()
+        .to_lowercase()
+        .split_whitespace()
+        .collect::<Vec<_>>()
+        .join(" ")
+}
 
 // ---------------------------------------------------------------------------
 // Validation
@@ -410,6 +417,24 @@ pub async fn meals_count(pool: &SqlitePool) -> Result<i64, AppError> {
         .fetch_one(pool)
         .await?;
     Ok(count)
+}
+
+/// Check whether a meal with the given name already exists (case-insensitive,
+/// whitespace-collapsed comparison). When `exclude_id` is `Some(id)`, that
+/// meal is ignored — used during update to allow renaming to the same name
+/// with different casing.
+pub async fn meal_name_exists(
+    pool: &SqlitePool,
+    name: &str,
+    exclude_id: Option<i64>,
+) -> Result<bool, AppError> {
+    let target = normalize_meal_name(name);
+    let rows: Vec<(i64, String)> =
+        sqlx::query_as("SELECT id, name FROM meals WHERE ?1 IS NULL OR id != ?1")
+            .bind(exclude_id)
+            .fetch_all(pool)
+            .await?;
+    Ok(rows.iter().any(|(_, n)| normalize_meal_name(n) == target))
 }
 
 // ---------------------------------------------------------------------------
@@ -1006,6 +1031,23 @@ mod tests {
         assert_eq!(normalize_ingredient_name("   "), "");
     }
 
+    // -----------------------------------------------------------------------
+    // normalize_meal_name
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn given_name_with_mixed_case_and_whitespace_when_normalize_then_lowercases_and_collapses() {
+        assert_eq!(normalize_meal_name("Pancakes"), "pancakes");
+        assert_eq!(normalize_meal_name("  PANCAKES  "), "pancakes");
+        assert_eq!(normalize_meal_name("  Pan   Cakes  "), "pan cakes");
+    }
+
+    #[test]
+    fn given_name_empty_or_whitespace_when_normalize_then_returns_empty() {
+        assert_eq!(normalize_meal_name(""), "");
+        assert_eq!(normalize_meal_name("   "), "");
+    }
+
     #[test]
     fn given_unicode_ingredient_name_when_normalize_then_preserves_case_and_collapses_whitespace() {
         assert_eq!(
@@ -1013,6 +1055,42 @@ mod tests {
             "Thüringer Rostbratwurst"
         );
         assert_eq!(normalize_ingredient_name("grüne Kresse"), "grüne Kresse");
+    }
+
+    // -----------------------------------------------------------------------
+    // meal_name_exists
+    // -----------------------------------------------------------------------
+
+    #[tokio::test]
+    async fn given_existing_meal_when_check_duplicate_name_case_insensitive_then_returns_true() {
+        let (pool, _dir) = setup_db().await;
+        insert_test_meal(&pool, "Risotto", &[("rice", None)]).await;
+        assert!(meal_name_exists(&pool, "RISOTTO", None).await.unwrap());
+        assert!(meal_name_exists(&pool, "  risotto  ", None).await.unwrap());
+    }
+
+    #[tokio::test]
+    async fn given_no_meals_when_check_duplicate_name_then_returns_false() {
+        let (pool, _dir) = setup_db().await;
+        assert!(!meal_name_exists(&pool, "Anything", None).await.unwrap());
+    }
+
+    #[tokio::test]
+    async fn given_exclude_id_when_check_own_name_then_returns_false() {
+        let (pool, _dir) = setup_db().await;
+        let meal = insert_test_meal(&pool, "Pasta", &[("noodles", None)]).await;
+        // Excluding the meal itself → not a duplicate
+        assert!(
+            !meal_name_exists(&pool, "pasta", Some(meal.id))
+                .await
+                .unwrap()
+        );
+        // Excluding a different meal → still a duplicate
+        assert!(
+            meal_name_exists(&pool, "pasta", Some(meal.id + 999))
+                .await
+                .unwrap()
+        );
     }
 
     // -----------------------------------------------------------------------

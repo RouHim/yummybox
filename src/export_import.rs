@@ -354,13 +354,13 @@ async fn import_single_recipe(
     }
 
     // --- duplicate check ----------------------------------------------------
-    let normalized = db::normalize_ingredient_name(trimmed_name);
+    let normalized = db::normalize_meal_name(trimmed_name);
     let existing = db::list_meals(&state.pool, None)
         .await
         .map_err(|e| format!("database error: {e}"))?;
     if existing
         .iter()
-        .any(|m| db::normalize_ingredient_name(&m.name) == normalized)
+        .any(|m| db::normalize_meal_name(&m.name) == normalized)
     {
         return Ok(None); // skipped
     }
@@ -936,7 +936,7 @@ mod tests {
                 {
                     "@context": "https://schema.org",
                     "@type": "Recipe",
-                    "name": "Pizza",
+                    "name": "pizza",
                     "recipeIngredient": ["dough", "cheese"],
                     "recipeInstructions": "Bake."
                 },

@@ -13,6 +13,10 @@ import { readStoredLlmConfig, persistLlmConfig } from '$lib/llm-config.svelte';
 	import DeleteConfirmDialog from '$lib/DeleteConfirmDialog.svelte';
 	import MealForm from '$lib/MealForm.svelte';
 	let meals = $state<Meal[]>([]);
+
+	let existingMealNames = $derived(
+		new Set(meals.map(m => m.name.trim().toLowerCase().split(/\s+/).join(' ')))
+	);
 	let searchTerm = $state('');
 	let loadError = $state<string | null>(null);
 	let reduced = $state(prefersReducedMotion());
@@ -570,6 +574,7 @@ import { readStoredLlmConfig, persistLlmConfig } from '$lib/llm-config.svelte';
 					initialIngredients={editTarget.ingredients.length > 0 ? editTarget.ingredients.map(i => ({ name: i.name, quantity: i.quantity })) : [{ name: '', quantity: null }]}
 					initialInstructions={editTarget.instructions}
 					submitting={editSubmitting}
+					existingNames={existingMealNames}
 					onsubmit={onSubmitEdit}
 					oncancel={closeEdit}
 				/>
@@ -629,7 +634,7 @@ import { readStoredLlmConfig, persistLlmConfig } from '$lib/llm-config.svelte';
 													<li class="form-error">
 														<Icon name="circle-alert" size={16} />
 														<span class="bulk-results__url">{f.url}</span>
-														<span class="bulk-results__reason">{t(f.reason === 'fetch failed' ? 'importBulkReasonFetch' : f.reason === 'no recipe found' ? 'importBulkReasonNoRecipe' : 'importBulkReasonValidation')}</span>
+														<span class="bulk-results__reason">{t(f.reason === 'fetch failed' ? 'importBulkReasonFetch' : f.reason === 'no recipe found' ? 'importBulkReasonNoRecipe' : f.reason === 'duplicate' ? 'importBulkReasonDuplicate' : 'importBulkReasonValidation')}</span>
 													</li>
 												{/each}
 											</ul>
@@ -779,6 +784,7 @@ import { readStoredLlmConfig, persistLlmConfig } from '$lib/llm-config.svelte';
 									initialInstructions={formInstructions}
 									initialImage={formImage}
 									submitting={submitting}
+									existingNames={existingMealNames}
 									onsubmit={onSubmitAdd}
 								/>
 							{/key}

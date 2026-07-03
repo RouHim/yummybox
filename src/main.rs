@@ -97,6 +97,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         )
         .route("/bring/items", post(routes::add_bring_item))
         .route("/bring/status", get(routes::get_bring_status))
+        .route("/version", get(routes::get_version))
         .layer(DefaultBodyLimit::max(50 * 1024 * 1024))
         .with_state(state);
 

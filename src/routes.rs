@@ -158,6 +158,9 @@ pub async fn create_meal(
         ingredients,
         instructions,
     };
+    if db::meal_name_exists(&state.pool, &new.name, None).await? {
+        return Err(AppError::DuplicateName);
+    }
     let meal = db::insert_meal(&state.pool, new, image).await?;
     Ok((StatusCode::CREATED, Json(meal)))
 }
@@ -250,6 +253,9 @@ pub async fn update_meal(
         ingredients,
         instructions,
     };
+    if db::meal_name_exists(&state.pool, &patch.name, Some(id)).await? {
+        return Err(AppError::DuplicateName);
+    }
     let meal = db::update_meal(&state.pool, id, patch, image).await?;
     Ok(Json(meal))
 }
@@ -663,6 +669,13 @@ async fn process_single_url(pool: &SqlitePool, url: &str) -> Result<Meal, String
         instructions: draft.instructions,
     };
 
+    if db::meal_name_exists(pool, &new_meal.name, None)
+        .await
+        .map_err(|e| format!("database error: {e}"))?
+    {
+        return Err("duplicate".to_string());
+    }
+
     // Decode and convert the image (if present) into owned JPEG bytes so the
     // borrow lives long enough for ImageChange::Set.
     let jpeg_bytes: Option<Vec<u8>> = if let Some(b64) = &draft.image_base64 {
@@ -854,6 +867,15 @@ pub async fn get_bring_status(
     )))
 }
 
+/// Returns the compile-time Cargo package version.
+/// Stateless — never acquires the DB lock.
+#[instrument(skip(_state))]
+pub async fn get_version(State(_state): State<Arc<AppState>>) -> Json<crate::model::AppVersion> {
+    Json(crate::model::AppVersion {
+        version: env!("CARGO_PKG_VERSION"),
+    })
+}
+
 // ===========================================================================
 // Tests
 // ===========================================================================
@@ -866,7 +888,7 @@ mod tests {
     use ::image::Rgba;
     use ::image::RgbaImage;
     use axum::Router;
-    use axum::body::to_bytes;
+    use axum::body::{Body, to_bytes};
     use axum::http::{Method, Request, StatusCode, header};
     use axum::routing::{get, post, put};
     use serde_json::json;
@@ -903,6 +925,7 @@ mod tests {
             .route("/plans/{year}/{week}", put(update_plan).delete(delete_plan))
             .route("/bring/items", post(add_bring_item))
             .route("/bring/status", get(get_bring_status))
+            .route("/version", get(get_version))
             .layer(axum::extract::DefaultBodyLimit::max(50 * 1024 * 1024))
             .with_state(state);
         TestCtx { app, _dir: dir }
@@ -1075,6 +1098,37 @@ mod tests {
         assert!(json["error"].as_str().unwrap().contains("name"));
     }
     #[tokio::test]
+    async fn given_existing_meal_when_post_meal_duplicate_name_then_returns_409() {
+        let ctx = setup().await;
+        create_meal_helper(&ctx, "Pancakes", &[("flour", None)], "test instructions").await;
+
+        // Same name, different case
+        let ings = make_ingredient_lines(&[("flour", None)]);
+        let ingredients_json = serde_json::to_string(&ings).unwrap();
+        let (body, content_type) =
+            build_multipart_body("pancakes", &ingredients_json, "test instructions", None);
+        let response = ctx
+            .app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method(Method::POST)
+                    .uri("/meals")
+                    .header("content-type", &content_type)
+                    .body(axum::body::Body::from(body))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::CONFLICT);
+        let body_bytes = to_bytes(response.into_body(), 1024).await.unwrap();
+        let body: serde_json::Value = serde_json::from_slice(&body_bytes).unwrap();
+        assert!(
+            body["error"].as_str().unwrap().contains("already exists"),
+            "expected duplicate error, got: {body}"
+        );
+    }
+    #[tokio::test]
     async fn given_existing_meal_when_put_meal_then_returns_200_with_updated_payload() {
         let ctx = setup().await;
         let meal =
@@ -1103,6 +1157,59 @@ mod tests {
         assert_eq!(updated.ingredients.len(), 1);
         assert_eq!(updated.ingredients[0].name, "new stuff");
         assert_eq!(updated.id, meal.id);
+    }
+
+    #[tokio::test]
+    async fn given_two_meals_when_put_meal_rename_to_other_name_then_returns_409() {
+        let ctx = setup().await;
+        let tacos =
+            create_meal_helper(&ctx, "Tacos", &[("tortilla", None)], "test instructions").await;
+        create_meal_helper(&ctx, "Burritos", &[("tortilla", None)], "test instructions").await;
+
+        let ings = make_ingredient_lines(&[("tortilla", None)]);
+        let ingredients_json = serde_json::to_string(&ings).unwrap();
+        let (body, content_type) =
+            build_multipart_body("Burritos", &ingredients_json, "test instructions", None);
+        let response = ctx
+            .app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method(Method::PUT)
+                    .uri(format!("/meals/{}", tacos.id))
+                    .header("content-type", &content_type)
+                    .body(axum::body::Body::from(body))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::CONFLICT);
+    }
+
+    #[tokio::test]
+    async fn given_meal_when_put_meal_rename_to_own_name_case_variant_then_returns_200() {
+        let ctx = setup().await;
+        let meal =
+            create_meal_helper(&ctx, "Tacos", &[("tortilla", None)], "test instructions").await;
+
+        let ings = make_ingredient_lines(&[("tortilla", None)]);
+        let ingredients_json = serde_json::to_string(&ings).unwrap();
+        let (body, content_type) =
+            build_multipart_body("tacos", &ingredients_json, "test instructions", None);
+        let response = ctx
+            .app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method(Method::PUT)
+                    .uri(format!("/meals/{}", meal.id))
+                    .header("content-type", &content_type)
+                    .body(axum::body::Body::from(body))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
     }
 
     #[tokio::test]
@@ -2605,5 +2712,25 @@ mod tests {
     fn given_db_error_when_classify_insert_then_returns_message() {
         let err = AppError::BadRequest("something wrong".into());
         assert_eq!(classify_insert_error(&err), "something wrong");
+    }
+
+    #[tokio::test]
+    async fn given_running_app_when_get_version_then_returns_cargo_pkg_version() {
+        let ctx = setup().await;
+        let response = ctx
+            .app
+            .oneshot(
+                Request::builder()
+                    .method(Method::GET)
+                    .uri("/version")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+        let body = to_bytes(response.into_body(), usize::MAX).await.unwrap();
+        let v: serde_json::Value = serde_json::from_slice(&body).unwrap();
+        assert_eq!(v["version"], env!("CARGO_PKG_VERSION"));
     }
 }

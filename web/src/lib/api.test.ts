@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { listMeals, getMeal, createMeal, updateMeal, deleteMeal, mealImageUrl, listPlansForYear, getPlan, createPlan, updatePlan, deletePlan, importFromUrl, importFromPaste, importFromLlm, importBulk, listLlmProviders, listLlmModels, polishInstructions, ApiError } from './api';
+import { listMeals, getMeal, createMeal, updateMeal, deleteMeal, mealImageUrl, listPlansForYear, getPlan, createPlan, updatePlan, deletePlan, importFromUrl, importFromPaste, importFromLlm, importBulk, listLlmProviders, listLlmModels, polishInstructions, getVersion, ApiError } from './api';
 import type { Meal, MealPayload, NewIngredientLine, Plan, PlanSummaryItem, NewPlanRequest, PlanPatch } from './types';
 
 const mockFetch = vi.fn();
@@ -174,6 +174,18 @@ describe('error handling', () => {
         } catch (err) {
             expect(err).toBeInstanceOf(ApiError);
             expect((err as ApiError).code).toBeNull();
+        }
+    });
+
+    it('throws ApiError with status 409 for duplicate name', async () => {
+        mockResponse(409, { error: 'a meal with this name already exists', code: null });
+        try {
+            await listMeals();
+            expect.fail('should have thrown');
+        } catch (err) {
+            expect(err).toBeInstanceOf(ApiError);
+            expect((err as ApiError).status).toBe(409);
+            expect((err as ApiError).message).toBe('a meal with this name already exists');
         }
     });
 });
@@ -472,4 +484,17 @@ describe('polishInstructions', () => {
         expect(fd.get('base_url')).toBeNull();
         expect(fd.get('api_key')).toBeNull();
     });
+});
+
+// ---------------------------------------------------------------------------
+// Version API
+// ---------------------------------------------------------------------------
+
+describe('getVersion', () => {
+	it('calls /api/version and returns version', async () => {
+		mockResponse(200, { version: '0.1.0' });
+		const result = await getVersion();
+		expect(mockFetch).toHaveBeenCalledWith('/api/version', undefined);
+		expect(result.version).toBe('0.1.0');
+	});
 });

@@ -2,7 +2,7 @@ import type { Meal, MealPayload, NewIngredientLine, ImportDraft, Plan, PlanSumma
 
 
 export class ApiError extends Error {
-    constructor(message: string, public code: string | null) {
+    constructor(message: string, public code: string | null, public status: number) {
         super(message);
         this.name = 'ApiError';
     }
@@ -23,7 +23,7 @@ async function request<T>(url: string, options?: RequestInit): Promise<T> {
         } catch {
             // Response was not JSON; fall back to status text
         }
-        throw new ApiError(message, code);
+        throw new ApiError(message, code, response.status);
     }
     if (response.status === 204) {
         return undefined as T;
@@ -219,6 +219,14 @@ export interface BringStatusResponse {
 
 export async function checkBringStatus(): Promise<BringStatusResponse> {
 	return request<BringStatusResponse>('/api/bring/status');
+}
+
+export interface VersionResponse {
+	version: string;
+}
+
+export async function getVersion(): Promise<VersionResponse> {
+	return request<VersionResponse>('/api/version');
 }
 
 export async function importBulk(payload: BulkImportRequest): Promise<BulkImportResult> {

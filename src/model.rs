@@ -112,6 +112,12 @@ pub struct BulkImportResult {
     pub created: Vec<Meal>,
     pub failed: Vec<BulkImportFailure>,
 }
+
+/// Application version exposed via GET /api/version.
+#[derive(Debug, Clone, Serialize)]
+pub struct AppVersion {
+    pub version: &'static str,
+}
 mod tests {
     #[allow(unused_imports)]
     use super::*;

@@ -7,7 +7,7 @@
 	import Icon from '$lib/Icon.svelte';
 	import LanguageSwitcher from '$lib/LanguageSwitcher.svelte';
 	import { isLowPowerDevice } from '$lib/motion';
-	import { checkBringStatus } from '$lib/api';
+	import { checkBringStatus, getVersion } from '$lib/api';
 
 
 	let { children } = $props();
@@ -30,6 +30,8 @@
 
 	let bringError = $state<string | null>(null);
 
+	let appVersion = $state<string | null>(null);
+
 	$effect(() => {
 		checkBringStatus()
 			.then((res) => {
@@ -48,6 +50,12 @@
 				console.error('[Bring!] probe failed:', e);
 				bringError = e instanceof Error ? e.message : String(e);
 			});
+	});
+
+	$effect(() => {
+		getVersion()
+			.then((res) => { appVersion = res.version; })
+			.catch(() => { appVersion = null; });
 	});
 </script>
 
@@ -94,5 +102,8 @@
 	</p>
 	{#if bringError}
 		<span class="site-footer__bring-error" role="alert">{bringError}</span>
+	{/if}
+	{#if appVersion}
+		<a href="https://github.com/RouHim/mealme/releases" target="_blank" rel="noopener">{appVersion}</a>
 	{/if}
 </footer>

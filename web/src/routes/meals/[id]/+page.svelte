@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { getMeal, updateMeal, deleteMeal, mealImageUrl, polishInstructions, ApiError } from '$lib/api';
+	import { getMeal, updateMeal, deleteMeal, mealImageUrl, polishInstructions, ApiError, listMeals } from '$lib/api';
 	import Icon from '$lib/Icon.svelte';
 	import { t, formatDate } from '$lib/i18n';
 	import { page } from '$app/state';
@@ -16,6 +16,10 @@
 	let notFound = $state(false);
 	let loadError = $state<string | null>(null);
 	const mealId = $derived(Number(page.params.id));
+	let allMeals = $state<Meal[]>([]);
+	let existingMealNames = $derived(
+		new Set(allMeals.map(m => m.name.trim().toLowerCase().split(/\s+/).join(' ')))
+	);
 
 	let deleteOpen = $state(false);
 	let deleting = $state(false);
@@ -35,6 +39,7 @@
 		loadError = null;
 		try {
 			meal = await getMeal(mealId);
+			try { allMeals = await listMeals(); } catch { /* best-effort */ }
 		} catch (err) {
 			meal = null;
 			notFound = true;
@@ -266,6 +271,7 @@
 					initialIngredients={meal.ingredients.length > 0 ? meal.ingredients.map(i => ({ name: i.name, quantity: i.quantity })) : [{ name: '', quantity: null }]}
 					initialInstructions={meal.instructions}
 					submitting={editSubmitting}
+					existingNames={existingMealNames}
 					onsubmit={onSubmitEdit}
 					oncancel={closeEdit}
 				/>
