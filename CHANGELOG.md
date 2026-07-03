@@ -1,3 +1,10 @@
+# [1.9.0](https://github.com/RouHim/mealme/compare/v1.8.0...v1.9.0) (2026-07-03)
+
+
+### Features
+
+* unify URL + Bulk URL import into single "Import URLs" tab ([0ac8023](https://github.com/RouHim/mealme/commit/0ac8023a147e197cd401d47aaaa3d0f51853e577))
+
 # [1.8.0](https://github.com/RouHim/mealme/compare/v1.7.0...v1.8.0) (2026-07-03)
 
 
