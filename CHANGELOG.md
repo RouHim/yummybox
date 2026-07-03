@@ -1,3 +1,10 @@
+# [1.10.0](https://github.com/RouHim/mealme/compare/v1.9.0...v1.10.0) (2026-07-03)
+
+
+### Features
+
+* reorganize meals toolbar — direct Add meal button + More dropdown ([b74a728](https://github.com/RouHim/mealme/commit/b74a7283eb4ee3a80ba6787b1c60471fc230e275))
+
 # [1.9.0](https://github.com/RouHim/mealme/compare/v1.8.0...v1.9.0) (2026-07-03)
 
 
