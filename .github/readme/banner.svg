@@ -4,33 +4,31 @@
       <stop offset="0%" stop-color="#1a1410"/>
       <stop offset="100%" stop-color="#2a1f18"/>
     </linearGradient>
+    <radialGradient id="glow" cx="22%" cy="18%" r="55%">
+      <stop offset="0%" stop-color="#d97757" stop-opacity="0.10"/>
+      <stop offset="100%" stop-color="#d97757" stop-opacity="0"/>
+    </radialGradient>
+    <linearGradient id="edge" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#ffffff" stop-opacity="0.06"/>
+      <stop offset="100%" stop-color="#ffffff" stop-opacity="0"/>
+    </linearGradient>
   </defs>
 
-  <!-- Background -->
   <rect width="800" height="200" fill="url(#bg)"/>
+  <rect width="800" height="200" fill="url(#glow)"/>
+  <rect x="0.5" y="0.5" width="799" height="199" fill="none" stroke="url(#edge)"/>
 
-  <!-- Subtle plate outline (background circle) -->
   <circle cx="190" cy="100" r="80" fill="none" stroke="#3a3028" stroke-width="1.5" opacity="0.6"/>
 
-  <!-- Soup bowl icon (replaces fork+knife) -->
   <g transform="translate(142, 56)" fill="none" stroke="#d97757" stroke-width="3" stroke-linecap="round" stroke-linejoin="round">
-    <!-- Bowl -->
     <path d="M48 84a36 36 0 0 0 36-36H12a36 36 0 0 0 36 36Z" />
-    <!-- Base -->
     <path d="M28 84h40" />
-    <!-- Right steam -->
     <path d="M78 48 88 24" />
-    <!-- Mid steam -->
     <path d="M65 12c1.08.4 3.2 2.12 3 5.44-.24 3.32-3.72 4.8-4 8.08-.2 3.12 1.36 4.96 2.92 6.48" />
-    <!-- Inner steam -->
     <path d="M45 12c1.08.4 3.2 2.12 2.96 5.44-.2 3.32-3.72 4.8-3.92 8.08-.24 3.12 1.32 4.96 2.88 6.48" />
-    <!-- Left steam -->
     <path d="M25 12c1.08.4 3.2 2.12 3 5.44-.24 3.32-3.72 4.8-4 8.08-.2 3.12 1.36 4.96 2.96 6.48" />
   </g>
 
-  <!-- Wordmark -->
-  <text x="370" y="108" font-family="system-ui, -apple-system, sans-serif" font-size="54" font-weight="700" fill="#e8e0d8" letter-spacing="-0.5">MealMe</text>
-
-  <!-- Subtitle -->
-  <text x="370" y="138" font-family="system-ui, -apple-system, sans-serif" font-size="18" fill="#8b8078" letter-spacing="1.5">LOCAL-FIRST MEAL MANAGER</text>
+  <text x="370" y="108" font-family="system-ui, -apple-system, sans-serif" font-size="54" font-weight="700" fill="#e8e0d8" letter-spacing="-1">MealMe</text>
+  <text x="372" y="138" font-family="system-ui, -apple-system, sans-serif" font-size="16" fill="#8b8078" letter-spacing="2.2">LOCAL-FIRST MEAL MANAGER</text>
 </svg>

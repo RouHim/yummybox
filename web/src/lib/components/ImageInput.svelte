@@ -25,7 +25,8 @@
 	let imageUrlLoading = $state(false);
 	let imageUrlError = $state<string | null>(null);
 	let imageError = $state<string | null>(null);
-	let isDragging = $state(false);
+	let dragDepth = $state(0);
+	const isDragging = $derived(dragDepth > 0);
 	let urlRowOpen = $state(false);
 
 	// Object URL for staged-image thumbnail preview.
@@ -72,7 +73,7 @@
 
 	function onDragEnter(e: DragEvent) {
 		if (isFileDrag(e.dataTransfer)) {
-			isDragging = true;
+			dragDepth++;
 		}
 		e.preventDefault();
 	}
@@ -82,12 +83,12 @@
 	}
 
 	function onDragLeave(_e: DragEvent) {
-		isDragging = false;
+		dragDepth = Math.max(0, dragDepth - 1);
 	}
 
 	function onDrop(e: DragEvent) {
 		e.preventDefault();
-		isDragging = false;
+		dragDepth = 0;
 		const files = e.dataTransfer?.files;
 		if (!files || files.length === 0) return;
 		const file = files[0];

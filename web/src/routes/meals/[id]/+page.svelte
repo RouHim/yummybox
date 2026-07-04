@@ -262,7 +262,7 @@
 	{#if editOpen && meal}
 		<!-- svelte-ignore a11y_click_events_have_key_events -->
 		<!-- svelte-ignore a11y_no_static_element_interactions -->
-		<div class="edit-modal-overlay glass--strong" role="dialog" aria-label={t('formEditHeading', { name: meal.name || t('formUntitled') })} tabindex="-1" transition:fade={{ duration: tierDuration(200) }} onclick={closeEdit} onkeydown={(e) => { if (e.key === 'Escape') closeEdit(); }} use:focusTrap>
+		<div class="edit-modal-overlay glass--strong" role="dialog" aria-label={t('formEditHeading', { name: meal.name || t('formUntitled') })} tabindex="-1" transition:fade={{ duration: tierDuration(200) }} onclick={closeEdit} onkeydown={(e) => { if (e.key === 'Escape') closeEdit(); }} ondragover={(e) => e.preventDefault()} ondrop={(e) => e.preventDefault()} use:focusTrap>
 			<div class="edit-modal" onclick={(e) => e.stopPropagation()} onkeydown={() => {}}>
 				<MealForm
 					editMode={true}
