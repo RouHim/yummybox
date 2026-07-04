@@ -1,3 +1,10 @@
+## [1.12.1](https://github.com/RouHim/yummybox/compare/v1.12.0...v1.12.1) (2026-07-04)
+
+
+### Bug Fixes
+
+* add explicit [[bin]] section so cargo fetch works without src/ present ([5f67f5f](https://github.com/RouHim/yummybox/commit/5f67f5fbe14cf73aedd8a97f9f102f98f484e302))
+
 # [1.12.0](https://github.com/RouHim/yummybox/compare/v1.11.2...v1.12.0) (2026-07-04)
 
 
