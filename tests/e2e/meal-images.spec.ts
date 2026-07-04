@@ -252,7 +252,8 @@ test.describe('Meal images', () => {
 			);
 		});
 
-		await expect(page.locator('.image-input')).toHaveClass(/drop-active/);
+		await expect(page.locator('.image-input__drop-zone')).toBeVisible();
+		await expect(page.locator('.image-tiles')).toHaveClass(/tiles-dimmed/);
 		await expect(page.locator('.image-tile--drop')).toHaveClass(/image-tile--drop-active/);
 	});
 
@@ -318,5 +319,55 @@ test.describe('Meal images', () => {
 		}
 		expect(w).toBe(3840);
 		expect(h).toBe(2160);
+	});
+
+	test('highlights the drop zone while dragging a URL over it', async ({ page }) => {
+		await page.goto('/meals');
+		await page.getByRole('button', { name: /^Add meal$|^Mahlzeit hinzufügen$/ }).click();
+		await expect(page.getByRole('dialog')).toBeVisible();
+
+		await page.evaluate(() => {
+			const dt = new DataTransfer();
+			dt.setData('text/uri-list', 'https://example.com/photo.jpg');
+			const el = document.querySelector('.image-input');
+			if (!el) throw new Error('.image-input not found');
+			el.dispatchEvent(
+				new DragEvent('dragenter', { bubbles: true, cancelable: true, dataTransfer: dt })
+			);
+			el.dispatchEvent(
+				new DragEvent('dragover', { bubbles: true, cancelable: true, dataTransfer: dt })
+			);
+		});
+
+		await expect(page.locator('.image-input__drop-zone')).toBeVisible();
+		await expect(page.locator('.image-tiles')).toHaveClass(/tiles-dimmed/);
+		await expect(page.locator('.image-tile--drop')).toHaveClass(/image-tile--drop-active/);
+	});
+
+	test('stages an image dropped from a URL drag (cross-window)', async ({ page }) => {
+		// Mock the backend URL-import endpoint to return a valid PNG.
+		await page.route('**/api/import/image-url', async (route) => {
+			await route.fulfill({
+				status: 200,
+				contentType: 'application/json',
+				body: JSON.stringify({ imageBase64: 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAIAAACQd1PeAAAADElEQVR4nGP4z8AAAAMBAQDJ/pLvAAAAAElFTkSuQmCC' }),
+			});
+		});
+
+		await page.goto('/meals');
+		await page.getByRole('button', { name: /^Add meal$|^Mahlzeit hinzufügen$/ }).click();
+		await expect(page.getByRole('dialog')).toBeVisible();
+
+		await page.evaluate(() => {
+			const dt = new DataTransfer();
+			dt.setData('text/uri-list', 'https://example.com/red.png');
+			const el = document.querySelector('.image-input');
+			if (!el) throw new Error('.image-input not found');
+			el.dispatchEvent(
+				new DragEvent('drop', { bubbles: true, cancelable: true, dataTransfer: dt })
+			);
+		});
+
+		await expect(page.locator('img.staged-image-preview')).toBeVisible({ timeout: 10_000 });
 	});
 });
