@@ -6,6 +6,10 @@ rust-version = "1.85"
 license = "MIT"
 build = "build.rs"
 
+[[bin]]
+name = "yummybox"
+path = "src/main.rs"
+
 [dependencies]
 ammonia = "4"
 axum = { version = "0.8", default-features = false, features = ["json", "query", "tokio", "http1", "multipart"] }
