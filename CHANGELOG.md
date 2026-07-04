@@ -1,3 +1,10 @@
+## [1.12.2](https://github.com/RouHim/yummybox/compare/v1.12.1...v1.12.2) (2026-07-04)
+
+
+### Bug Fixes
+
+* skip npm install in build.rs when web/build/ is pre-built ([12ea5a0](https://github.com/RouHim/yummybox/commit/12ea5a07116aa90b646e40a23184956ed282cb8a))
+
 ## [1.12.1](https://github.com/RouHim/yummybox/compare/v1.12.0...v1.12.1) (2026-07-04)
 
 
