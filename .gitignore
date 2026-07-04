@@ -21,3 +21,7 @@ web/build/
 
 # Playwright test artifacts
 test-results/
+# Deleted — do not re-add
+task.md
+.spec/
+web/README.md

@@ -27,9 +27,18 @@ tracing = { version = "0.1", features = ["attributes"] }
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 zip = { version = "8", default-features = false, features = ["deflate"] }
 
+[target.'cfg(target_env = "musl")'.dependencies]
+mimalloc = "0.1.43"
+
 [dev-dependencies]
 tempfile = "3"
 tower = { version = "0.5", features = ["util"] }
 
 [package.metadata.sqlx]
 migrations-dir = "migrations"
+
+[profile.release]
+panic = "abort" # Strip expensive panic clean-up logic
+codegen-units = 1 # Compile crates one after another so the compiler can optimize better
+lto = true # Enables link to optimizations
+strip = true # Strip debug symbols
