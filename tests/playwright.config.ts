@@ -20,7 +20,7 @@ export default defineConfig({
 		video: 'retain-on-failure',
 	},
 	projects: [{ name: 'chromium', use: { ...devices['Desktop Chrome'] } }],
-	webServer: {
+	webServer: process.env.YUMMYBOX_NO_WEBSERVER === '1' ? undefined : {
 		command: "bash -c 'mkdir -p .e2e-db && if [ -x target/release/yummybox ]; then exec target/release/yummybox; else exec cargo run --quiet; fi'",
 		cwd: '..',
 		url: 'http://localhost:11342/api/meals',

@@ -1,0 +1,32 @@
+FROM ghcr.io/rust-cross/rust-musl-cross:x86_64-musl AS builder
+
+WORKDIR /app
+
+COPY Cargo.toml Cargo.lock ./
+COPY src ./src
+COPY web ./web
+COPY build.rs ./
+COPY migrations ./migrations
+
+RUN cargo build --release --target x86_64-unknown-linux-musl
+
+FROM docker.io/debian:bookworm-slim
+
+ENV YUMMYBOX_DATA_DIR=/data
+ENV RUST_LOG=info
+
+WORKDIR /data
+
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends ca-certificates tzdata \
+    && rm -rf /var/lib/apt/lists/* \
+    && mkdir -p /data /tmp \
+    && chmod 1777 /tmp \
+    && chown -R 1000:1000 /data /tmp
+
+COPY --from=builder /app/target/x86_64-unknown-linux-musl/release/yummybox /yummybox
+
+EXPOSE 11341
+USER 1000:1000
+
+ENTRYPOINT ["/yummybox"]

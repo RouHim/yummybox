@@ -2,6 +2,8 @@
 
 ### Changed
 - Renamed application from MealMe to YummyBox. The `mealme` binary is now `yummybox`. Environment variables use the `YUMMYBOX_` prefix. On first run, an existing `meals.db` is automatically migrated to `yummybox.db`. See [README](https://github.com/RouHim/yummybox/blob/main/README.md) for upgrade notes.
+- Changed default bind address from `127.0.0.1` to `0.0.0.0` so the app is reachable from Docker containers and other hosts on the network. **Security note**: on shared hosts, bind behind a reverse proxy or set a firewall rule to restrict access. The `YUMMYBOX_PORT` override still works as before.
+- Added Docker/OCI container support with multi-arch images (`linux/amd64` + `linux/arm64`) published to GitHub Container Registry (`ghcr.io/rouhim/yummybox`). The image is `FROM scratch` with a statically linked musl binary running as non-root UID 1000. See the README Docker section for usage.
 
 ## [1.11.2](https://github.com/RouHim/mealme/compare/v1.11.1...v1.11.2) (2026-07-04)
 

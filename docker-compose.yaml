@@ -1,0 +1,11 @@
+services:
+  yummybox:
+    image: ghcr.io/rouhim/yummybox
+    build:
+      dockerfile: Containerfile.local
+      context: .
+    user: "1000:1000"
+    volumes:
+      - ./data:/data
+    ports:
+      - "11341:11341"

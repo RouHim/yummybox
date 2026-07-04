@@ -1,0 +1,25 @@
+# Rust build output
+target/
+
+# Git metadata
+.git/
+
+# Runtime data directory
+data/
+
+# Node dependencies (built during CI pre-build or build.rs)
+node_modules/
+web/node_modules/
+
+# E2E test database artifacts
+.e2e-db/
+
+# Test directories and artifacts
+tests/
+web/e2e/
+web/test-results/
+web/playwright-report/
+
+# Documentation and CI
+*.md
+.github/

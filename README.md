@@ -77,6 +77,34 @@ cd yummybox
 cargo run --release
 ```
 
+### Run with Docker
+
+YummyBox is published as a multi-arch container image (`linux/amd64` + `linux/arm64`) on GitHub Container Registry.
+
+```bash
+# Pull and run the latest release
+docker run -d -p 11341:11341 -v ./data:/data ghcr.io/rouhim/yummybox:latest
+```
+
+Then open **http://localhost:11341** in your browser. The database is stored in `./data/yummybox.db` on your host and persists across container restarts. The container runs as a non-root user (UID 1000).
+
+**Pin to a specific version:**
+
+```bash
+docker run -d -p 11341:11341 -v ./data:/data ghcr.io/rouhim/yummybox:v0.2
+```
+
+Semver tags are available at three granularities: `:vX` (major), `:vX.Y` (minor), and `:vX.Y.Z` (patch). All resolve to the same image.
+
+**Build locally with docker compose:**
+
+```bash
+docker compose up -d
+```
+
+This builds from `Containerfile.local` — no Rust or Node toolchain required on your host. Rebuild after source changes with `docker compose up -d --build`.
+
+
 ## Using YummyBox
 
 ### Meals

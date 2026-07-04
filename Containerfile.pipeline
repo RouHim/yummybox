@@ -1,0 +1,52 @@
+ARG TARGETARCH
+
+# Map Docker TARGETARCH (amd64/arm64) to Rust cross images
+FROM docker.io/messense/rust-musl-cross:x86_64-musl AS builder-amd64
+FROM docker.io/messense/rust-musl-cross:aarch64-musl AS builder-arm64
+FROM builder-${TARGETARCH:-amd64} AS builder
+
+WORKDIR /app
+RUN mkdir /empty_dir
+
+# Copy dependency manifests first for layer caching
+COPY Cargo.toml Cargo.lock ./
+
+# Determine Rust target triple from Docker architecture
+ARG TARGETARCH
+RUN if [ "$TARGETARCH" = "arm64" ]; then \
+        echo "aarch64-unknown-linux-musl" > /tmp/rust-target; \
+    else \
+        echo "x86_64-unknown-linux-musl" > /tmp/rust-target; \
+    fi
+
+# Pre-fetch dependencies (uses cached layer when only source changes)
+RUN RUST_TARGET=$(cat /tmp/rust-target) && cargo fetch --target ${RUST_TARGET}
+
+# Copy source code — web/build/ must exist before cargo build (pre-built on runner;
+# build.rs skips npm run build when web/build/ is present because the musl image
+# has no Node.js).
+COPY src ./src
+COPY web ./web
+COPY build.rs ./
+COPY migrations ./migrations
+
+# Build release binary
+RUN RUST_TARGET=$(cat /tmp/rust-target) && cargo build --release --target ${RUST_TARGET}
+
+FROM scratch
+
+ENV YUMMYBOX_DATA_DIR=/data
+ENV RUST_LOG=info
+
+COPY --from=builder --chown=1000:1000 /empty_dir /tmp
+COPY --from=builder --chown=1000:1000 /empty_dir /data
+
+VOLUME /data
+WORKDIR /data
+
+# Copy the built binary — glob matches whichever target was built
+COPY --from=builder --chown=1000:1000 /app/target/*/release/yummybox /yummybox
+
+EXPOSE 11341
+USER 1000:1000
+ENTRYPOINT ["/yummybox"]
