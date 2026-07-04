@@ -124,7 +124,7 @@ test.describe('Ambient background', () => {
 		const footer = page.locator('.site-footer');
 		await expect(footer).toBeVisible();
 
-		const link = footer.locator('a');
+		const link = footer.locator('a').filter({ hasText: 'Sergey Meshkov' });
 		await expect(link).toHaveCount(1);
 		await expect(link).toHaveAttribute('href', /pexels\.com\/photo\/cooked-food-with-sesame-seeds-8481834/);
 		await expect(link).toContainText('Sergey Meshkov');
