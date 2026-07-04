@@ -261,7 +261,7 @@ jobs:
         if: matrix.arch == 'amd64'
         run: |
           mkdir -p /tmp/yummybox-e2e-data
-          docker run -d --name yummybox-e2e -p 11342:11341 -v /tmp/yummybox-e2e-data:/data yummybox-amd64:latest
+          docker run -d --name yummybox-e2e -p 11342:11341 -v /tmp/yummybox-e2e-data:/data --user=0 yummybox-amd64:latest
 
       - name: Quick health check (amd64 only)
         if: matrix.arch == 'amd64'
