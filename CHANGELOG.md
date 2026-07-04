@@ -1,3 +1,17 @@
+# [1.11.0](https://github.com/RouHim/mealme/compare/v1.10.0...v1.11.0) (2026-07-04)
+
+
+### Bug Fixes
+
+* update footer attribution test to target specific photographer link ([f9dda5c](https://github.com/RouHim/mealme/commit/f9dda5cb709288602fa1bfbcaa8e6ca86eb685f3))
+
+
+### Features
+
+* duplicate meal name detection + version endpoint + ImageInput component ([cb3af3b](https://github.com/RouHim/mealme/commit/cb3af3b8030ea8033a18ddea1e420d99e7102ce7))
+* improve drag-drop UX and add drop-zone highlight test ([d8d1ac4](https://github.com/RouHim/mealme/commit/d8d1ac444240b49a4851eb252544d51b77acd71d))
+* redesign image input as 4-tile reusable component ([79a8b58](https://github.com/RouHim/mealme/commit/79a8b58d55b72dc4eb2502fae541321b522acce4))
+
 # [1.10.0](https://github.com/RouHim/mealme/compare/v1.9.0...v1.10.0) (2026-07-03)
 
 
