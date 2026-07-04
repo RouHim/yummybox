@@ -10,18 +10,24 @@
 </p>
 
 <p align="center">
-  <img src=".github/readme/screenshot.png" width="720" alt="MealMe meals screen showing 10 meals with images">
+  <img src=".github/readme/screenshot.png" width="720" alt="MealMe meals screen in dark mode showing the meal collection">
 </p>
 
 **MealMe** is a personal meal manager that runs entirely on your computer — no cloud, no accounts, no subscriptions. Add meals, search your collection, plan your week, and import recipes from the web or from photos using AI.
 
 ## What you can do
 
-- **Manage your meals** — add, edit, search, and delete meals. Each meal has a name, ingredient list with quantities, plus auto-tracked creation and update times.
-- **Plan your week** — generate a weekly meal plan from your collection. Plans automatically aggregate ingredients so you know exactly what to shop for.
-- **Import recipes** — paste a URL, drop in raw HTML, or let AI parse a recipe from a photo or text description. Imported recipes land in a review screen before saving.
-- **Run anywhere** — single binary, no dependencies. Data lives in a SQLite file on your disk; you control it.
+- **Manage your meals** — add, edit, search, and delete. Each meal has a name, ingredients with quantities, optional image, and creation/update times.
+- **Cooking view** — open a meal to see ingredients and instructions rendered for cooking. HTML instructions are sanitised and rendered as formatted paragraphs; plain text preserves newlines.
+- **Plan your week** — generate a weekly meal plan from your collection. Plans aggregate ingredients and sum numeric quantities so you know what to shop for.
+- **Import recipes** — paste a URL, drop raw HTML/JSON-LD, or let an LLM parse a photo or text description. Imported recipes land in a review form before saving.
+- **Bulk import** — paste a list of recipe URLs at once; each is fetched and parsed, with successes and failures summarised.
+- **Add meal images** — paste from clipboard, load from a URL, or drop a file. Non-image files are rejected inline; oversized PNGs are downscaled to JPEG.
+- **Shopping list sync** — send planned ingredients to your Bring! shopping list.
+- **Export and back up** — export your collection as a `.zip` and re-import it on another machine.
+- **Run anywhere** — single binary, no dependencies. Data lives in a SQLite file on disk; you control it.
 - **Light and dark themes** — follows your system preference, with a manual toggle that remembers your choice.
+- **Multiple languages** — the UI is available in English and German, with a language switcher that accepts system, English, or German.
 
 ## Getting started
 
@@ -69,6 +75,14 @@ salt to taste
 
 Quantity text (e.g. `200g`, `2 cups`, `a pinch`) is preserved and used by the planner to sum up your shopping list.
 
+### Cooking view
+
+Click any meal to open its cooking view at `/meals/{id}`. You'll see the full ingredient list and instructions rendered for cooking. HTML instructions are sanitised and displayed as formatted paragraphs; plain text preserves newlines. Use the **Polish instructions** action to have an LLM rewrite rough steps into clean numbered steps before saving.
+
+### Meal images
+
+Add images to your meals three ways: paste from clipboard, load from a URL, or drop a file onto the image upload area. Non-image files are rejected with an inline error message. Oversized PNGs are automatically downscaled to JPEG (max 3840×2160). Meals without images show no image element — only meals with images display a thumbnail.
+
 ### Weekly planner
 
 Switch to the **Planner** tab to generate a weekly meal plan. Pick a week, choose how many meals you want, and the planner randomly selects them from your collection. You can swap individual meals or regenerate the whole plan.
@@ -99,6 +113,10 @@ Select "Custom OpenAI-compatible" as the provider to use any server with an Open
 2. Optionally enter an API key if your server requires authentication.
 3. Models are fetched live from the server's `/v1/models` endpoint.
 
+#### Bulk URL import
+
+Paste a list of recipe URLs (one per line) to import multiple recipes at once. Each URL is fetched and parsed automatically. The result shows which imports succeeded and which failed, so you can retry or skip problematic URLs. The meal list reloads automatically on success.
+
 #### Troubleshooting AI import
 
 - **"No providers available"** — set an API key env var (e.g., `OPENAI_API_KEY`) or start a local Ollama server.
@@ -106,6 +124,18 @@ Select "Custom OpenAI-compatible" as the provider to use any server with an Open
 - **"Could not load models"** — check API key validity and network connection; for Ollama, ensure `ollama serve` is running on port 11434.
 - **"Request timed out"** — use a faster model, check your network, or try a local model.
 - **"Could not extract a recipe"** — use a clearer photo or a more descriptive text hint.
+
+### Export and backup
+
+Export your entire meal collection as a `.zip` file and re-import it on another machine via the same endpoint. Useful for moving between computers or taking a snapshot before making bulk changes.
+
+### Appearance and language
+
+Click the **Theme** button to cycle through system → light → dark → system. Your choice is saved to `localStorage` as `mealme-theme`. Click the **Language** button to switch between System, English, or Deutsch (stored as `mealme-locale`). The UI updates immediately.
+
+### Bring! shopping list
+
+After generating a weekly plan, send ingredients to your [Bring!](https://getbring.com) shopping list. Each ingredient in the plan summary gets a one-click **Send to Bring!** button. You'll need a Bring! account — if you signed up with Google, Apple, or Facebook, set a password first via the Bring! app or website settings.
 
 ## Configuration
 
@@ -136,6 +166,7 @@ Example:
 OPENAI_API_KEY=sk-... ./mealme
 ```
 
+### Bring! shopping list
 Send ingredients from your weekly plan directly to your [Bring!](https://getbring.com) shopping list. Each ingredient gets a one-click "Send to Bring!" button next to it in the planner's ingredient summary.
 
 If you signed up with Google, Apple, or Facebook, you need to set a password first — the Bring! API doesn't support social login tokens:
