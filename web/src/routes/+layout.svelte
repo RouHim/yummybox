@@ -104,6 +104,6 @@
 		<span class="site-footer__bring-error" role="alert">{bringError}</span>
 	{/if}
 	{#if appVersion}
-		<a href="https://github.com/RouHim/mealme/releases" target="_blank" rel="noopener">{appVersion}</a>
+		<a href="https://github.com/RouHim/yummybox/releases" target="_blank" rel="noopener">{appVersion}</a>
 	{/if}
 </footer>

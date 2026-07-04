@@ -108,20 +108,20 @@ test.describe('planner', () => {
 		await expect(page.locator('.lang-switcher')).toBeVisible();
 	});
 
-	test('given_navigator_de_DE_when_loading_app_then_mealme_locale_not_written', async ({ browser }) => {
+	test('given_navigator_de_DE_when_loading_app_then_yummybox_locale_not_written', async ({ browser }) => {
 		const context = await browser.newContext({ locale: 'de-DE' });
 		const page = await context.newPage();
 		await page.goto('/');
-		const stored = await page.evaluate(() => localStorage.getItem('mealme-locale'));
+		const stored = await page.evaluate(() => localStorage.getItem('yummybox-locale'));
 		expect(stored).toBeNull();
 		await context.close();
 	});
 
-	test('given_navigator_en_US_when_loading_app_then_mealme_locale_not_written', async ({ browser }) => {
+	test('given_navigator_en_US_when_loading_app_then_yummybox_locale_not_written', async ({ browser }) => {
 		const context = await browser.newContext({ locale: 'en-US' });
 		const page = await context.newPage();
 		await page.goto('/');
-		const stored = await page.evaluate(() => localStorage.getItem('mealme-locale'));
+		const stored = await page.evaluate(() => localStorage.getItem('yummybox-locale'));
 		expect(stored).toBeNull();
 		await context.close();
 	});

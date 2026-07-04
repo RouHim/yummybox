@@ -15,7 +15,7 @@ test.describe('language switcher', () => {
 
 		await expect(page.locator('html')).toHaveAttribute('lang', 'de');
 		await expect(page.getByRole('link', { name: 'Mahlzeiten' })).toBeVisible();
-		expect(await page.evaluate(() => localStorage.getItem('mealme-locale'))).toBe('de');
+		expect(await page.evaluate(() => localStorage.getItem('yummybox-locale'))).toBe('de');
 	});
 
 	test('given_german_locale_when_english_selected_then_strings_revert', async ({ page }) => {
@@ -28,7 +28,7 @@ test.describe('language switcher', () => {
 
 		await expect(page.locator('html')).toHaveAttribute('lang', 'en');
 		await expect(page.getByRole('link', { name: 'Meals' })).toBeVisible();
-		expect(await page.evaluate(() => localStorage.getItem('mealme-locale'))).toBe('en');
+		expect(await page.evaluate(() => localStorage.getItem('yummybox-locale'))).toBe('en');
 	});
 
 	test('given_any_locale_when_system_selected_then_navigator_drives_language', async ({ page }) => {
@@ -39,7 +39,7 @@ test.describe('language switcher', () => {
 		await expect(page.getByRole('listbox')).toBeVisible();
 		await page.getByRole('option', { name: 'System' }).click();
 
-		expect(await page.evaluate(() => localStorage.getItem('mealme-locale'))).toBe('system');
+		expect(await page.evaluate(() => localStorage.getItem('yummybox-locale'))).toBe('system');
 
 		const navigatorLanguage = await page.evaluate(() => navigator.language);
 		const htmlLang = await page.locator('html').getAttribute('lang');

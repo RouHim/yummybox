@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { readStoredLlmConfig, persistLlmConfig } from './llm-config.svelte';
 import type { StoredLlmConfig } from './llm-config.svelte';
 
-const STORAGE_KEY = 'mealme-llm-config';
+const STORAGE_KEY = 'yummybox-llm-config';
 
 // In-memory localStorage polyfill for the Node test environment
 let _store: Record<string, string> = {};

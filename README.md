@@ -1,14 +1,14 @@
 <p align="center">
-  <img src=".github/readme/banner.svg" width="600" alt="MealMe, a local-first meal manager">
+  <img src=".github/readme/banner.svg" width="600" alt="YummyBox, a local-first meal manager">
 </p>
 
 <p align="center">
-  <a href="https://github.com/RouHim/mealme/releases/latest"><img src="https://img.shields.io/github/v/release/RouHim/mealme?label=latest" alt="Latest release"></a>
-  <a href="https://github.com/RouHim/mealme/actions/workflows/ci.yml"><img src="https://github.com/RouHim/mealme/actions/workflows/ci.yml/badge.svg" alt="CI/CD"></a>
+  <a href="https://github.com/RouHim/yummybox/releases/latest"><img src="https://img.shields.io/github/v/release/RouHim/yummybox?label=latest" alt="Latest release"></a>
+  <a href="https://github.com/RouHim/yummybox/actions/workflows/ci.yml"><img src="https://github.com/RouHim/yummybox/actions/workflows/ci.yml/badge.svg" alt="CI/CD"></a>
 </p>
 <hr>
 <i align="center">
-MealMe is a personal meal manager that runs entirely on your computer: no cloud, no accounts, no subscriptions. Add meals, search your collection, plan your week, and import recipes from the web or from photos using AI.
+YummyBox is a personal meal manager that runs entirely on your computer: no cloud, no accounts, no subscriptions. Add meals, search your collection, plan your week, and import recipes from the web or from photos using AI.
 </i>
 <br>
 <hr>
@@ -18,7 +18,7 @@ MealMe is a personal meal manager that runs entirely on your computer: no cloud,
   <picture>
     <source media="(prefers-color-scheme: dark)" srcset=".github/readme/screenshot-dark.png">
     <source media="(prefers-color-scheme: light)" srcset=".github/readme/screenshot-light.png">
-    <img src=".github/readme/screenshot-dark.png" width="720" alt="MealMe meals screen showing the meal collection">
+    <img src=".github/readme/screenshot-dark.png" width="720" alt="YummyBox meals screen showing the meal collection">
   </picture>
 </p>
 
@@ -37,7 +37,7 @@ MealMe is a personal meal manager that runs entirely on your computer: no cloud,
 
 ### Import recipes
 
-- **From URL or paste**: paste a link to any recipe website, or drop in raw HTML/JSON-LD markup. MealMe fetches and extracts the recipe automatically. Imported recipes land in a review form before saving.
+- **From URL or paste**: paste a link to any recipe website, or drop in raw HTML/JSON-LD markup. YummyBox fetches and extracts the recipe automatically. Imported recipes land in a review form before saving.
 - **From photo or text (AI)**: attach a photo of a dish or recipe card, optionally add a text hint, and a vision-capable LLM parses it into a structured recipe. This requires an API key from a supported provider (see [Configuration](#configuration)).
 - **Bulk import**: paste a list of recipe URLs at once; each is fetched and parsed, with successes and failures summarised.
 
@@ -51,18 +51,18 @@ MealMe is a personal meal manager that runs entirely on your computer: no cloud,
 
 ### Download a pre-built binary
 
-Grab the latest release for your platform from the [Releases page](https://github.com/RouHim/mealme/releases/latest):
+Grab the latest release for your platform from the [Releases page](https://github.com/RouHim/yummybox/releases/latest):
 
 ```bash
 # Linux / macOS (x86_64)
-curl -L -o mealme https://github.com/RouHim/mealme/releases/latest/download/mealme-x86_64-unknown-linux-musl
-chmod +x mealme
-./mealme
+curl -L -o yummybox https://github.com/RouHim/yummybox/releases/latest/download/yummybox-x86_64-unknown-linux-musl
+chmod +x yummybox
+./yummybox
 
 # Linux / macOS (arm64 / Apple Silicon)
-curl -L -o mealme https://github.com/RouHim/mealme/releases/latest/download/mealme-aarch64-unknown-linux-musl
-chmod +x mealme
-./mealme
+curl -L -o yummybox https://github.com/RouHim/yummybox/releases/latest/download/yummybox-aarch64-unknown-linux-musl
+chmod +x yummybox
+./yummybox
 ```
 
 Then open **http://127.0.0.1:11341** in your browser.
@@ -72,12 +72,12 @@ Then open **http://127.0.0.1:11341** in your browser.
 Requires [Rust](https://rustup.rs) 1.85+ and [Node.js](https://nodejs.org) 26+ (build-time only, not needed to run).
 
 ```bash
-git clone https://github.com/RouHim/mealme.git
-cd mealme
+git clone https://github.com/RouHim/yummybox.git
+cd yummybox
 cargo run --release
 ```
 
-## Using MealMe
+## Using YummyBox
 
 ### Meals
 
@@ -109,7 +109,7 @@ The ingredient summary merges identical ingredients across all planned meals and
 
 ### Recipe import
 
-**From URL**: paste a link to any recipe website. MealMe fetches the page and extracts the recipe automatically.
+**From URL**: paste a link to any recipe website. YummyBox fetches the page and extracts the recipe automatically.
 
 **From paste**: drop in raw HTML or JSON-LD markup if you already have the source.
 
@@ -149,7 +149,7 @@ Export your entire meal collection as a `.zip` file and re-import it on another 
 
 ### Appearance and language
 
-Click the **Theme** button to cycle through system → light → dark → system. Your choice is saved to `localStorage` as `mealme-theme`. Click the **Language** button to switch between System, English, or Deutsch (stored as `mealme-locale`). The UI updates immediately.
+Click the **Theme** button to cycle through system → light → dark → system. Your choice is saved to `localStorage` as `yummybox-theme`. Click the **Language** button to switch between System, English, or Deutsch (stored as `yummybox-locale`). The UI updates immediately.
 
 ### Bring! shopping list
 
@@ -159,8 +159,8 @@ After generating a weekly plan, send ingredients to your [Bring!](https://getbri
 
 | Variable | What it does | Default |
 |----------|--------------|---------|
-| `MEALME_DATA_DIR` | Where the database file lives | `./data` (next to the binary) |
-| `MEALME_PORT` | Port the server listens on | `11341` |
+| `YUMMYBOX_DATA_DIR` | Where the database file lives | `./data` (next to the binary) |
+| `YUMMYBOX_PORT` | Port the server listens on | `11341` |
 
 ### LLM providers
 
@@ -181,7 +181,7 @@ Ollama needs no API key but requires a running local server (`ollama serve` on p
 Example:
 
 ```bash
-OPENAI_API_KEY=sk-... ./mealme
+OPENAI_API_KEY=sk-... ./yummybox
 ```
 
 ### Bring! shopping list
@@ -194,7 +194,7 @@ OPENAI_API_KEY=sk-... ./mealme
 Example:
 
 ```bash
-BRING_EMAIL=you@example.com BRING_PASSWORD=your-password ./mealme
+BRING_EMAIL=you@example.com BRING_PASSWORD=your-password ./yummybox
 ```
 
 ## Contributing

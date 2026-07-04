@@ -5,8 +5,8 @@ const pagesWithInit = new WeakSet<Page>();
 export async function setLocale(page: Page, locale: 'en' | 'de'): Promise<void> {
 	if (pagesWithInit.has(page)) return;
 	await page.addInitScript((l) => {
-		if (!localStorage.getItem('mealme-locale')) {
-			localStorage.setItem('mealme-locale', l);
+		if (!localStorage.getItem('yummybox-locale')) {
+			localStorage.setItem('yummybox-locale', l);
 		}
 	}, locale);
 }

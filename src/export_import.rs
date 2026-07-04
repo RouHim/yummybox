@@ -91,7 +91,7 @@ pub async fn export_meals_zip(State(state): State<Arc<AppState>>) -> Result<Resp
     let zip_bytes = build_export_zip(&json_str, &images)?;
 
     let today = Utc::now().format("%Y-%m-%d");
-    let filename = format!("mealme-export-{today}.zip");
+    let filename = format!("yummybox-export-{today}.zip");
 
     Response::builder()
         .status(StatusCode::OK)
@@ -759,7 +759,7 @@ mod tests {
             .unwrap()
             .to_str()
             .unwrap();
-        assert!(cd.starts_with("attachment; filename=\"mealme-export-"));
+        assert!(cd.starts_with("attachment; filename=\"yummybox-export-"));
         assert!(cd.ends_with(".zip\""));
 
         let body = to_bytes(response.into_body(), 10 * 1024 * 1024)

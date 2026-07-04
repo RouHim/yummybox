@@ -2,7 +2,7 @@
 default:
 	@just --list
 
-# Build the mealme binary (forces fresh frontend build)
+# Build the yummybox binary (forces fresh frontend build)
 build:
 	rm -rf web/build && cargo build
 
@@ -10,7 +10,7 @@ build:
 release:
 	rm -rf web/build && cargo build --release
 
-# Run the mealme binary (forces fresh frontend build)
+# Run the yummybox binary (forces fresh frontend build)
 run: build
 	cargo run
 

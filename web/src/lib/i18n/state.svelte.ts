@@ -4,7 +4,7 @@ import { de } from './de';
 
 export const dictionaries: Record<Locale, Record<TranslationKey, string>> = { en, de };
 
-const STORAGE_KEY = 'mealme-locale';
+const STORAGE_KEY = 'yummybox-locale';
 
 let _locale = $state<Locale>('en');
 let _preference = $state<LocalePreference>('system');

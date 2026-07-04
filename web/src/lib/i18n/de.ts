@@ -1,7 +1,7 @@
 import type { TranslationKey } from './types';
 
 export const de: Record<TranslationKey, string> = {
-	appTitle: 'MealMe',
+	appTitle: 'YummyBox',
 	appSubtitle: 'Deine persönliche Rezeptsammlung',
 	navMeals: 'Mahlzeiten',
 	bgPhoto: 'Hintergrundfoto',
@@ -172,7 +172,7 @@ export const de: Record<TranslationKey, string> = {
 	languageGerman: 'Deutsch',
 	exportMeals: 'Alle exportieren',
 	importTabZip: 'ZIP-Datei',
-	importZipLabel: 'MealMe ZIP-Datei ausw\u00e4hlen',
+	importZipLabel: 'YummyBox ZIP-Datei ausw\u00e4hlen',
 	importZipButton: 'Aus ZIP importieren',
 	importZipButtonLoading: 'Importiere\u2026',
 	importZipResultsSuccess: '{count} Mahlzeiten importiert, {skipped} \u00fcbersprungen',

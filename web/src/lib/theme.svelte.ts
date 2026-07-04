@@ -2,7 +2,7 @@
 
 export type Theme = 'light' | 'dark' | 'system';
 
-const STORAGE_KEY = 'mealme-theme';
+const STORAGE_KEY = 'yummybox-theme';
 
 function readStored(): Theme {
 	if (typeof localStorage === 'undefined') return 'system';

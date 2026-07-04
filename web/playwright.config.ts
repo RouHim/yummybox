@@ -9,7 +9,7 @@ export default defineConfig({
 		headless: true,
 	},
 	webServer: {
-		command: './target/release/mealme',
+		command: './target/release/yummybox',
 		cwd: '..',
 		timeout: 30000,
 		reuseExistingServer: !process.env.CI,

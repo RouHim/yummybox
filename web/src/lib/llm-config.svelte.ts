@@ -7,7 +7,7 @@ export interface StoredLlmConfig {
 	customApiKey: string;
 }
 
-const STORAGE_KEY = 'mealme-llm-config';
+const STORAGE_KEY = 'yummybox-llm-config';
 
 export function readStoredLlmConfig(): StoredLlmConfig | null {
 	if (typeof localStorage === 'undefined') return null;

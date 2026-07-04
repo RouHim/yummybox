@@ -2,12 +2,12 @@
 
 ## Project Overview
 
-**MealMe** is a single-binary local-first web application for managing a personal collection of meals. A Rust backend (axum + rusqlite) serves a REST API and an embedded Svelte 5 SPA frontend — no Node.js runtime needed after compilation. The binary listens on `127.0.0.1:11341` and persists data to `./data/meals.db` (SQLite, auto-created on first run; override the directory with the `MEALME_DATA_DIR` env var).
+**YummyBox** is a single-binary local-first web application for managing a personal collection of meals. A Rust backend (axum + rusqlite) serves a REST API and an embedded Svelte 5 SPA frontend — no Node.js runtime needed after compilation. The binary listens on `127.0.0.1:11341` and persists data to `./data/yummybox.db` (SQLite, auto-created on first run; override the directory with the `YUMMYBOX_DATA_DIR` env var).
 
 ## Architecture & Data Flow
 
 ```
-Browser (SPA) ──fetch──▶ axum (Rust) ──sync──▶ SQLite (meals.db)
+Browser (SPA) ──fetch──▶ axum (Rust) ──sync──▶ SQLite (yummybox.db)
                     │
                     ├── /api/*   → route handlers → db functions
                     └── /*       → spa_fallback → embedded web/build/
@@ -148,7 +148,7 @@ If a function has no call site, delete it — no commented-out scaffolds, no `#[
 
 | File | Role |
 |------|------|
-| `Cargo.toml` | Binary name `mealme`, edition 2024, Rust 1.85+ |
+| `Cargo.toml` | Binary name `yummybox`, edition 2024, Rust 1.85+ |
 | `build.rs` | Auto-runs `npm install && npm run build` in `web/` |
 | `src/main.rs` | Router assembly, port binding, logging init |
 | `src/db.rs` | All SQL queries, validation, `init_db` schema creation |
@@ -207,13 +207,13 @@ All tests are written in **BDD** style: name them by behavior, not implementatio
 
 ### E2E tests
 
-E2E tests use Playwright with headless Chromium. Each config auto-starts the `mealme` binary on its own port with an isolated database, so no manual server setup is needed.
+E2E tests use Playwright with headless Chromium. Each config auto-starts the `yummybox` binary on its own port with an isolated database, so no manual server setup is needed.
 
 **Two test suites** with separate Playwright configs:
 
 | Suite | Config | Port | Binary | DB | Command |
 |-------|--------|------|--------|----|---------|
-| Visual/styling | `web/playwright.config.ts` | `:11341` | `target/release/mealme` | shared `./data/meals.db` | `cd web && npm run test:e2e` |
+| Visual/styling | `web/playwright.config.ts` | `:11341` | `target/release/yummybox` | shared `./data/yummybox.db` | `cd web && npm run test:e2e` |
 | Workflows | `tests/playwright.config.ts` | `:11342` | `cargo run --quiet` | isolated `.e2e-db/` | `cd tests && npm test` |
 
 #### Visual/styling suite (`web/e2e/ambient-background.spec.ts`, 6 tests)

@@ -55,8 +55,8 @@ jobs:
         run: cargo build --release
       - uses: actions/upload-artifact@v4
         with:
-          name: mealme-release
-          path: target/release/mealme
+          name: yummybox-release
+          path: target/release/yummybox
           retention-days: 1
 
   e2e-tests:
@@ -69,10 +69,10 @@ jobs:
           node-version: '26'
       - uses: actions/download-artifact@v4
         with:
-          name: mealme-release
+          name: yummybox-release
           path: target/release/
       - name: Make binary executable
-        run: chmod +x target/release/mealme
+        run: chmod +x target/release/yummybox
       - uses: actions/cache@v4
         id: playwright-cache
         with:
@@ -156,10 +156,10 @@ jobs:
         include:
           - target: x86_64-unknown-linux-musl
             image: ghcr.io/rust-cross/rust-musl-cross:x86_64-musl
-            name: mealme-x86_64-unknown-linux-musl
+            name: yummybox-x86_64-unknown-linux-musl
           - target: aarch64-unknown-linux-musl
             image: ghcr.io/rust-cross/rust-musl-cross:aarch64-musl
-            name: mealme-aarch64-unknown-linux-musl
+            name: yummybox-aarch64-unknown-linux-musl
     steps:
       - uses: actions/checkout@v4
         with:
@@ -184,7 +184,7 @@ jobs:
           run: |
             git config --global --add safe.directory /work
             cargo build --release --target ${{ matrix.target }}
-            cp target/${{ matrix.target }}/release/mealme ${{ matrix.name }}
+            cp target/${{ matrix.target }}/release/yummybox ${{ matrix.name }}
       - name: Verify static linking
         run: |
           file ${{ matrix.name }}

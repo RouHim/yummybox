@@ -29,6 +29,6 @@
     <path d="M25 12c1.08.4 3.2 2.12 3 5.44-.24 3.32-3.72 4.8-4 8.08-.2 3.12 1.36 4.96 2.96 6.48" />
   </g>
 
-  <text x="370" y="108" font-family="system-ui, -apple-system, sans-serif" font-size="54" font-weight="700" fill="#e8e0d8" letter-spacing="-1">MealMe</text>
+  <text x="370" y="108" font-family="system-ui, -apple-system, sans-serif" font-size="54" font-weight="700" fill="#e8e0d8" letter-spacing="-1">YummyBox</text>
   <text x="372" y="138" font-family="system-ui, -apple-system, sans-serif" font-size="16" fill="#8b8078" letter-spacing="2.2">LOCAL-FIRST MEAL MANAGER</text>
 </svg>

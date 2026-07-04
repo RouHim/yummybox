@@ -1,4 +1,4 @@
-# Contributing to MealMe
+# Contributing to YummyBox
 
 Thanks for considering contributing!
 
@@ -13,8 +13,8 @@ Thanks for considering contributing!
 ### Setup
 
 ```bash
-git clone https://github.com/RouHim/mealme.git
-cd mealme
+git clone https://github.com/RouHim/yummybox.git
+cd yummybox
 ```
 
 Building the first time will automatically install frontend dependencies and compile the SPA:

@@ -42,9 +42,9 @@ pub fn ensure_data_dir(path: &Path) -> Result<(), AppError> {
     }
 }
 
-/// Returns the path to `meals.db` inside the given data directory.
+/// Returns the path to `yummybox.db` inside the given data directory.
 pub fn db_path_in(data_dir: &Path) -> PathBuf {
-    data_dir.join("meals.db")
+    data_dir.join("yummybox.db")
 }
 
 fn strip_trailing_separators(s: &str) -> String {
@@ -81,8 +81,8 @@ mod tests {
     fn given_absolute_path_when_resolve_then_returns_as_absolute() {
         let cwd = PathBuf::from("/home/user/project");
         assert_eq!(
-            resolve_data_dir(Some("/opt/mealme"), &cwd),
-            PathBuf::from("/opt/mealme")
+            resolve_data_dir(Some("/opt/yummybox"), &cwd),
+            PathBuf::from("/opt/yummybox")
         );
     }
 
@@ -90,8 +90,8 @@ mod tests {
     fn given_absolute_path_with_trailing_slash_when_resolve_then_strips_separator() {
         let cwd = PathBuf::from("/home/user/project");
         assert_eq!(
-            resolve_data_dir(Some("/opt/mealme/"), &cwd),
-            PathBuf::from("/opt/mealme")
+            resolve_data_dir(Some("/opt/yummybox/"), &cwd),
+            PathBuf::from("/opt/yummybox")
         );
     }
 
@@ -143,7 +143,7 @@ mod tests {
     #[test]
     #[cfg(unix)]
     fn given_uncreatable_parent_when_ensure_then_returns_internal_error() {
-        let bad_path = PathBuf::from("/dev/null/mealme-data");
+        let bad_path = PathBuf::from("/dev/null/yummybox-data");
         let err = ensure_data_dir(&bad_path).unwrap_err();
         match err {
             AppError::Internal(msg) => {

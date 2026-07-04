@@ -48,12 +48,12 @@ function withLocale(lang: 'en' | 'de'): void {
 describe('t', () => {
 	it('returns English string for English locale', () => {
 		withLocale('en');
-		expect(t('appTitle')).toBe('MealMe');
+		expect(t('appTitle')).toBe('YummyBox');
 	});
 
 	it('returns German string for German locale', () => {
 		withLocale('de');
-		expect(t('appTitle')).toBe('MealMe');
+		expect(t('appTitle')).toBe('YummyBox');
 	});
 
 	it('falls back to English when a key is missing in German', () => {
@@ -165,15 +165,15 @@ describe('initLocale', () => {
 		expect(getLocale()).toBe('en');
 	});
 
-	it('given_stored_mealme_locale_is_de_then_initLocale_uses_de', () => {
-		localStorage.setItem('mealme-locale', 'de');
+	it('given_stored_yummybox_locale_is_de_then_initLocale_uses_de', () => {
+		localStorage.setItem('yummybox-locale', 'de');
 		initLocale();
 		expect(getLocale()).toBe('de');
 		expect(getLocalePreference()).toBe('de');
 	});
 
-	it('given_stored_mealme_locale_is_system_and_navigator_de_then_initLocale_uses_de', () => {
-		localStorage.setItem('mealme-locale', 'system');
+	it('given_stored_yummybox_locale_is_system_and_navigator_de_then_initLocale_uses_de', () => {
+		localStorage.setItem('yummybox-locale', 'system');
 		const saved = Object.getOwnPropertyDescriptor(globalThis, 'navigator');
 		Object.defineProperty(globalThis, 'navigator', {
 			value: { language: 'de-DE' },
@@ -183,7 +183,7 @@ describe('initLocale', () => {
 		initLocale();
 		expect(getLocale()).toBe('de');
 		expect(getLocalePreference()).toBe('system');
-		expect(localStorage.getItem('mealme-locale')).toBe('system');
+		expect(localStorage.getItem('yummybox-locale')).toBe('system');
 		if (saved) {
 			Object.defineProperty(globalThis, 'navigator', saved);
 		} else {
@@ -191,18 +191,18 @@ describe('initLocale', () => {
 		}
 	});
 
-	it('given_stored_mealme_locale_is_null_then_initLocale_uses_navigator_and_does_not_write', () => {
-		localStorage.removeItem('mealme-locale');
+	it('given_stored_yummybox_locale_is_null_then_initLocale_uses_navigator_and_does_not_write', () => {
+		localStorage.removeItem('yummybox-locale');
 		initLocale();
 		expect(getLocale()).toBe('en');
-		expect(localStorage.getItem('mealme-locale')).toBeNull();
+		expect(localStorage.getItem('yummybox-locale')).toBeNull();
 	});
 
-	it('given_stored_mealme_locale_is_invalid_then_initLocale_falls_back_and_does_not_write', () => {
-		localStorage.setItem('mealme-locale', 'fr');
+	it('given_stored_yummybox_locale_is_invalid_then_initLocale_falls_back_and_does_not_write', () => {
+		localStorage.setItem('yummybox-locale', 'fr');
 		initLocale();
 		expect(getLocale()).toBe('en');
-		expect(localStorage.getItem('mealme-locale')).toBe('fr');
+		expect(localStorage.getItem('yummybox-locale')).toBe('fr');
 	});
 });
 
@@ -211,7 +211,7 @@ describe('setLocale', () => {
 		localStorage.clear();
 		setLocale('de');
 		expect(getLocale()).toBe('de');
-		expect(localStorage.getItem('mealme-locale')).toBe('de');
+		expect(localStorage.getItem('yummybox-locale')).toBe('de');
 	});
 
 	it('given_setLocale_system_then_locale_resolves_via_navigator_and_system_stored', () => {
@@ -223,7 +223,7 @@ describe('setLocale', () => {
 		});
 		setLocale('system');
 		expect(getLocale()).toBe('de');
-		expect(localStorage.getItem('mealme-locale')).toBe('system');
+		expect(localStorage.getItem('yummybox-locale')).toBe('system');
 		if (saved) {
 			Object.defineProperty(globalThis, 'navigator', saved);
 		} else {

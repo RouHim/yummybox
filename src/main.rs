@@ -23,6 +23,7 @@ use axum::routing::{get, post, put};
 use tracing::info;
 use tracing_subscriber::EnvFilter;
 
+use crate::error::AppError;
 use crate::state::AppState;
 
 enum Subcommand {
@@ -49,19 +50,32 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     match parse_subcommand(&std::env::args().collect::<Vec<_>>()) {
         Subcommand::Seed => return run_seed().await,
         Subcommand::Unknown => {
-            eprintln!("usage: mealme [seed]");
+            eprintln!("usage: yummybox [seed]");
             std::process::exit(2);
         }
         Subcommand::Serve => {}
     }
-    let env_value = std::env::var("MEALME_DATA_DIR").ok();
+    let env_value = std::env::var("YUMMYBOX_DATA_DIR").ok();
     let cwd = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
     let data_dir = data_dir::resolve_data_dir(env_value.as_deref(), &cwd);
     data_dir::ensure_data_dir(&data_dir).map_err(|e| {
         tracing::error!("failed to initialize data directory: {e}");
         e
     })?;
+
+    // Migrate legacy meals.db → yummybox.db if present
+    let legacy_db_path = data_dir.join("meals.db");
     let db_path = data_dir::db_path_in(&data_dir);
+    if legacy_db_path.exists() && !db_path.exists() {
+        std::fs::rename(&legacy_db_path, &db_path).map_err(|e| {
+            AppError::Internal(format!(
+                "failed to migrate data file {} → {}: {e}",
+                legacy_db_path.display(),
+                db_path.display()
+            ))
+        })?;
+    }
+
     info!("using data directory at {}", data_dir.display());
     info!("using database at {}", db_path.display());
 
@@ -105,7 +119,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .nest("/api", api)
         .fallback(static_assets::spa_fallback);
 
-    let port: u16 = std::env::var("MEALME_PORT")
+    let port: u16 = std::env::var("YUMMYBOX_PORT")
         .ok()
         .and_then(|v| v.parse().ok())
         .unwrap_or(11341);
@@ -121,7 +135,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 async fn run_seed() -> Result<(), Box<dyn std::error::Error>> {
     use crate::seed::{SeedOutcome, run};
 
-    let env_value = std::env::var("MEALME_DATA_DIR").ok();
+    let env_value = std::env::var("YUMMYBOX_DATA_DIR").ok();
     let cwd = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
     let data_dir = data_dir::resolve_data_dir(env_value.as_deref(), &cwd);
     if let Err(e) = data_dir::ensure_data_dir(&data_dir) {
@@ -161,7 +175,7 @@ mod tests {
 
     #[test]
     fn given_no_args_when_parse_subcommand_then_serve() {
-        let args: Vec<String> = vec!["mealme".into()];
+        let args: Vec<String> = vec!["yummybox".into()];
         match parse_subcommand(&args) {
             Subcommand::Serve => {}
             _ => panic!("expected Serve"),
@@ -170,7 +184,7 @@ mod tests {
 
     #[test]
     fn given_seed_arg_when_parse_subcommand_then_seed() {
-        let args: Vec<String> = vec!["mealme".into(), "seed".into()];
+        let args: Vec<String> = vec!["yummybox".into(), "seed".into()];
         match parse_subcommand(&args) {
             Subcommand::Seed => {}
             _ => panic!("expected Seed"),
@@ -179,7 +193,7 @@ mod tests {
 
     #[test]
     fn given_known_other_arg_when_parse_subcommand_then_unknown() {
-        let args: Vec<String> = vec!["mealme".into(), "foo".into()];
+        let args: Vec<String> = vec!["yummybox".into(), "foo".into()];
         match parse_subcommand(&args) {
             Subcommand::Unknown => {}
             _ => panic!("expected Unknown"),
@@ -189,7 +203,7 @@ mod tests {
     #[test]
     fn given_extra_args_with_seed_when_parse_subcommand_then_seed() {
         let args: Vec<String> = vec![
-            "mealme".into(),
+            "yummybox".into(),
             "seed".into(),
             "--extra".into(),
             "val".into(),

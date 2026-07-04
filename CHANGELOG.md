@@ -1,3 +1,8 @@
+## 0.2.0 — YummyBox (2026-07-04)
+
+### Changed
+- Renamed application from MealMe to YummyBox. The `mealme` binary is now `yummybox`. Environment variables use the `YUMMYBOX_` prefix. On first run, an existing `meals.db` is automatically migrated to `yummybox.db`. See [README](https://github.com/RouHim/yummybox/blob/main/README.md) for upgrade notes.
+
 ## [1.11.2](https://github.com/RouHim/mealme/compare/v1.11.1...v1.11.2) (2026-07-04)
 
 

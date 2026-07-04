@@ -2,10 +2,16 @@
 target/
 
 # SQLite database (generated at runtime)
-meals.db
+yummybox.db
 # SQLite WAL/SHM files (runtime artifacts)
-meals.db-shm
-meals.db-wal
+yummybox.db-shm
+yummybox.db-wal
+
+# E2E test database artifacts
+.e2e-db/
+
+# Runtime data directory
+data/
 
 # Node dependencies
 node_modules/
