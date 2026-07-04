@@ -1,3 +1,10 @@
+# [1.12.0](https://github.com/RouHim/yummybox/compare/v1.11.2...v1.12.0) (2026-07-04)
+
+
+### Features
+
+* add Docker container support with multi-arch GHCR release pipeline ([6744106](https://github.com/RouHim/yummybox/commit/6744106a8ffab53463eedbabe592617185f9a54a))
+
 ## 0.2.0 — YummyBox (2026-07-04)
 
 ### Changed
