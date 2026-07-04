@@ -1,3 +1,10 @@
+## [1.11.2](https://github.com/RouHim/mealme/compare/v1.11.1...v1.11.2) (2026-07-04)
+
+
+### Bug Fixes
+
+* paste tile click and Ctrl+V image paste across browsers ([96c26d9](https://github.com/RouHim/mealme/commit/96c26d9f62fd89373f0c12a081de24dfcc67a724))
+
 ## [1.11.1](https://github.com/RouHim/mealme/compare/v1.11.0...v1.11.1) (2026-07-04)
 
 # [1.11.0](https://github.com/RouHim/mealme/compare/v1.10.0...v1.11.0) (2026-07-04)
