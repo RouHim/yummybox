@@ -4,8 +4,6 @@
 
 <p align="center">
   <a href="https://github.com/RouHim/mealme/releases/latest"><img src="https://img.shields.io/github/v/release/RouHim/mealme?label=latest" alt="Latest release"></a>
-  <a href="https://github.com/RouHim/mealme/releases/latest"><img src="https://img.shields.io/badge/platform-linux%20%7C%20macOS%20%7C%20Windows-blue" alt="Platform: linux | macOS | Windows"></a>
-  <a href="https://opensource.org/licenses/MIT"><img src="https://img.shields.io/badge/license-MIT-blue.svg" alt="License: MIT"></a>
   <a href="https://github.com/RouHim/mealme/actions/workflows/ci.yml"><img src="https://github.com/RouHim/mealme/actions/workflows/ci.yml/badge.svg" alt="CI/CD"></a>
 </p>
 
