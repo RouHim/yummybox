@@ -1,3 +1,10 @@
+## [1.12.3](https://github.com/RouHim/yummybox/compare/v1.12.2...v1.12.3) (2026-07-04)
+
+
+### Bug Fixes
+
+* run E2E container as root to avoid volume permission issues ([994f3fd](https://github.com/RouHim/yummybox/commit/994f3fd38471d6917323690ff98c3d3f2c565f74))
+
 ## [1.12.2](https://github.com/RouHim/yummybox/compare/v1.12.1...v1.12.2) (2026-07-04)
 
 
