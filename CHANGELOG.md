@@ -1,3 +1,10 @@
+## [1.12.4](https://github.com/RouHim/yummybox/compare/v1.12.3...v1.12.4) (2026-07-05)
+
+
+### Bug Fixes
+
+* surface HTTP status in bulk import failure reasons ([a377ab2](https://github.com/RouHim/yummybox/commit/a377ab2e0b014aa6b3c62ea9d3f992cf0a7a8be9))
+
 ## [1.12.3](https://github.com/RouHim/yummybox/compare/v1.12.2...v1.12.3) (2026-07-04)
 
 
