@@ -148,6 +148,14 @@ import { readStoredLlmConfig, persistLlmConfig } from '$lib/llm-config.svelte';
             loadLlmModels();
         }
     }
+    function bulkReasonLabel(reason: string): string {
+        if (reason === 'fetch failed') return t('importBulkReasonFetch');
+        if (reason === 'no recipe found') return t('importBulkReasonNoRecipe');
+        if (reason === 'duplicate') return t('importBulkReasonDuplicate');
+        if (reason === 'validation failed') return t('importBulkReasonValidation');
+        return reason;
+    }
+
     async function onBulkImport() {
         bulkError = null;
         bulkResult = null;
@@ -634,7 +642,7 @@ import { readStoredLlmConfig, persistLlmConfig } from '$lib/llm-config.svelte';
 													<li class="form-error">
 														<Icon name="circle-alert" size={16} />
 														<span class="bulk-results__url">{f.url}</span>
-														<span class="bulk-results__reason">{t(f.reason === 'fetch failed' ? 'importBulkReasonFetch' : f.reason === 'no recipe found' ? 'importBulkReasonNoRecipe' : f.reason === 'duplicate' ? 'importBulkReasonDuplicate' : 'importBulkReasonValidation')}</span>
+														<span class="bulk-results__reason">{bulkReasonLabel(f.reason)}</span>
 													</li>
 												{/each}
 											</ul>
