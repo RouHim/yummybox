@@ -1,3 +1,10 @@
+## [1.12.5](https://github.com/RouHim/yummybox/compare/v1.12.4...v1.12.5) (2026-07-06)
+
+
+### Bug Fixes
+
+* add CA certs to pipeline container, log bulk import errors ([b263546](https://github.com/RouHim/yummybox/commit/b26354642873f34eb0db236b6b13ca5764ae5016))
+
 ## [1.12.4](https://github.com/RouHim/yummybox/compare/v1.12.3...v1.12.4) (2026-07-05)
 
 
