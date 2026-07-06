@@ -1,6 +1,6 @@
 <script lang="ts">
 	import '../app.css';
-	import favicon from '$lib/assets/favicon.svg';
+	import favicon from '$lib/assets/soup.svg';
 	import { initLocale, getLocale, t } from '$lib/i18n';
 	import { initTheme, theme, cycleTheme } from '$lib/theme';
 	import { page } from '$app/state';

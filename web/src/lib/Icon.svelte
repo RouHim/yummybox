@@ -3,6 +3,7 @@
 	let { name, class: className = '', size = 24, spin = false }: { name: IconName; class?: string; size?: number; spin?: boolean } = $props();
 
 	let iconClass = $derived(spin ? `${className} icon-spin`.trim() : className);
+	import soupSvgRaw from '$lib/assets/soup.svg?raw';
 </script>
 
 {#if name === 'search'}
@@ -102,14 +103,8 @@
 		<line x1="12" x2="12" y1="17" y2="21" />
 	</svg>
 {:else if name === 'soup'}
-	<svg xmlns="http://www.w3.org/2000/svg" width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class={iconClass} aria-hidden="true">
-		<path d="M12 21a9 9 0 0 0 9-9H3a9 9 0 0 0 9 9Z" />
-		<path d="M7 21h10" />
-		<path d="M19.5 12 22 6" />
-		<path d="M16.25 3c.27.1.8.53.75 1.36-.06.83-.93 1.2-1 2.02-.05.78.34 1.24.73 1.62" />
-		<path d="M11.25 3c.27.1.8.53.74 1.36-.05.83-.93 1.2-.98 2.02-.06.78.33 1.24.72 1.62" />
-		<path d="M6.25 3c.27.1.8.53.75 1.36-.06.83-.93 1.2-1 2.02-.05.78.34 1.24.74 1.62" />
-	</svg>
+	<!-- eslint-disable-next-line svelte/no-at-html-tags -- trusted local asset, build-time inlined -->
+	{@html soupSvgRaw}
 {:else if name === 'loader-circle'}
 	<svg xmlns="http://www.w3.org/2000/svg" width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class={iconClass} aria-hidden="true">
 		<path d="M21 12a9 9 0 1 1-6.219-8.56" />
