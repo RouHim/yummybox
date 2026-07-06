@@ -33,10 +33,15 @@ COPY migrations ./migrations
 # Build release binary
 RUN RUST_TARGET=$(cat /tmp/rust-target) && cargo build --release --target ${RUST_TARGET}
 
+
+FROM docker.io/alpine:latest AS certs
+RUN apk add --no-cache ca-certificates
 FROM scratch
 
 ENV YUMMYBOX_DATA_DIR=/data
 ENV RUST_LOG=info
+COPY --from=certs /etc/ssl/certs /etc/ssl/certs
+
 
 COPY --from=builder --chown=1000:1000 /empty_dir /tmp
 COPY --from=builder --chown=1000:1000 /empty_dir /data

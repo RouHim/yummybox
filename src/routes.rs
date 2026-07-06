@@ -659,9 +659,10 @@ pub async fn import_bulk(
 /// Process a single URL: fetch, parse, validate, insert. Returns the created
 /// [`Meal`] on success or a human-readable failure reason on error.
 async fn process_single_url(pool: &SqlitePool, url: &str) -> Result<Meal, String> {
-    let draft = recipe::fetch_and_parse(url)
-        .await
-        .map_err(|e| classify_fetch_error(&e))?;
+    let draft = recipe::fetch_and_parse(url).await.map_err(|e| {
+        tracing::warn!(url = %url, error = %e, "bulk import: fetch_and_parse failed");
+        classify_fetch_error(&e)
+    })?;
 
     let new_meal = NewMeal {
         name: draft.name,
@@ -698,7 +699,10 @@ async fn process_single_url(pool: &SqlitePool, url: &str) -> Result<Meal, String
 
     db::insert_meal(pool, new_meal, image_change)
         .await
-        .map_err(|e| classify_insert_error(&e))
+        .map_err(|e| {
+            tracing::warn!(url = %url, error = %e, "bulk import: insert_meal failed");
+            classify_insert_error(&e)
+        })
 }
 
 /// Map an [`AppError`] from `fetch_and_parse` to a user-facing reason string.
@@ -709,7 +713,7 @@ fn classify_fetch_error(err: &AppError) -> String {
             // Surface the HTTP status so users can distinguish 404 from 500 etc.
             msg.clone()
         }
-        _ => "fetch failed".into(),
+        _ => format!("fetch failed: {err}"),
     }
 }
 
@@ -2701,9 +2705,12 @@ mod tests {
     }
 
     #[test]
-    fn given_other_error_when_classify_fetch_then_fetch_failed() {
+    fn given_other_error_when_classify_fetch_then_includes_detail() {
         let err = AppError::Internal("timeout".into());
-        assert_eq!(classify_fetch_error(&err), "fetch failed");
+        assert_eq!(
+            classify_fetch_error(&err),
+            "fetch failed: internal error: timeout"
+        );
     }
 
     #[test]
