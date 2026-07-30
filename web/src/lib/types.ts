@@ -12,17 +12,18 @@ export interface Meal {
 	created_at: string; // ISO 8601
 	updated_at: string; // ISO 8601
 	has_image: boolean;
+	portions: number | null;
 }
 
 export interface NewIngredientLine {
 	name: string;
 	quantity: string | null;
 }
-
 export interface MealPayload {
 	name: string;
 	ingredients: NewIngredientLine[];
 	instructions: string;
+	portions?: number | null;
 }
 
 export interface NumericTotal {
@@ -61,12 +62,12 @@ export interface NewPlanRequest {
 export interface PlanPatch {
 	meal_ids: number[];
 }
-
 export interface ImportDraft {
 	name: string;
 	ingredients: NewIngredientLine[];
 	instructions: string;
 	imageBase64: string | null;
+	portions: number | null;
 }
 
 export interface ImportFromUrlRequest {

@@ -189,4 +189,10 @@ export type TranslationKey =
 	| 'imageImportUrl'
 	| 'imageImportPaste'
 	| 'imageImportDragDrop'
-	| 'importZipReasonOther';
+	| 'importZipReasonOther'
+	| 'fieldPortionsLabel'
+	| 'cookingViewServes'
+	| 'cookingViewDecrement'
+	| 'cookingViewIncrement'
+	| 'cookingViewScaledQuantity'
+	| 'validationPortionsInvalid';

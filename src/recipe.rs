@@ -18,6 +18,8 @@ pub struct ImportDraft {
     /// Base64-encoded JPEG bytes if an image was found and downloaded; None otherwise.
     /// Only populated by `fetch_and_parse` (URL mode). Always `None` for `parse_recipe` (paste mode).
     pub image_base64: Option<String>,
+    #[serde(default)]
+    pub portions: Option<i32>,
 }
 
 /// Parse a recipe from raw HTML or JSON-LD text. No network fetch.
@@ -29,6 +31,7 @@ pub fn parse_recipe(text: &str) -> Result<ImportDraft, AppError> {
         ingredients: draft.ingredients,
         instructions: draft.instructions,
         image_base64: None,
+        portions: draft.portions,
     })
 }
 
@@ -169,12 +172,27 @@ fn parse_recipe_with_image_url(text: &str) -> Result<(ImportDraft, Option<String
 
             let image_url = extract_image_url(json_value);
 
+
+            let portions = recipe
+                .yields()
+                .as_ref()
+                .and_then(|y| {
+                    let s = y.to_string();
+                    let num_str: String = s
+                        .chars()
+                        .skip_while(|c| !c.is_ascii_digit())
+                        .take_while(|c| c.is_ascii_digit())
+                        .collect();
+                    num_str.parse::<i32>().ok()
+                });
+
             return Ok((
                 ImportDraft {
                     name,
                     ingredients,
                     instructions,
                     image_base64: None,
+                    portions,
                 },
                 image_url,
             ));

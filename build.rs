@@ -39,4 +39,5 @@ fn main() {
     println!("cargo:rerun-if-changed=web/package.json");
     println!("cargo:rerun-if-changed=web/static");
     println!("cargo:rerun-if-changed=web/build");
+    println!("cargo:rerun-if-changed=migrations");
 }

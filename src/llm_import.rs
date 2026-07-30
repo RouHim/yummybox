@@ -167,6 +167,7 @@ fn recipe_tool() -> genai::chat::Tool {
                     }
                 },
                 "instructions": { "type": "string", "description": "Cooking instructions" },
+                "portion": { "type": "integer", "description": "Number of servings the recipe yields, e.g. 4" },
                 "imageUrl": { "type": "string", "description": "A URL of a photo of the finished dish, if one can be identified from the recipe context" }
             },
             "required": ["name", "ingredients"]
@@ -367,7 +368,6 @@ fn map_genai_error(err: genai::Error) -> AppError {
 // ---------------------------------------------------------------------------
 // Tool output → ImportDraft
 // ---------------------------------------------------------------------------
-
 #[derive(serde::Deserialize)]
 struct LlmRecipeDraft {
     #[serde(default)]
@@ -379,6 +379,8 @@ struct LlmRecipeDraft {
     #[serde(default)]
     #[serde(rename = "imageUrl")]
     image_url: Option<String>,
+    #[serde(default)]
+    portion: Option<i32>,
 }
 
 #[derive(serde::Deserialize)]
@@ -437,6 +439,7 @@ async fn build_draft_from_tool_args(
         ingredients,
         instructions: recipe::sanitize_instructions(&draft.instructions.unwrap_or_default()),
         image_base64,
+        portions: draft.portion,
     })
 }
 

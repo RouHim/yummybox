@@ -59,19 +59,22 @@ export async function createMeal(
 	await expect(page.getByRole('listitem').filter({ hasText: name })).toBeVisible();
 }
 
+type MealFromApi = { id: number; name: string; ingredients: unknown; instructions: string; has_image: boolean; portions: number | null };
+
 export async function createMealViaApi(
 	request: APIRequestContext,
 	name: string,
 	ingredients: Array<{ name: string; quantity?: string }> = [{ name: 'flour' }],
-	instructions = 'Cooking steps'
-): Promise<{ id: number; name: string; ingredients: unknown; instructions: string; has_image: boolean }> {
-	const response = await request.post('/api/meals', {
-		multipart: {
-			name,
-			ingredients: JSON.stringify(ingredients),
-			instructions,
-		},
-	});
+	instructions = 'Cooking steps',
+	portions?: number,
+): Promise<MealFromApi> {
+	const multipart: Record<string, string> = {
+		name,
+		ingredients: JSON.stringify(ingredients),
+		instructions,
+	};
+	if (portions != null) multipart.portions = String(portions);
+	const response = await request.post('/api/meals', { multipart });
 	expect(response.ok()).toBe(true);
 	return response.json();
 }

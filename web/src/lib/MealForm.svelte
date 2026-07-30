@@ -10,6 +10,7 @@
 		initialName = '',
 		initialIngredients = [{ name: '', quantity: null }],
 		initialInstructions = '',
+		initialPortions = null,
 		initialImage = null,
 		editMode = false,
 		editingMeal = null,
@@ -21,6 +22,7 @@
 		initialName?: string;
 		initialIngredients?: NewIngredientLine[];
 		initialInstructions?: string;
+		initialPortions?: number | null;
 		initialImage?: File | null;
 		editMode?: boolean;
 		editingMeal?: Meal | null;
@@ -30,6 +32,7 @@
 			name: string;
 			ingredients: NewIngredientLine[];
 			instructions: string;
+			portions: number | null;
 			image: File | null;
 			removeImage: boolean;
 		}) => void | Promise<void>;
@@ -43,6 +46,7 @@
 			: [{ name: '', quantity: null }]
 	);
 	let formInstructions = $state(initialInstructions);
+	let formPortions = $state<number | null>(initialPortions);
 
 	let formImage = $state<File | null>(initialImage);
 	let removeImage = $state(false);
@@ -80,11 +84,10 @@
 	function removeIngredientRow(idx: number) {
 		formIngredients = formIngredients.filter((_, i) => i !== idx);
 	}
-
 	async function onSubmit() {
 		formError = null;
 		const valid = validIngredientLines();
-		const result = validateMeal(formName, valid, formInstructions);
+		const result = validateMeal(formName, valid, formInstructions, formPortions);
 		if (!result.ok) {
 			formError = t(result.messageKey);
 			return;
@@ -98,6 +101,7 @@
 				name: formName.trim(),
 				ingredients: valid,
 				instructions: formInstructions.trim(),
+				portions: formPortions,
 				image: formImage,
 				removeImage,
 			});
@@ -128,6 +132,21 @@
 				bind:value={formName}
 				placeholder={t('fieldNamePlaceholder')}
 				maxlength={200}
+			/>
+		</label>
+
+		<label class="field">
+			<span class="field__label">{t('fieldPortionsLabel')}</span>
+			<input
+				type="number"
+				value={formPortions ?? ''}
+				oninput={(e) => {
+					const v = (e.target as HTMLInputElement).value;
+					formPortions = v ? parseInt(v, 10) || null : null;
+				}}
+				min="1"
+				max="10000"
+				placeholder="4"
 			/>
 		</label>
 		<fieldset class="field">

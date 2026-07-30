@@ -184,4 +184,10 @@ export const de: Record<TranslationKey, string> = {
 	imageImportUrl: 'Via URL',
 	imageImportPaste: 'Einf\u00fcgen',
 	imageImportDragDrop: 'Drag & Drop',
+	fieldPortionsLabel: 'Portionen',
+	cookingViewServes: 'F\u00fcr {count} Portionen',
+	cookingViewDecrement: 'Weniger Portionen',
+	cookingViewIncrement: 'Mehr Portionen',
+	cookingViewScaledQuantity: '{scaled}',
+	validationPortionsInvalid: 'Portionen m\u00fcssen zwischen 1 und 10000 liegen',
 };

@@ -29,6 +29,7 @@ import { readStoredLlmConfig, persistLlmConfig } from '$lib/llm-config.svelte';
 	let formName = $state('');
 	let formIngredients = $state<NewIngredientLine[]>([{ name: '', quantity: null }]);
 	let formInstructions = $state('');
+	let formPortions = $state<number | null>(null);
 	let formImage = $state<File | null>(null);
 	let removeImage = $state(false);
 	let submitting = $state(false);
@@ -75,6 +76,7 @@ import { readStoredLlmConfig, persistLlmConfig } from '$lib/llm-config.svelte';
                 ? draft.ingredients.map(i => ({ name: i.name, quantity: i.quantity }))
                 : [{ name: '', quantity: null }];
             formInstructions = draft.instructions;
+            formPortions = draft.portions;
             if (draft.imageBase64) {
                 const bytes = Uint8Array.from(atob(draft.imageBase64), c => c.charCodeAt(0));
                 formImage = new File([bytes], 'imported.jpg', { type: 'image/jpeg' });
@@ -282,12 +284,12 @@ import { readStoredLlmConfig, persistLlmConfig } from '$lib/llm-config.svelte';
 
 	async function onSubmitAdd(payload: {
 		name: string; ingredients: NewIngredientLine[]; instructions: string;
-		image: File | null; removeImage: boolean;
+		portions: number | null; image: File | null; removeImage: boolean;
 	}) {
 		submitting = true;
 		try {
 			await createMeal(
-				{ name: payload.name, ingredients: payload.ingredients, instructions: payload.instructions },
+				{ name: payload.name, ingredients: payload.ingredients, instructions: payload.instructions, portions: payload.portions },
 				payload.image
 			);
 			await loadMeals();
@@ -299,7 +301,7 @@ import { readStoredLlmConfig, persistLlmConfig } from '$lib/llm-config.svelte';
 
     function openAdd() {
         formName = ''; formIngredients = [{ name: '', quantity: null }]; formInstructions = '';
-        formImage = null; removeImage = false; submitting = false; llmConfigRestored = false;
+        formPortions = null; formImage = null; removeImage = false; submitting = false; llmConfigRestored = false;
         importMode = 'urls';
         importLlmProvider = ''; importLlmModel = ''; importLlmHint = '';
         llmSettingsCollapsed = false;
@@ -364,13 +366,13 @@ import { readStoredLlmConfig, persistLlmConfig } from '$lib/llm-config.svelte';
 
 	async function onSubmitEdit(payload: {
 		name: string; ingredients: NewIngredientLine[]; instructions: string;
-		image: File | null; removeImage: boolean;
+		portions: number | null; image: File | null; removeImage: boolean;
 	}) {
 		// editTarget is non-null while the modal is open
 		const id = editTarget!.id;
 		editSubmitting = true;
 		try {
-			await updateMeal(id, { name: payload.name, ingredients: payload.ingredients, instructions: payload.instructions }, {
+			await updateMeal(id, { name: payload.name, ingredients: payload.ingredients, instructions: payload.instructions, portions: payload.portions }, {
 				image: payload.image,
 				removeImage: payload.removeImage,
 			});
@@ -581,6 +583,7 @@ import { readStoredLlmConfig, persistLlmConfig } from '$lib/llm-config.svelte';
 					initialName={editTarget.name}
 					initialIngredients={editTarget.ingredients.length > 0 ? editTarget.ingredients.map(i => ({ name: i.name, quantity: i.quantity })) : [{ name: '', quantity: null }]}
 					initialInstructions={editTarget.instructions}
+					initialPortions={editTarget.portions ?? null}
 					submitting={editSubmitting}
 					existingNames={existingMealNames}
 					onsubmit={onSubmitEdit}
@@ -790,6 +793,7 @@ import { readStoredLlmConfig, persistLlmConfig } from '$lib/llm-config.svelte';
 									initialName={formName}
 									initialIngredients={formIngredients}
 									initialInstructions={formInstructions}
+									initialPortions={formPortions}
 									initialImage={formImage}
 									submitting={submitting}
 									existingNames={existingMealNames}

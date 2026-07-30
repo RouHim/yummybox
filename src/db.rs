@@ -28,10 +28,10 @@ struct MealRow {
     created_at: DateTime<Utc>,
     updated_at: DateTime<Utc>,
     has_image: bool,
+    portions: Option<i32>,
 }
 
 /// Convert a [`MealRow`] into a [`Meal`] (without ingredients — those are
-/// loaded separately by [`get_meal_ingredients`] or [`hydrate_meals`]).
 fn map_meal_row(row: MealRow) -> Meal {
     Meal {
         id: row.id,
@@ -42,6 +42,7 @@ fn map_meal_row(row: MealRow) -> Meal {
         created_at: row.created_at,
         updated_at: row.updated_at,
         has_image: row.has_image,
+        portions: row.portions,
     }
 }
 
@@ -99,6 +100,7 @@ pub fn validate_meal(
     name: &str,
     ingredients: &[NewIngredientLine],
     instructions: &str,
+    portions: Option<i32>,
 ) -> Result<(), AppError> {
     let name = name.trim();
     if name.is_empty() {
@@ -155,7 +157,20 @@ pub fn validate_meal(
             }
         }
     }
+    validate_portions(portions)?;
     Ok(())
+}
+
+fn validate_portions(portions: Option<i32>) -> Result<(), AppError> {
+    match portions {
+        Some(p) if p <= 0 => Err(AppError::Validation(
+            "portions must be positive".into(),
+        )),
+        Some(p) if p > 10_000 => Err(AppError::Validation(
+            "portions must be at most 10000".into(),
+        )),
+        _ => Ok(()),
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -272,7 +287,7 @@ pub async fn list_meals(pool: &SqlitePool, search: Option<&str>) -> Result<Vec<M
         Some(term) => {
             let pattern = format!("%{}%", term.to_lowercase());
             sqlx::query_as::<_, MealRow>(
-                "SELECT DISTINCT m.id, m.name, m.instructions, m.last_planned_at, m.created_at, m.updated_at, (m.image IS NOT NULL) AS has_image
+                "SELECT DISTINCT m.id, m.name, m.instructions, m.last_planned_at, m.created_at, m.updated_at, (m.image IS NOT NULL) AS has_image, m.portions
                  FROM meals m
                  LEFT JOIN meal_ingredients mi ON mi.meal_id = m.id
                  LEFT JOIN ingredients i ON i.id = mi.ingredient_id
@@ -285,7 +300,7 @@ pub async fn list_meals(pool: &SqlitePool, search: Option<&str>) -> Result<Vec<M
         }
         None => {
             sqlx::query_as::<_, MealRow>(
-                "SELECT m.id, m.name, m.instructions, m.last_planned_at, m.created_at, m.updated_at, (m.image IS NOT NULL) AS has_image
+                "SELECT m.id, m.name, m.instructions, m.last_planned_at, m.created_at, m.updated_at, (m.image IS NOT NULL) AS has_image, m.portions
                  FROM meals m
                  ORDER BY m.updated_at DESC, m.id DESC",
             )
@@ -302,7 +317,7 @@ pub async fn list_meals(pool: &SqlitePool, search: Option<&str>) -> Result<Vec<M
 
 pub async fn find_meal(pool: &SqlitePool, id: i64) -> Result<Meal, AppError> {
     let row = sqlx::query_as::<_, MealRow>(
-        "SELECT m.id, m.name, m.instructions, m.last_planned_at, m.created_at, m.updated_at, (m.image IS NOT NULL) AS has_image
+        "SELECT m.id, m.name, m.instructions, m.last_planned_at, m.created_at, m.updated_at, (m.image IS NOT NULL) AS has_image, m.portions
          FROM meals m WHERE m.id = ?1",
     )
     .bind(id)
@@ -321,23 +336,22 @@ pub async fn insert_meal(
     new: NewMeal,
     image: ImageChange<'_>,
 ) -> Result<Meal, AppError> {
-    validate_meal(&new.name, &new.ingredients, &new.instructions)?;
+    validate_meal(&new.name, &new.ingredients, &new.instructions, new.portions)?;
     let now = Utc::now();
 
     let mut tx = pool.begin().await?;
     let trimmed_name = new.name.trim();
-    let id: (i64,) = sqlx::query_as(
-        "INSERT INTO meals (name, instructions, last_planned_at, created_at, updated_at)
-         VALUES (?1, ?2, NULL, ?3, ?4)
-         RETURNING id",
+    let id: (i64,) = sqlx::query_as::<_, (i64,)>(
+        "INSERT INTO meals (name, instructions, portions, last_planned_at, created_at, updated_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6) RETURNING id",
     )
     .bind(trimmed_name)
     .bind(&new.instructions)
+    .bind(new.portions)
+    .bind(None::<String>)
     .bind(now)
     .bind(now)
     .fetch_one(&mut *tx)
     .await?;
-
     set_meal_ingredients(&mut *tx, id.0, &new.ingredients).await?;
 
     if let ImageChange::Set(jpeg_bytes) = image {
@@ -354,15 +368,16 @@ pub async fn update_meal(
     patch: MealPatch,
     image: ImageChange<'_>,
 ) -> Result<Meal, AppError> {
-    validate_meal(&patch.name, &patch.ingredients, &patch.instructions)?;
+    validate_meal(&patch.name, &patch.ingredients, &patch.instructions, patch.portions)?;
     let now = Utc::now();
 
     let mut tx = pool.begin().await?;
     let trimmed_name = patch.name.trim();
     let affected =
-        sqlx::query("UPDATE meals SET name = ?1, instructions = ?2, updated_at = ?3 WHERE id = ?4")
+        sqlx::query("UPDATE meals SET name = ?1, instructions = ?2, portions = ?3, updated_at = ?4 WHERE id = ?5")
             .bind(trimmed_name)
             .bind(&patch.instructions)
+            .bind(patch.portions)
             .bind(now)
             .bind(id)
             .execute(&mut *tx)
@@ -593,7 +608,7 @@ pub async fn select_meals_weighted(
     count: usize,
 ) -> Result<Vec<Meal>, AppError> {
     let meal_rows = sqlx::query_as::<_, MealRow>(
-        "SELECT m.id, m.name, m.instructions, m.last_planned_at, m.created_at, m.updated_at, (m.image IS NOT NULL) AS has_image
+        "SELECT m.id, m.name, m.instructions, m.last_planned_at, m.created_at, m.updated_at, (m.image IS NOT NULL) AS has_image, m.portions
          FROM meals m
          ORDER BY m.updated_at DESC, m.id DESC",
     )
@@ -736,7 +751,7 @@ pub async fn aggregate_plan_ingredients(
 
 pub async fn get_plan_meals(pool: &SqlitePool, plan_id: i64) -> Result<Vec<Meal>, AppError> {
     let meal_rows = sqlx::query_as::<_, MealRow>(
-        "SELECT m.id, m.name, m.instructions, m.last_planned_at, m.created_at, m.updated_at, (m.image IS NOT NULL) AS has_image
+        "SELECT m.id, m.name, m.instructions, m.last_planned_at, m.created_at, m.updated_at, (m.image IS NOT NULL) AS has_image, m.portions
          FROM plan_meals pm
          JOIN meals m ON m.id = pm.meal_id
          WHERE pm.plan_id = ?1
@@ -956,6 +971,7 @@ mod tests {
                     })
                     .collect(),
                 instructions: "test".into(),
+                portions: None,
             },
             ImageChange::Keep,
         )
@@ -1099,7 +1115,7 @@ mod tests {
 
     #[test]
     fn given_no_ingredient_lines_when_insert_meal_then_validation_error() {
-        let result = validate_meal("x", &[], "valid instructions");
+        let result = validate_meal("x", &[], "valid instructions", None);
         match &result {
             Err(AppError::Validation(msg)) => assert!(msg.contains("ingredient")),
             other => panic!("expected Validation, got {other:?}"),
@@ -1115,6 +1131,7 @@ mod tests {
                 quantity: None,
             }],
             "valid instructions",
+            None,
         );
         match &result {
             Err(AppError::Validation(msg)) => assert!(msg.contains("name")),
@@ -1132,6 +1149,7 @@ mod tests {
                 quantity: None,
             }],
             "valid instructions",
+            None,
         );
         match &result {
             Err(AppError::Validation(msg)) => assert!(msg.contains("name")),
@@ -1149,6 +1167,7 @@ mod tests {
                 quantity: Some(long_qty),
             }],
             "valid instructions",
+            None,
         );
         match &result {
             Err(AppError::Validation(msg)) => assert!(msg.contains("quantity")),
@@ -1164,7 +1183,7 @@ mod tests {
                 quantity: None,
             })
             .collect();
-        let result = validate_meal("x", &lines, "valid instructions");
+        let result = validate_meal("x", &lines, "valid instructions", None);
         match &result {
             Err(AppError::Validation(msg)) => assert!(msg.contains("100")),
             other => panic!("expected Validation, got {other:?}"),
@@ -1180,6 +1199,7 @@ mod tests {
                 quantity: None,
             }],
             "",
+            None,
         );
         match &result {
             Err(AppError::Validation(msg)) => assert!(msg.contains("instructions")),
@@ -1197,6 +1217,7 @@ mod tests {
                 quantity: None,
             }],
             &long_instructions,
+            None,
         );
         match &result {
             Err(AppError::Validation(msg)) => assert!(msg.contains("20000")),
@@ -1217,6 +1238,7 @@ mod tests {
                     quantity: None,
                 }],
                 instructions: "test".into(),
+                portions: None,
             },
             ImageChange::Keep,
         )
@@ -1238,6 +1260,7 @@ mod tests {
                     quantity: None,
                 }],
                 instructions: "test".into(),
+                portions: None,
             },
             ImageChange::Keep,
         )
@@ -1260,6 +1283,7 @@ mod tests {
                     quantity: None,
                 }],
                 instructions: "test".into(),
+                portions: None,
             },
             ImageChange::Keep,
         )
@@ -1282,6 +1306,7 @@ mod tests {
                     quantity: None,
                 }],
                 instructions: "test".into(),
+                portions: None,
             },
             ImageChange::Keep,
         )
@@ -1654,6 +1679,7 @@ mod tests {
                     quantity: Some("200g".into()),
                 }],
                 instructions: "test".into(),
+                portions: None,
             },
             ImageChange::Keep,
         )
@@ -1684,6 +1710,7 @@ mod tests {
                     quantity: None,
                 }],
                 instructions: "test".into(),
+                portions: None,
             },
             ImageChange::Keep,
         )
@@ -1719,6 +1746,7 @@ mod tests {
                     quantity: None,
                 }],
                 instructions: "test".into(),
+                portions: None,
             },
             ImageChange::Keep,
         )
@@ -1747,6 +1775,7 @@ mod tests {
                     quantity: None,
                 }],
                 instructions: "test".into(),
+                portions: None,
             },
             ImageChange::Keep,
         )

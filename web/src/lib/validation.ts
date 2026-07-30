@@ -1,9 +1,9 @@
 import type { TranslationKey } from './i18n/types';
 import type { NewIngredientLine } from './types';
 
-type ValidationResult = { ok: true } | { ok: false; field: 'name' | 'ingredients' | 'instructions'; messageKey: TranslationKey };
+type ValidationResult = { ok: true } | { ok: false; field: 'name' | 'ingredients' | 'instructions' | 'portions'; messageKey: TranslationKey };
 
-export function validateMeal(name: string, ingredients: NewIngredientLine[], instructions: string): ValidationResult {
+export function validateMeal(name: string, ingredients: NewIngredientLine[], instructions: string, portions: number | null = null): ValidationResult {
 	const nameTrim = name.trim();
 	if (nameTrim.length === 0) {
 		return { ok: false, field: 'name', messageKey: 'validationNameRequired' };
@@ -35,6 +35,9 @@ export function validateMeal(name: string, ingredients: NewIngredientLine[], ins
 	}
 	if (instructionsTrim.length > 20000) {
 		return { ok: false, field: 'instructions', messageKey: 'validationInstructionsTooLong' };
+	}
+	if (portions != null && (portions <= 0 || portions > 10000)) {
+		return { ok: false, field: 'portions', messageKey: 'validationPortionsInvalid' };
 	}
 	return { ok: true };
 }

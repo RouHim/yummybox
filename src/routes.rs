@@ -94,6 +94,7 @@ pub async fn create_meal(
     let mut name: Option<String> = None;
     let mut ingredients_raw: Option<String> = None;
     let mut instructions: Option<String> = None;
+    let mut portions: Option<i32> = None;
     let mut image_bytes: Option<Vec<u8>> = None;
 
     while let Some(field) = multipart
@@ -120,6 +121,17 @@ pub async fn create_meal(
                     AppError::BadRequest(format!("failed to read instructions field: {e}"))
                 })?;
                 instructions = Some(text);
+            }
+            Some("portions") => {
+                let text = field.text().await.map_err(|e| {
+                    AppError::BadRequest(format!("failed to read portions field: {e}"))
+                })?;
+                let trimmed = text.trim();
+                if !trimmed.is_empty() {
+                    portions = Some(trimmed.parse::<i32>().map_err(|_| {
+                        AppError::BadRequest("portions must be an integer".into())
+                    })?);
+                }
             }
             Some("image") => {
                 if image_bytes.is_some() {
@@ -157,6 +169,7 @@ pub async fn create_meal(
         name,
         ingredients,
         instructions,
+        portions,
     };
     if db::meal_name_exists(&state.pool, &new.name, None).await? {
         return Err(AppError::DuplicateName);
@@ -174,6 +187,7 @@ pub async fn update_meal(
     let mut name: Option<String> = None;
     let mut ingredients_raw: Option<String> = None;
     let mut instructions: Option<String> = None;
+    let mut portions: Option<i32> = None;
     let mut image_bytes: Option<Vec<u8>> = None;
     let mut image_action: Option<String> = None;
 
@@ -201,6 +215,17 @@ pub async fn update_meal(
                     AppError::BadRequest(format!("failed to read instructions field: {e}"))
                 })?;
                 instructions = Some(text);
+            }
+            Some("portions") => {
+                let text = field.text().await.map_err(|e| {
+                    AppError::BadRequest(format!("failed to read portions field: {e}"))
+                })?;
+                let trimmed = text.trim();
+                if !trimmed.is_empty() {
+                    portions = Some(trimmed.parse::<i32>().map_err(|_| {
+                        AppError::BadRequest("portions must be an integer".into())
+                    })?);
+                }
             }
             Some("image") => {
                 if image_bytes.is_some() {
@@ -252,6 +277,7 @@ pub async fn update_meal(
         name,
         ingredients,
         instructions,
+        portions,
     };
     if db::meal_name_exists(&state.pool, &patch.name, Some(id)).await? {
         return Err(AppError::DuplicateName);
@@ -668,6 +694,7 @@ async fn process_single_url(pool: &SqlitePool, url: &str) -> Result<Meal, String
         name: draft.name,
         ingredients: draft.ingredients,
         instructions: draft.instructions,
+        portions: draft.portions,
     };
 
     if db::meal_name_exists(pool, &new_meal.name, None)

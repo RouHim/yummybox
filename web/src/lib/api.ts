@@ -48,6 +48,7 @@ export async function createMeal(
 	form.set('name', payload.name);
 	form.set('ingredients', JSON.stringify(payload.ingredients));
 	form.set('instructions', payload.instructions);
+	if (payload.portions != null) form.set('portions', String(payload.portions));
 	if (image) form.set('image', image);
 	return request<Meal>('/api/meals', { method: 'POST', body: form });
 }
@@ -61,6 +62,7 @@ export async function updateMeal(
 	form.set('name', payload.name);
 	form.set('ingredients', JSON.stringify(payload.ingredients));
 	form.set('instructions', payload.instructions);
+	if (payload.portions != null) form.set('portions', String(payload.portions));
 	if (opts?.image) form.set('image', opts.image);
 	if (opts?.removeImage) form.set('image_action', 'remove');
 	return request<Meal>(`/api/meals/${id}`, { method: 'PUT', body: form });

@@ -132,6 +132,7 @@ pub async fn run(pool: &sqlx::SqlitePool) -> Result<SeedOutcome, AppError> {
             name: name.to_string(),
             ingredients: ings,
             instructions: format!("Cook the {} according to your preferred method.", name),
+            portions: None,
         };
         db::insert_meal(pool, new_meal, db::ImageChange::Keep).await?;
     }
@@ -168,6 +169,7 @@ mod tests {
                     quantity: Some("1 tsp".into()),
                 }],
                 instructions: "test".into(),
+                portions: None,
             },
             db::ImageChange::Keep,
         )

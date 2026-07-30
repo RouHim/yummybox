@@ -146,6 +146,10 @@ fn build_recipe_json(meal: &Meal, images: &[(i64, Vec<u8>)]) -> serde_json::Valu
         Value::String(meal.updated_at.to_rfc3339()),
     );
 
+    if let Some(p) = meal.portions {
+        obj.insert("recipeYield".into(), Value::String(p.to_string()));
+    }
+
     // Relative image path (omitted when meal has no image)
     if images.iter().any(|(id, _)| *id == meal.id) {
         obj.insert(
@@ -374,11 +378,28 @@ async fn import_single_recipe(
         .map(|line| recipe::split_ingredient_line(line))
         .collect();
 
-    // --- instructions -------------------------------------------------------
     let instructions = extract_instructions(recipe);
 
+    // --- portions -----------------------------------------------------------
+    let portions = recipe
+        .get("recipeYield")
+        .or_else(|| recipe.get("yield"))
+        .and_then(|v| {
+            let s = match v {
+                serde_json::Value::String(s) => s.clone(),
+                serde_json::Value::Number(n) => n.to_string(),
+                _ => return None,
+            };
+            let num_str: String = s
+                .chars()
+                .skip_while(|c| !c.is_ascii_digit())
+                .take_while(|c| c.is_ascii_digit())
+                .collect();
+            num_str.parse::<i32>().ok()
+        });
+
     // --- validate -----------------------------------------------------------
-    if let Err(e) = db::validate_meal(trimmed_name, &ingredients, &instructions) {
+    if let Err(e) = db::validate_meal(trimmed_name, &ingredients, &instructions, portions) {
         let msg = e.to_string();
         // Strip the "Validation error: " prefix if present (it's not, but be safe)
         return Err(format!("validation failed: {msg}"));
@@ -401,6 +422,7 @@ async fn import_single_recipe(
         name: trimmed_name.to_string(),
         ingredients,
         instructions,
+        portions,
     };
 
     let meal = db::insert_meal(&state.pool, new_meal, image_change)
@@ -484,6 +506,7 @@ mod tests {
             created_at: Utc.with_ymd_and_hms(2026, 1, 15, 12, 0, 0).unwrap(),
             updated_at: Utc.with_ymd_and_hms(2026, 1, 16, 12, 0, 0).unwrap(),
             has_image,
+            portions: None,
         }
     }
 
@@ -723,6 +746,7 @@ mod tests {
                 name: name.into(),
                 ingredients: lines,
                 instructions: instructions.into(),
+                portions: None,
             },
             image_change,
         )
