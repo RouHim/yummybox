@@ -27,7 +27,7 @@ test.describe('Home page current-week view', () => {
 		await page.goto('/');
 
 		await expect(page).toHaveURL(/\/planner/);
-		await expect(page.locator('.cal-grid')).toBeVisible();
+		await expect(page.locator('.planner-layout')).toBeVisible();
 	});
 
 	test('given_plan_exists_for_current_week_when_home_loaded_then_meals_shown', async ({ page, request }) => {

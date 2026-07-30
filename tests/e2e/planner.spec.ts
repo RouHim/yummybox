@@ -1,9 +1,41 @@
 import { test, expect } from '@playwright/test';
-import { resetMeals } from './_helpers';
+import { createMealViaApi, resetMeals, resetPlans } from './_helpers';
+import { deflateSync } from 'node:zlib';
+
+// Minimal valid PNG builder (2×2 RGB)
+function buildMiniPng(): Buffer {
+	const w = 2, h = 2;
+	const rawRowSize = 1 + w * 3;
+	const raw = Buffer.alloc(rawRowSize * h);
+	for (let y = 0; y < h; y++) {
+		const off = y * rawRowSize;
+		raw[off] = 0; // filter: none
+		for (let x = 0; x < w; x++) {
+			const px = off + 1 + x * 3;
+			raw[px] = (x + y) % 2 === 0 ? 200 : 50;
+			raw[px + 1] = (x * 80) % 256;
+			raw[px + 2] = (y * 100) % 256;
+		}
+	}
+	const compressed = deflateSync(raw);
+	const sig = Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]);
+	const mk = (t: string, d: Buffer) => {
+		const len = Buffer.alloc(4); len.writeUInt32BE(d.length, 0);
+		const typeB = Buffer.from(t, 'ascii');
+		const crcBuf = Buffer.concat([typeB, d]);
+		let c = 0xFFFFFFFF;
+		for (let i = 0; i < crcBuf.length; i++) { c ^= crcBuf[i]!; for (let j = 0; j < 8; j++) c = (c >>> 1) ^ (c & 1 ? 0xEDB88320 : 0); }
+		c ^= 0xFFFFFFFF;
+		const crc = Buffer.alloc(4); crc.writeUInt32BE(c >>> 0, 0);
+		return Buffer.concat([len, typeB, d, crc]);
+	};
+	return Buffer.concat([sig, mk('IHDR', (b => { b.writeUInt32BE(w,0); b.writeUInt32BE(h,4); b[8]=8; b[9]=2; return b; })(Buffer.alloc(13))), mk('IDAT', compressed), mk('IEND', Buffer.alloc(0))]);
+}
 
 test.describe('planner', () => {
 	test.beforeEach(async ({ request }) => {
 		await resetMeals(request);
+		await resetPlans(request);
 	});
 
 	test('given_no_plan_exists_when_clicking_future_week_then_generate_form_shown_with_no_error', async ({ page }) => {
@@ -22,6 +54,35 @@ test.describe('planner', () => {
 		await page.waitForSelector('.plan-generate', { state: 'visible' });
 		await expect(page.locator('.form-error')).toHaveCount(0);
 		await expect(page.getByRole('spinbutton', { name: 'Number of meals' })).toBeVisible();
+	});
+
+	test('given_no_week_selected_when_planner_loads_then_empty_state_shown_with_week_selector', async ({ page }) => {
+		await page.goto('/planner');
+
+		// Wait for the week grid to render
+		await page.waitForSelector('.week-cell', { state: 'visible' });
+
+		// Empty state should be visible (no week selected)
+		const emptyState = page.locator('.planner-empty');
+		await expect(emptyState).toBeVisible();
+
+		// Title and subtitle should be shown
+		await expect(emptyState.locator('h2')).toBeVisible();
+		await expect(emptyState.locator('p')).toBeVisible();
+
+		// Plan detail panel should NOT be visible
+		await expect(page.locator('.plan-detail')).toHaveCount(0);
+
+		// Click a week cell without a plan
+		const cells = page.locator('.week-cell:not(.week-cell--has-plan)');
+		const count = await cells.count();
+		if (count > 0) {
+			await cells.last().click();
+		}
+
+		// Empty state should be gone, generate form should appear
+		await expect(emptyState).toHaveCount(0);
+		await page.waitForSelector('.plan-generate', { state: 'visible' });
 	});
 
 	test('given_past_weeks_in_current_year_when_planner_loads_then_past_cells_have_muted_class', async ({ page }) => {
@@ -124,5 +185,59 @@ test.describe('planner', () => {
 		const stored = await page.evaluate(() => localStorage.getItem('yummybox-locale'));
 		expect(stored).toBeNull();
 		await context.close();
+	});
+
+	test('given_meal_with_image_when_opening_picker_then_thumbnail_shown_and_placeholder_for_no_image', async ({ page, request }) => {
+		// Create a meal with an image via API multipart upload
+		const png = buildMiniPng();
+		const imgRes = await request.post('/api/meals', {
+			multipart: {
+				name: 'Photo Pasta',
+				ingredients: JSON.stringify([{ name: 'noodles' }]),
+				instructions: 'Boil and serve.',
+				image: {
+					name: 'photo.png',
+					mimeType: 'image/png',
+					buffer: png,
+				},
+			},
+		});
+		expect(imgRes.ok()).toBe(true);
+
+		// Create meals without images
+		await createMealViaApi(request, 'Plain Rice', [{ name: 'rice' }]);
+		await createMealViaApi(request, 'Simple Soup', [{ name: 'broth' }]);
+
+		await page.goto('/planner');
+		await page.waitForSelector('.week-cell', { state: 'visible' });
+
+		// Select a future week
+		const cells = page.locator('.week-cell:not(.week-cell--has-plan)');
+		const count = await cells.count();
+		expect(count).toBeGreaterThan(0);
+		await cells.last().click();
+
+		// Generate a plan
+		await page.waitForSelector('.plan-generate', { state: 'visible' });
+		await page.locator('.plan-generate .btn--primary').click();
+
+		// Wait for the "Add meal" button to appear in the plan grid
+		await page.waitForSelector('.plan-meal-card--add', { state: 'visible' });
+
+		// Open the meal picker overlay
+		await page.locator('.plan-meal-card--add').click();
+		await page.waitForSelector('.meal-picker', { state: 'visible' });
+
+		// Meal with image: thumbnail <img> should be visible
+		const photoItem = page.locator('.meal-picker__item').filter({ hasText: 'Photo Pasta' });
+		await expect(photoItem.locator('.meal-picker__thumb-img')).toBeVisible();
+
+		// Meal without image: no <img>, placeholder icon visible
+		const plainItem = page.locator('.meal-picker__item').filter({ hasText: 'Plain Rice' });
+		await expect(plainItem.locator('.meal-picker__thumb-img')).not.toBeAttached();
+		await expect(plainItem.locator('.meal-picker__thumb-placeholder')).toBeVisible();
+
+		// Wait a brief moment for lazy-loaded images to attempt loading
+		await page.waitForTimeout(500);
 	});
 });

@@ -289,188 +289,211 @@
 		</button>
 	</div>
 
-	<!-- Month calendar -->
-	<div class="cal-grid">
-		<!-- Weekday headers -->
-		<div class="cal-grid__header">
-			{#each weekdayDates as d}
-				<div class="cal-grid__dow" role="columnheader">
-					{formatDate(d, { weekday: 'short' }).replace(/\.$/, '')}
-				</div>
-			{/each}
-		</div>
-
-		<!-- 6 week rows -->
-		{#each weekRows as row}
-			{@const weekPlan = plans.find(p => p.year === row.week.year && p.week_number === row.week.week)}
-			{@const isCurrent = row.week.year === currentWeekInfo.year && row.week.week === currentWeekInfo.week}
-			{@const isPast = isPastWeek(row.week.year, row.week.week, currentWeekInfo)}
-			{@const isActive = selectedWeek === row.week.week && selectedWeekYear === row.week.year}
-			<button
-				class="week-cell"
-				class:week-cell--past={isPast}
-				class:week-cell--current={isCurrent}
-				class:week-cell--active={isActive}
-				class:week-cell--has-plan={!!weekPlan}
-				onclick={() => onWeekClick(row.week)}
-				aria-label={t('plannerWeekAria', { week: String(row.week.week), range: formatDateRange(row.week.year, row.week.week) })}
-			>
-				{#each row.cells as cell}
-					<span
-						class="cal-day"
-						class:cal-day--out={!cell.inMonth}
-						class:cal-day--today={cellLocalDateStr(cell) === todayStr}
-					>
-						{cell.date.getUTCDate()}
-					</span>
+	<!-- Two-column planner layout -->
+	<div class="planner-layout">
+		<!-- Week selector sidebar -->
+		<aside class="planner-weeks">
+			<div class="cal-grid__header">
+				{#each weekdayDates as d}
+					<div class="cal-grid__dow" role="columnheader">
+						{formatDate(d, { weekday: 'short' }).replace(/\.$/, '')}
+					</div>
 				{/each}
-				{#if weekPlan}
-					<span class="week-cell__badge" title={t('plannerHasPlan')}></span>
-				{/if}
-			</button>
-		{/each}
-	</div>
+			</div>
 
-	<!-- Plan detail panel -->
-	{#if selectedWeek !== null}
-		<section class="plan-detail glass" in:fly={{ y: 8, duration: tierDuration(250) }}>
-			<header class="plan-detail__header">
-				<h2>{t('plannerOpen')}: Week {selectedWeek}</h2>
-				{#if selectedWeekYear !== null}
-					<p class="plan-detail__date-range">
-						{formatDateRange(selectedWeekYear, selectedWeek)}
-					</p>
-				{/if}
-			</header>
+			{#each weekRows as row}
+				{@const weekPlan = plans.find(p => p.year === row.week.year && p.week_number === row.week.week)}
+				{@const isCurrent = row.week.year === currentWeekInfo.year && row.week.week === currentWeekInfo.week}
+				{@const isPast = isPastWeek(row.week.year, row.week.week, currentWeekInfo)}
+				{@const isActive = selectedWeek === row.week.week && selectedWeekYear === row.week.year}
+				<button
+					class="week-cell"
+					class:week-cell--past={isPast}
+					class:week-cell--current={isCurrent}
+					class:week-cell--active={isActive}
+					class:week-cell--has-plan={!!weekPlan}
+					onclick={() => onWeekClick(row.week)}
+					aria-label={t('plannerWeekAria', { week: String(row.week.week), range: formatDateRange(row.week.year, row.week.week) })}
+				>
+					{#each row.cells as cell}
+						<span
+							class="cal-day"
+							class:cal-day--out={!cell.inMonth}
+							class:cal-day--today={cellLocalDateStr(cell) === todayStr}
+						>
+							<span class="cal-day__chip">{cell.date.getUTCDate()}</span>
+						</span>
+					{/each}
+					{#if weekPlan}
+						<span class="week-cell__badge" title={t('plannerHasPlan')}></span>
+					{/if}
+				</button>
+			{/each}
 
-			{#if loading}
-				<p>Loading...</p>
-			{:else if selectedPlan}
-				<!-- Existing plan -->
-				<div class="plan-meals">
-					{#if selectedPlan.meals.length === 0}
-						<p class="plan-empty-msg">{t('plannerNoMeals')}</p>
-					{:else}
-						<div class="plan-meal-grid">
-							{#each selectedPlan.meals as meal (meal.id)}
-								<article class="plan-meal-card" animate:flip={{ duration: tierDuration(200) }}>
-									<a href="/meals/{meal.id}" class="plan-meal-card__link" aria-label={t('mealCardCookAria', { name: meal.name })}>
-										<div class="plan-meal-card__media">
-											{#if meal.has_image}
-												<img src={mealImageUrl(meal.id)} alt={meal.name} class="plan-meal-card__img" loading="lazy" />
-											{:else}
-												<div class="plan-meal-card__placeholder" aria-hidden="true">
-													<Icon name="utensils" size={36} />
+			{#if selectedWeek !== null && selectedWeekYear !== null}
+				<div class="planner-weeks__info">
+					<span class="planner-weeks__week">{t('plannerWeek', { week: String(selectedWeek) })}</span>
+					<span class="planner-weeks__range">{formatDateRange(selectedWeekYear, selectedWeek)}</span>
+				</div>
+			{/if}
+		</aside>
+
+		<!-- Plan detail -->
+		<div class="planner-detail">
+			{#if selectedWeek !== null}
+				<section class="plan-detail glass" in:fly={{ y: 8, duration: tierDuration(250) }}>
+					<header class="plan-detail__header">
+						<h2>{t('plannerWeek', { week: String(selectedWeek) })}</h2>
+						{#if selectedWeekYear !== null}
+							<p class="plan-detail__date-range">
+								{formatDateRange(selectedWeekYear, selectedWeek)}
+							</p>
+						{/if}
+					</header>
+
+					{#if loading}
+						<div class="planner-loading">
+							<Icon name="loader-circle" size={24} spin={true} />
+							<span>{t('plannerLoading')}</span>
+						</div>
+					{:else if selectedPlan}
+						<!-- Existing plan -->
+						<div class="plan-meals">
+							{#if selectedPlan.meals.length === 0}
+								<p class="plan-empty-msg">{t('plannerNoMeals')}</p>
+							{:else}
+								<div class="plan-meal-grid">
+									{#each selectedPlan.meals as meal (meal.id)}
+										<article class="plan-meal-card" animate:flip={{ duration: tierDuration(200) }}>
+											<a href="/meals/{meal.id}" class="plan-meal-card__link" aria-label={t('mealCardCookAria', { name: meal.name })}>
+												<div class="plan-meal-card__media">
+													{#if meal.has_image}
+														<img src={mealImageUrl(meal.id)} alt={meal.name} class="plan-meal-card__img" loading="lazy" />
+													{:else}
+														<div class="plan-meal-card__placeholder" aria-hidden="true">
+															<Icon name="utensils" size={36} />
+														</div>
+													{/if}
 												</div>
+												<div class="plan-meal-card__body">
+													<h3 class="plan-meal-card__name">{meal.name}</h3>
+													<span class="plan-meal-card__chip">
+														{meal.ingredients.length === 1
+															? t('ingredientCountOne')
+															: t('ingredientCount', { count: String(meal.ingredients.length) })}
+													</span>
+												</div>
+											</a>
+											<button
+												class="plan-meal-card__remove"
+												onclick={() => onRemoveMeal(meal.id)}
+												aria-label="{t('plannerRemove')} {meal.name}"
+												title="{t('plannerRemove')} {meal.name}"
+											>
+												<Icon name="trash-2" size={14} />
+											</button>
+										</article>
+									{/each}
+
+									<button class="plan-meal-card plan-meal-card--add" onclick={openMealPicker}>
+										<div class="plan-meal-card__add-icon">
+											<Icon name="plus" size={28} />
+										</div>
+										<span class="plan-meal-card__add-label">{t('plannerAddMeal')}</span>
+									</button>
+								</div>
+							{/if}
+						</div>
+
+						<!-- Ingredient summary -->
+						{#if selectedPlan.ingredient_summary.length > 0}
+							<div class="plan-summary">
+								<h3>{t('plannerIngredientSummary')}</h3>
+								<div class="summary-grid">
+									{#each selectedPlan.ingredient_summary as entry (entry.name)}
+										{@const bs = bringStates[entry.name] ?? { loading: false, error: null, success: false }}
+										<div class="summary-card" class:summary-card--ok={bs.success}>
+											<div class="summary-card__main">
+												<span class="summary-card__name">{entry.name}</span>
+												{#if entry.numeric_total}
+													<span class="summary-card__num">
+														{entry.numeric_total.value}{#if entry.numeric_total.unit} {entry.numeric_total.unit}{/if}
+													</span>
+												{/if}
+												{#each entry.non_numeric as qty}
+													<span class="summary-card__text">{qty}</span>
+												{/each}
+											</div>
+											<button
+												class="bring-btn"
+												class:bring-btn--loading={bs.loading}
+												class:bring-btn--success={bs.success}
+												class:bring-btn--error={bs.error !== null}
+												onclick={() => onBringSend(entry)}
+												disabled={bs.loading || bs.success}
+												aria-label={bs.loading ? t('bringSending') : bs.success ? t('bringSent') : t('bringSend')}
+												title={bs.loading ? t('bringSending') : bs.success ? t('bringSent') : t('bringSend')}
+											>
+												{#if bs.loading}
+													<Icon name="loader-circle" size={16} spin={true} />
+												{:else if bs.success}
+													<Icon name="check" size={16} />
+												{:else}
+													<Icon name="shopping-bag" size={16} />
+												{/if}
+											</button>
+											{#if bs.error}
+												<p class="summary-card__error" role="alert">
+													<Icon name="circle-alert" size={12} />
+													{bs.error}
+												</p>
 											{/if}
 										</div>
-										<div class="plan-meal-card__body">
-											<h3 class="plan-meal-card__name">{meal.name}</h3>
-											<span class="plan-meal-card__chip">
-												{meal.ingredients.length === 1
-													? t('ingredientCountOne')
-													: t('ingredientCount', { count: String(meal.ingredients.length) })}
-											</span>
-										</div>
-									</a>
-									<button
-										class="plan-meal-card__remove"
-										onclick={() => onRemoveMeal(meal.id)}
-										aria-label="{t('plannerRemove')} {meal.name}"
-										title="{t('plannerRemove')} {meal.name}"
-									>
-										<Icon name="trash-2" size={14} />
-									</button>
-								</article>
-							{/each}
-
-							<button class="plan-meal-card plan-meal-card--add" onclick={openMealPicker}>
-								<div class="plan-meal-card__add-icon">
-									<Icon name="plus" size={28} />
+									{/each}
 								</div>
-								<span class="plan-meal-card__add-label">{t('plannerAddMeal')}</span>
+							</div>
+						{/if}
+
+						<div class="plan-actions">
+							<button class="btn btn--danger-ghost" onclick={onDeletePlan}>
+								<Icon name="trash-2" size={16} />
+								{t('plannerDeletePlan')}
+							</button>
+						</div>
+					{:else}
+						<!-- No plan - show generate form -->
+						<div class="plan-generate">
+							<Icon name="sparkles" size={32} />
+							<p class="plan-empty-msg">{t('plannerEmptyState')}</p>
+							<label class="field">
+								<span class="field__label">{t('plannerCount')}</span>
+								<input type="number" bind:value={mealCount} min={1} max={20} class="plan-count-input" />
+							</label>
+							<button class="btn btn--primary" onclick={onGenerate} aria-label={t('plannerGenerateAria')}>
+								<Icon name="sparkles" size={16} />
+								{t('plannerGenerate')}
 							</button>
 						</div>
 					{/if}
-				</div>
 
-				<!-- Ingredient summary -->
-				{#if selectedPlan.ingredient_summary.length > 0}
-					<div class="plan-summary">
-						<h3>{t('plannerIngredientSummary')}</h3>
-						<div class="summary-grid">
-							{#each selectedPlan.ingredient_summary as entry (entry.name)}
-								{@const bs = bringStates[entry.name] ?? { loading: false, error: null, success: false }}
-								<div class="summary-card" class:summary-card--ok={bs.success}>
-									<div class="summary-card__main">
-										<span class="summary-card__name">{entry.name}</span>
-										{#if entry.numeric_total}
-											<span class="summary-card__num">
-												{entry.numeric_total.value}{#if entry.numeric_total.unit} {entry.numeric_total.unit}{/if}
-											</span>
-										{/if}
-										{#each entry.non_numeric as qty}
-											<span class="summary-card__text">{qty}</span>
-										{/each}
-									</div>
-									<button
-										class="bring-btn"
-										class:bring-btn--loading={bs.loading}
-										class:bring-btn--success={bs.success}
-										class:bring-btn--error={bs.error !== null}
-										onclick={() => onBringSend(entry)}
-										disabled={bs.loading || bs.success}
-										aria-label={bs.loading ? t('bringSending') : bs.success ? t('bringSent') : t('bringSend')}
-										title={bs.loading ? t('bringSending') : bs.success ? t('bringSent') : t('bringSend')}
-									>
-										{#if bs.loading}
-											<Icon name="loader-circle" size={16} spin={true} />
-										{:else if bs.success}
-											<Icon name="check" size={16} />
-										{:else}
-											<Icon name="shopping-bag" size={16} />
-										{/if}
-									</button>
-									{#if bs.error}
-										<p class="summary-card__error" role="alert">
-											<Icon name="circle-alert" size={12} />
-											{bs.error}
-										</p>
-									{/if}
-								</div>
-							{/each}
-						</div>
-					</div>
-				{/if}
-
-				<div class="plan-actions">
-					<button class="btn btn--danger-ghost" onclick={onDeletePlan}>
-						<Icon name="trash-2" size={16} />
-						{t('plannerDeletePlan')}
-					</button>
-				</div>
+					{#if planError}
+						<p class="form-error" role="alert">
+							<Icon name="circle-alert" size={18} />
+							<span>{planError}</span>
+						</p>
+					{/if}
+				</section>
 			{:else}
-				<!-- No plan — show generate form -->
-				<div class="plan-generate">
-					<p class="plan-empty-msg">{t('plannerEmptyState')}</p>
-					<label class="field">
-						<span class="field__label">{t('plannerCount')}</span>
-						<input type="number" bind:value={mealCount} min={1} max={20} class="plan-count-input" />
-					</label>
-					<button class="btn btn--primary" onclick={onGenerate} aria-label={t('plannerGenerateAria')}>
-						{t('plannerGenerate')}
-					</button>
+				<div class="planner-empty">
+					<div class="planner-empty__icon">
+						<Icon name="calendar" size={48} />
+					</div>
+					<h2>{t('plannerTitle')}</h2>
+					<p>{t('plannerSubtitle')}</p>
 				</div>
 			{/if}
-
-			{#if planError}
-				<p class="form-error" role="alert">
-					<Icon name="circle-alert" size={18} />
-					<span>{planError}</span>
-				</p>
-			{/if}
-		</section>
-	{/if}
+		</div>
+	</div>
 
 	<!-- Meal picker overlay -->
 	{#if mealPickerOpen}
@@ -492,7 +515,29 @@
 				<ul class="meal-picker__results">
 					{#each pickerResults as meal (meal.id)}
 						<li class="meal-picker__item">
-							<span>{meal.name}</span>
+							<div class="meal-picker__thumb">
+								{#if meal.has_image}
+									<img
+										src={mealImageUrl(meal.id)}
+										alt=""
+										class="meal-picker__thumb-img"
+										loading="lazy"
+										onerror={(e) => {
+											const t = e.currentTarget as HTMLImageElement;
+											t.style.display = 'none';
+											t.nextElementSibling?.classList.remove('meal-picker__thumb-placeholder--hidden');
+										}}
+									/>
+									<div class="meal-picker__thumb-placeholder meal-picker__thumb-placeholder--hidden" aria-hidden="true">
+										<Icon name="utensils" size={14} />
+									</div>
+								{:else}
+									<div class="meal-picker__thumb-placeholder" aria-hidden="true">
+										<Icon name="utensils" size={14} />
+									</div>
+								{/if}
+							</div>
+							<span class="meal-picker__name">{meal.name}</span>
 							<button class="btn btn--primary btn--sm" onclick={() => onAddMeal(meal.id)}>
 								{t('plannerAddMeal')}
 							</button>
@@ -539,37 +584,106 @@
 		text-align: center;
 	}
 
-	/* ---- Calendar Grid ---- */
-	.cal-grid {
+	/* ---- Two-column planner layout ---- */
+	.planner-layout {
+		display: grid;
+		grid-template-columns: 1fr;
+		gap: 0;
+	}
+
+	/* ---- Week selector sidebar ---- */
+	.planner-weeks {
 		display: flex;
 		flex-direction: column;
 		gap: var(--space-1);
-		margin-bottom: var(--space-6);
 	}
-	.cal-grid__dow {
-		text-align: center;
+	.planner-weeks__info {
+		margin-top: var(--space-3);
+		padding: var(--space-3) var(--space-2);
+		border-top: 1px solid var(--color-border);
+		display: flex;
+		flex-direction: column;
+		gap: var(--space-0-5);
+	}
+	.planner-weeks__week {
+		font-family: var(--font-display);
+		font-size: var(--text-lg);
+		font-weight: var(--weight-semibold);
+		color: var(--color-primary);
+	}
+	.planner-weeks__range {
 		font-size: var(--text-xs);
-		color: var(--color-text-muted);
-		padding: var(--space-1) 0;
-		text-transform: none;
+		color: var(--color-text-secondary);
 	}
 
+	/* ---- Plan detail area ---- */
+	.planner-detail {
+		min-height: 300px;
+		display: flex;
+		flex-direction: column;
+	}
+
+	/* ---- Empty state (no week selected) ---- */
+	.planner-empty {
+		flex: 1;
+		display: flex;
+		flex-direction: column;
+		align-items: center;
+		justify-content: center;
+		gap: var(--space-4);
+		padding: var(--space-16) var(--space-4);
+		text-align: center;
+	}
+	.planner-empty__icon {
+		color: var(--color-text-muted);
+		margin-bottom: var(--space-2);
+	}
+	.planner-empty h2 {
+		margin: 0;
+		font-family: var(--font-display);
+		font-size: var(--text-xl);
+		font-weight: var(--weight-semibold);
+	}
+	.planner-empty p {
+		margin: 0;
+		max-width: 32ch;
+		color: var(--color-text-secondary);
+	}
+
+	/* ---- Loading state ---- */
+	.planner-loading {
+		display: flex;
+		align-items: center;
+		gap: var(--space-3);
+		padding: var(--space-8) var(--space-4);
+		color: var(--color-text-secondary);
+	}
+
+	/* ---- Weekday header ---- */
 	.cal-grid__header {
 		display: grid;
 		grid-template-columns: repeat(7, 1fr);
 		gap: var(--space-1);
 	}
+	.cal-grid__dow {
+		text-align: center;
+		font-size: var(--text-xs);
+		color: var(--color-text-muted);
+		padding: var(--space-1) 0 var(--space-2);
+		text-transform: none;
+	}
 
-	/* ---- Week Row (the clickable .week-cell) ---- */
+	/* ---- Week Row ---- */
 	.week-cell {
 		display: grid;
 		grid-template-columns: repeat(7, 1fr);
-		gap: var(--space-1);
+		justify-items: center;
+		gap: 2px;
 		width: 100%;
-		padding: 0;
-		border: 1px solid var(--color-border);
+		padding: var(--space-2) var(--space-1);
+		border: 1px solid transparent;
 		border-radius: var(--radius-md);
-		background: var(--color-surface);
+		background: transparent;
 		cursor: pointer;
 		transition: background var(--motion-morph), border-color var(--motion-morph), transform var(--motion-morph);
 		transform: scale(1);
@@ -579,50 +693,71 @@
 		transform: var(--motion-scale-press);
 	}
 	.week-cell:hover {
-		border-color: var(--color-primary);
+		background: var(--color-surface);
+		border-color: var(--color-border);
 	}
 	.week-cell--current {
-		border-color: var(--color-border);
-		border-bottom: 3px solid var(--color-primary);
+		background: var(--color-surface);
+		border-color: var(--color-primary-soft);
 	}
 	.week-cell--active {
 		background: var(--color-primary-soft);
 		border-color: var(--color-primary);
 	}
 	.week-cell--has-plan {
-		background: var(--color-surface-2);
+		background: var(--color-surface);
 	}
 	.week-cell--past {
-		opacity: 0.5;
+		opacity: 0.45;
 	}
 	.week-cell--past.week-cell--active {
-		opacity: 0.7;
+		opacity: 0.65;
+	}
+	.week-cell--past:hover {
+		background: transparent;
+		border-color: transparent;
 	}
 
 	/* ---- Day Chip ---- */
 	.cal-day {
-		padding: var(--space-2) var(--space-1);
-		text-align: center;
-		font-size: var(--text-sm);
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		padding: 2px;
+	}
+	.cal-day__chip {
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		width: 28px;
+		height: 28px;
+		border-radius: 50%;
+		font-size: var(--text-xs);
+		font-weight: var(--weight-medium);
 		color: var(--color-text-secondary);
+		transition: background var(--transition-fast), color var(--transition-fast);
+	}
+	.cal-day--today .cal-day__chip {
+		background: var(--color-primary);
+		color: var(--color-on-primary);
+		font-weight: var(--weight-bold);
 	}
 	.cal-day--out {
-		opacity: 0.4;
-	}
-	.cal-day--today {
-		font-weight: var(--weight-bold);
-		color: var(--color-primary);
+		opacity: 0.35;
 	}
 
 	/* ---- Plan Badge ---- */
 	.week-cell__badge {
 		position: absolute;
-		top: 6px;
+		top: 4px;
 		right: 6px;
-		width: 8px;
-		height: 8px;
+		width: 7px;
+		height: 7px;
 		border-radius: 50%;
 		background: var(--color-primary);
+	}
+	.week-cell--active .week-cell__badge {
+		background: var(--color-primary-hover);
 	}
 
 	/* ---- Plan Detail Panel ---- */
@@ -632,16 +767,17 @@
 		padding: var(--space-6);
 	}
 	.plan-detail__header {
-		margin-bottom: var(--space-5);
+		margin-bottom: var(--space-6);
 	}
 	.plan-detail__header h2 {
 		margin: 0;
 		font-family: var(--font-display);
-		font-size: var(--text-xl);
+		font-size: var(--text-2xl);
 		font-weight: var(--weight-semibold);
+		letter-spacing: -0.01em;
 	}
 	.plan-detail__date-range {
-		margin: var(--space-1) 0 0;
+		margin: var(--space-2) 0 0;
 		font-size: var(--text-sm);
 		color: var(--color-text-secondary);
 	}
@@ -857,9 +993,13 @@
 	.plan-generate {
 		display: flex;
 		flex-direction: column;
+		align-items: center;
 		gap: var(--space-4);
-		align-items: flex-start;
-		padding: var(--space-2) 0;
+		padding: var(--space-8) var(--space-4);
+		text-align: center;
+	}
+	.plan-generate .plan-empty-msg {
+		max-width: 32ch;
 	}
 	.plan-count-input {
 		max-width: 80px;
@@ -876,7 +1016,7 @@
 		font-size: var(--text-sm);
 	}
 
-	/* Meal picker overlay (unchanged) */
+	/* Meal picker overlay */
 	.meal-picker-overlay {
 		position: fixed;
 		inset: 0;
@@ -888,7 +1028,7 @@
 		padding: var(--space-4);
 	}
 	.meal-picker {
-		background: transparent;
+		background: var(--color-bg);
 		border: 1px solid var(--glass-border);
 		border-radius: var(--radius-lg);
 		padding: var(--space-6);
@@ -920,11 +1060,43 @@
 	}
 	.meal-picker__item {
 		display: flex;
-		justify-content: space-between;
 		align-items: center;
+		gap: var(--space-2);
 		padding: var(--space-2) var(--space-3);
 		border: 1px solid var(--color-border);
 		border-radius: var(--radius-md);
+	}
+	.meal-picker__thumb {
+		width: 40px;
+		height: 40px;
+		border-radius: var(--radius-sm);
+		overflow: hidden;
+		flex-shrink: 0;
+		background: var(--color-surface-2);
+	}
+	.meal-picker__thumb-img {
+		width: 100%;
+		height: 100%;
+		object-fit: cover;
+		display: block;
+	}
+	.meal-picker__thumb-placeholder {
+		width: 100%;
+		height: 100%;
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		color: var(--color-text-muted);
+	}
+	.meal-picker__thumb-placeholder--hidden {
+		display: none;
+	}
+	.meal-picker__name {
+		flex: 1;
+		min-width: 0;
+		overflow: hidden;
+		text-overflow: ellipsis;
+		white-space: nowrap;
 	}
 	.meal-picker__empty {
 		color: var(--color-text-secondary);
@@ -944,23 +1116,6 @@
 		justify-content: center;
 	}
 
-	/* ---- Mobile ---- */
-	@media (max-width: 767px) {
-		.cal-day {
-			font-size: var(--text-xs);
-			padding: var(--space-1) var(--space-0-5);
-		}
-		.cal-nav__label {
-			min-width: 12ch;
-		}
-		.plan-meal-grid {
-			grid-template-columns: repeat(2, 1fr);
-			gap: var(--space-2);
-		}
-		.summary-grid {
-			grid-template-columns: 1fr;
-		}
-	}
 	/* ---- Bring! button ---- */
 	.bring-btn {
 		flex-shrink: 0;
@@ -1001,6 +1156,47 @@
 	.bring-btn--error {
 		color: var(--color-danger);
 	}
+
+	/* ---- Responsive ---- */
+	@media (min-width: 768px) {
+		.planner-layout {
+			grid-template-columns: 300px 1fr;
+			gap: var(--space-6);
+			align-items: start;
+		}
+		.planner-weeks {
+			position: sticky;
+			top: calc(var(--app-bar-h) + var(--space-16));
+		}
+	}
+
+	@media (max-width: 767px) {
+		.planner-layout {
+			gap: var(--space-4);
+		}
+		.cal-day__chip {
+			width: 24px;
+			height: 24px;
+			font-size: 0.6875rem;
+		}
+		.cal-nav__label {
+			min-width: 12ch;
+		}
+		.plan-meal-grid {
+			grid-template-columns: repeat(2, 1fr);
+			gap: var(--space-2);
+		}
+		.summary-grid {
+			grid-template-columns: 1fr;
+		}
+		.plan-detail__header h2 {
+			font-size: var(--text-xl);
+		}
+		.plan-generate {
+			padding: var(--space-6) var(--space-2);
+		}
+	}
+
 	@media (prefers-reduced-motion: reduce) {
 		.bring-btn {
 			transition: none;
