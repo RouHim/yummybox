@@ -172,19 +172,15 @@ fn parse_recipe_with_image_url(text: &str) -> Result<(ImportDraft, Option<String
 
             let image_url = extract_image_url(json_value);
 
-
-            let portions = recipe
-                .yields()
-                .as_ref()
-                .and_then(|y| {
-                    let s = y.to_string();
-                    let num_str: String = s
-                        .chars()
-                        .skip_while(|c| !c.is_ascii_digit())
-                        .take_while(|c| c.is_ascii_digit())
-                        .collect();
-                    num_str.parse::<i32>().ok()
-                });
+            let portions = recipe.yields().as_ref().and_then(|y| {
+                let s = y.to_string();
+                let num_str: String = s
+                    .chars()
+                    .skip_while(|c| !c.is_ascii_digit())
+                    .take_while(|c| c.is_ascii_digit())
+                    .collect();
+                num_str.parse::<i32>().ok()
+            });
 
             return Ok((
                 ImportDraft {

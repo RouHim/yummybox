@@ -163,9 +163,7 @@ pub fn validate_meal(
 
 fn validate_portions(portions: Option<i32>) -> Result<(), AppError> {
     match portions {
-        Some(p) if p <= 0 => Err(AppError::Validation(
-            "portions must be positive".into(),
-        )),
+        Some(p) if p <= 0 => Err(AppError::Validation("portions must be positive".into())),
         Some(p) if p > 10_000 => Err(AppError::Validation(
             "portions must be at most 10000".into(),
         )),
@@ -368,7 +366,12 @@ pub async fn update_meal(
     patch: MealPatch,
     image: ImageChange<'_>,
 ) -> Result<Meal, AppError> {
-    validate_meal(&patch.name, &patch.ingredients, &patch.instructions, patch.portions)?;
+    validate_meal(
+        &patch.name,
+        &patch.ingredients,
+        &patch.instructions,
+        patch.portions,
+    )?;
     let now = Utc::now();
 
     let mut tx = pool.begin().await?;

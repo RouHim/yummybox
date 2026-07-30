@@ -128,9 +128,10 @@ pub async fn create_meal(
                 })?;
                 let trimmed = text.trim();
                 if !trimmed.is_empty() {
-                    portions = Some(trimmed.parse::<i32>().map_err(|_| {
-                        AppError::BadRequest("portions must be an integer".into())
-                    })?);
+                    portions =
+                        Some(trimmed.parse::<i32>().map_err(|_| {
+                            AppError::BadRequest("portions must be an integer".into())
+                        })?);
                 }
             }
             Some("image") => {
@@ -222,9 +223,10 @@ pub async fn update_meal(
                 })?;
                 let trimmed = text.trim();
                 if !trimmed.is_empty() {
-                    portions = Some(trimmed.parse::<i32>().map_err(|_| {
-                        AppError::BadRequest("portions must be an integer".into())
-                    })?);
+                    portions =
+                        Some(trimmed.parse::<i32>().map_err(|_| {
+                            AppError::BadRequest("portions must be an integer".into())
+                        })?);
                 }
             }
             Some("image") => {
