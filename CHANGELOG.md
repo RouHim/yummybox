@@ -1,3 +1,18 @@
+# [1.13.0](https://github.com/RouHim/yummybox/compare/v1.12.5...v1.13.0) (2026-07-30)
+
+
+### Bug Fixes
+
+* center language flag emoji in nav bar trigger ([9907af5](https://github.com/RouHim/yummybox/commit/9907af585ef158dfc6b32bf0d5bf7da6d661aa9b))
+* collapse planner calendar on mobile when week is selected ([d6466a9](https://github.com/RouHim/yummybox/commit/d6466a9b57db05e1b06868a743bc02a30b5eb8e9))
+* update ammonia 4.1.3 -> 4.1.4 (RUSTSEC-2026-0213) and spin 0.9.8 -> 0.9.9 (yanked) ([0e51247](https://github.com/RouHim/yummybox/commit/0e51247d8b29c2e42193a4bdb16c8ce72a14c720))
+
+
+### Features
+
+* meal portions with cooking-view stepper and ingredient scaling ([12549ef](https://github.com/RouHim/yummybox/commit/12549ef47e60b3ed80e5b74dfef4d9b48746ec62))
+* planner i18n and e2e coverage improvements ([972503d](https://github.com/RouHim/yummybox/commit/972503d597d2e329a3fdb56de905cacfde73f841))
+
 ## [1.12.5](https://github.com/RouHim/yummybox/compare/v1.12.4...v1.12.5) (2026-07-06)
 
 
