@@ -8,13 +8,11 @@ use axum::response::{IntoResponse, Response};
 use tracing::instrument;
 
 use crate::bring;
-use crate::image;
 use crate::db;
 use crate::error::AppError;
+use crate::image;
 use crate::jsonld;
-use crate::model::{
-    Meal, MealPatch, NewMeal, NewPlanRequest, Plan, PlanPatch, PlanSummaryItem,
-};
+use crate::model::{Meal, MealPatch, NewMeal, NewPlanRequest, Plan, PlanPatch, PlanSummaryItem};
 use crate::state::AppState;
 
 /// Returns `true` when the request's `Accept` header contains
@@ -184,8 +182,9 @@ pub async fn create_meal(
 ) -> Result<(StatusCode, Json<Meal>), AppError> {
     let parsed = parse_meal_multipart(multipart).await?;
 
-    let ingredients: Vec<crate::model::NewIngredientLine> = serde_json::from_str(&parsed.ingredients_json)
-        .map_err(|e| AppError::BadRequest(format!("invalid ingredients JSON: {e}")))?;
+    let ingredients: Vec<crate::model::NewIngredientLine> =
+        serde_json::from_str(&parsed.ingredients_json)
+            .map_err(|e| AppError::BadRequest(format!("invalid ingredients JSON: {e}")))?;
 
     let jpeg_bytes;
     let image = match parsed.image_data {
@@ -217,8 +216,9 @@ pub async fn update_meal(
 ) -> Result<Json<Meal>, AppError> {
     let parsed = parse_meal_multipart(multipart).await?;
 
-    let ingredients: Vec<crate::model::NewIngredientLine> = serde_json::from_str(&parsed.ingredients_json)
-        .map_err(|e| AppError::BadRequest(format!("invalid ingredients JSON: {e}")))?;
+    let ingredients: Vec<crate::model::NewIngredientLine> =
+        serde_json::from_str(&parsed.ingredients_json)
+            .map_err(|e| AppError::BadRequest(format!("invalid ingredients JSON: {e}")))?;
 
     // Validate image_action if present
     if let Some(action) = &parsed.image_action {
@@ -2237,13 +2237,19 @@ mod tests {
     #[test]
     fn given_validation_error_when_classify_insert_then_validation_failed() {
         let err = AppError::Validation("too long".into());
-        assert_eq!(crate::import::classify_insert_error(&err), "validation failed");
+        assert_eq!(
+            crate::import::classify_insert_error(&err),
+            "validation failed"
+        );
     }
 
     #[test]
     fn given_db_error_when_classify_insert_then_returns_message() {
         let err = AppError::BadRequest("something wrong".into());
-        assert_eq!(crate::import::classify_insert_error(&err), "something wrong");
+        assert_eq!(
+            crate::import::classify_insert_error(&err),
+            "something wrong"
+        );
     }
 
     #[tokio::test]

@@ -55,7 +55,11 @@ impl IntoResponse for AppError {
             AppError::PayloadTooLarge(msg) => (StatusCode::PAYLOAD_TOO_LARGE, msg.clone(), None),
             AppError::Database(err) => {
                 tracing::error!(%err, "database error");
-                (StatusCode::INTERNAL_SERVER_ERROR, "database error".to_string(), None)
+                (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    "database error".to_string(),
+                    None,
+                )
             }
             AppError::Internal(msg) => (StatusCode::INTERNAL_SERVER_ERROR, msg.clone(), None),
             AppError::BringAuthFailed(msg) => (StatusCode::UNAUTHORIZED, msg.clone(), None),
@@ -75,7 +79,11 @@ impl IntoResponse for AppError {
             error: message,
             code,
         };
-        (status, Json(serde_json::to_value(body).expect("ErrorBody is always serializable"))).into_response()
+        (
+            status,
+            Json(serde_json::to_value(body).expect("ErrorBody is always serializable")),
+        )
+            .into_response()
     }
 }
 

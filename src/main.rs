@@ -4,10 +4,10 @@ mod db;
 mod error;
 mod export_import;
 mod image;
+mod import;
 mod jsonld;
 mod llm_import;
 mod plan;
-mod import;
 
 mod model;
 mod recipe;

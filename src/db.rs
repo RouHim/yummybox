@@ -1,4 +1,3 @@
-
 use std::collections::HashMap;
 use std::path::Path;
 
@@ -7,9 +6,7 @@ use sqlx::Row;
 use sqlx::SqlitePool;
 
 use crate::error::AppError;
-use crate::model::{
-    IngredientQuantity, Meal, MealPatch, NewIngredientLine, NewMeal,
-};
+use crate::model::{IngredientQuantity, Meal, MealPatch, NewIngredientLine, NewMeal};
 // ---------------------------------------------------------------------------
 // Row structs for query_as
 // ---------------------------------------------------------------------------
@@ -274,7 +271,7 @@ pub async fn hydrate_meals(pool: &SqlitePool, meals: &mut [Meal]) -> Result<(), 
         "SELECT mi.meal_id, i.name, mi.quantity
          FROM meal_ingredients mi
          JOIN ingredients i ON i.id = mi.ingredient_id
-         WHERE mi.meal_id IN ("
+         WHERE mi.meal_id IN (",
     );
     let mut separated = builder.separated(", ");
     for id in &ids {
@@ -287,12 +284,10 @@ pub async fn hydrate_meals(pool: &SqlitePool, meals: &mut [Meal]) -> Result<(), 
     let mut map: HashMap<i64, Vec<IngredientQuantity>> = HashMap::new();
     for row in &rows {
         let meal_id: i64 = row.get(0);
-        map.entry(meal_id)
-            .or_default()
-            .push(IngredientQuantity {
-                name: row.get(1),
-                quantity: row.get(2),
-            });
+        map.entry(meal_id).or_default().push(IngredientQuantity {
+            name: row.get(1),
+            quantity: row.get(2),
+        });
     }
 
     for meal in meals.iter_mut() {
@@ -557,7 +552,6 @@ pub async fn find_meal_image(
         None => Ok(None),
     }
 }
-
 
 // ===========================================================================
 // Tests
@@ -1464,7 +1458,6 @@ mod tests {
         assert_eq!(count, 1);
     }
 
-
     // -----------------------------------------------------------------------
     // select_meals_weighted
     // -----------------------------------------------------------------------
@@ -1516,7 +1509,9 @@ mod tests {
                     .unwrap();
             }
 
-            let selected = crate::plan::select_meals_weighted(&mut *conn, 3).await.expect("select");
+            let selected = crate::plan::select_meals_weighted(&mut *conn, 3)
+                .await
+                .expect("select");
             for meal in &selected {
                 if meal.name.starts_with("new") {
                     unplanned_picks += 1;
@@ -1540,7 +1535,9 @@ mod tests {
         insert_test_meal(&pool, "C", &[("x", None)]).await;
 
         let mut conn = pool.acquire().await.unwrap();
-        let selected = crate::plan::select_meals_weighted(&mut *conn, 5).await.expect("select");
+        let selected = crate::plan::select_meals_weighted(&mut *conn, 5)
+            .await
+            .expect("select");
         assert_eq!(selected.len(), 3);
     }
 
@@ -1548,7 +1545,9 @@ mod tests {
     async fn given_empty_meals_table_when_select_weighted_then_returns_empty_vec() {
         let (pool, _dir) = setup_db().await;
         let mut conn = pool.acquire().await.unwrap();
-        let result = crate::plan::select_meals_weighted(&mut *conn, 3).await.expect("select");
+        let result = crate::plan::select_meals_weighted(&mut *conn, 3)
+            .await
+            .expect("select");
         assert!(result.is_empty());
     }
 
@@ -1819,7 +1818,9 @@ mod tests {
         .await
         .expect("create");
 
-        let plan = crate::plan::get_plan(&pool, 2026, 1).await.expect("get_plan");
+        let plan = crate::plan::get_plan(&pool, 2026, 1)
+            .await
+            .expect("get_plan");
         assert_eq!(plan.meals.len(), 2);
         assert!(!plan.ingredient_summary.is_empty());
     }
@@ -1872,7 +1873,9 @@ mod tests {
         .await
         .expect("create");
 
-        let list = crate::plan::list_plans_for_year(&pool, 2026).await.expect("list");
+        let list = crate::plan::list_plans_for_year(&pool, 2026)
+            .await
+            .expect("list");
         assert_eq!(list.len(), 3);
         assert_eq!(list[0].week_number, 1);
         assert_eq!(list[1].week_number, 2);
@@ -1882,7 +1885,9 @@ mod tests {
     #[tokio::test]
     async fn given_no_plans_for_year_when_list_plans_for_year_then_returns_empty_vec() {
         let (pool, _dir) = setup_db().await;
-        let list = crate::plan::list_plans_for_year(&pool, 2026).await.expect("list");
+        let list = crate::plan::list_plans_for_year(&pool, 2026)
+            .await
+            .expect("list");
         assert!(list.is_empty());
     }
 
@@ -2040,7 +2045,9 @@ mod tests {
             .unwrap();
         drop(conn);
 
-        crate::plan::delete_plan(&pool, 2026, 1).await.expect("delete");
+        crate::plan::delete_plan(&pool, 2026, 1)
+            .await
+            .expect("delete");
 
         let pm_count: i64 =
             sqlx::query_scalar("SELECT COUNT(*) FROM plan_meals WHERE plan_id = ?1")

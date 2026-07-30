@@ -194,7 +194,6 @@ fn build_user_content(hint: Option<&str>, image: Option<&LlmImage>) -> genai::ch
     genai::chat::MessageContent::from_parts(parts)
 }
 
-
 // ---------------------------------------------------------------------------
 // Shared model spec builder
 // ---------------------------------------------------------------------------
