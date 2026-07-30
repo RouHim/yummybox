@@ -19,6 +19,7 @@
 	let loading = $state(false);
 	let planError = $state<string | null>(null);
 	let mealCount = $state(3);
+	let calendarCollapsed = $state(false);
 
 	// Meal picker state
 	let mealPickerOpen = $state(false);
@@ -64,6 +65,16 @@
 			viewYear = monday.getUTCFullYear();
 			viewMonth = monday.getUTCMonth();
 			mealCount = 3;
+		}
+	});
+
+	// Mobile: collapse calendar and scroll to plan when a week is selected
+	$effect(() => {
+		if (selectedWeek !== null && window.innerWidth < 768) {
+			calendarCollapsed = true;
+			requestAnimationFrame(() => {
+				document.querySelector('.planner-detail')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+			});
 		}
 	});
 
@@ -291,51 +302,65 @@
 
 	<!-- Two-column planner layout -->
 	<div class="planner-layout">
-		<!-- Week selector sidebar -->
-		<aside class="planner-weeks">
-			<div class="cal-grid__header">
-				{#each weekdayDates as d}
-					<div class="cal-grid__dow" role="columnheader">
-						{formatDate(d, { weekday: 'short' }).replace(/\.$/, '')}
-					</div>
-				{/each}
-			</div>
+		<aside class="planner-weeks" class:planner-weeks--collapsed={calendarCollapsed}>
 
-			{#each weekRows as row}
-				{@const weekPlan = plans.find(p => p.year === row.week.year && p.week_number === row.week.week)}
-				{@const isCurrent = row.week.year === currentWeekInfo.year && row.week.week === currentWeekInfo.week}
-				{@const isPast = isPastWeek(row.week.year, row.week.week, currentWeekInfo)}
-				{@const isActive = selectedWeek === row.week.week && selectedWeekYear === row.week.year}
-				<button
-					class="week-cell"
-					class:week-cell--past={isPast}
-					class:week-cell--current={isCurrent}
-					class:week-cell--active={isActive}
-					class:week-cell--has-plan={!!weekPlan}
-					onclick={() => onWeekClick(row.week)}
-					aria-label={t('plannerWeekAria', { week: String(row.week.week), range: formatDateRange(row.week.year, row.week.week) })}
-				>
-					{#each row.cells as cell}
-						<span
-							class="cal-day"
-							class:cal-day--out={!cell.inMonth}
-							class:cal-day--today={cellLocalDateStr(cell) === todayStr}
-						>
-							<span class="cal-day__chip">{cell.date.getUTCDate()}</span>
-						</span>
-					{/each}
-					{#if weekPlan}
-						<span class="week-cell__badge" title={t('plannerHasPlan')}></span>
-					{/if}
-				</button>
-			{/each}
-
+			<!-- Compact selected week bar (mobile collapsed) -->
 			{#if selectedWeek !== null && selectedWeekYear !== null}
-				<div class="planner-weeks__info">
-					<span class="planner-weeks__week">{t('plannerWeek', { week: String(selectedWeek) })}</span>
-					<span class="planner-weeks__range">{formatDateRange(selectedWeekYear, selectedWeek)}</span>
-				</div>
+				<button class="planner-weeks__compact" onclick={() => calendarCollapsed = false} aria-label={t('plannerChangeWeek')}>
+					<span class="planner-weeks__compact-info">
+						<span class="planner-weeks__week">{t('plannerWeek', { week: String(selectedWeek) })}</span>
+						<span class="planner-weeks__range">{formatDateRange(selectedWeekYear, selectedWeek)}</span>
+					</span>
+					<Icon name="chevron-down" size={14} />
+				</button>
 			{/if}
+
+			<!-- Full calendar (hidden when collapsed on mobile) -->
+			<div class="planner-weeks__calendar">
+				<div class="cal-grid__header">
+					{#each weekdayDates as d}
+						<div class="cal-grid__dow" role="columnheader">
+							{formatDate(d, { weekday: 'short' }).replace(/\.$/, '')}
+						</div>
+					{/each}
+				</div>
+
+				{#each weekRows as row}
+					{@const weekPlan = plans.find(p => p.year === row.week.year && p.week_number === row.week.week)}
+					{@const isCurrent = row.week.year === currentWeekInfo.year && row.week.week === currentWeekInfo.week}
+					{@const isPast = isPastWeek(row.week.year, row.week.week, currentWeekInfo)}
+					{@const isActive = selectedWeek === row.week.week && selectedWeekYear === row.week.year}
+					<button
+						class="week-cell"
+						class:week-cell--past={isPast}
+						class:week-cell--current={isCurrent}
+						class:week-cell--active={isActive}
+						class:week-cell--has-plan={!!weekPlan}
+						onclick={() => onWeekClick(row.week)}
+						aria-label={t('plannerWeekAria', { week: String(row.week.week), range: formatDateRange(row.week.year, row.week.week) })}
+					>
+						{#each row.cells as cell}
+							<span
+								class="cal-day"
+								class:cal-day--out={!cell.inMonth}
+								class:cal-day--today={cellLocalDateStr(cell) === todayStr}
+							>
+								<span class="cal-day__chip">{cell.date.getUTCDate()}</span>
+							</span>
+						{/each}
+						{#if weekPlan}
+							<span class="week-cell__badge" title={t('plannerHasPlan')}></span>
+						{/if}
+					</button>
+				{/each}
+
+				{#if selectedWeek !== null && selectedWeekYear !== null}
+					<div class="planner-weeks__info">
+						<span class="planner-weeks__week">{t('plannerWeek', { week: String(selectedWeek) })}</span>
+						<span class="planner-weeks__range">{formatDateRange(selectedWeekYear, selectedWeek)}</span>
+					</div>
+				{/if}
+			</div>
 		</aside>
 
 		<!-- Plan detail -->
@@ -614,6 +639,50 @@
 	.planner-weeks__range {
 		font-size: var(--text-xs);
 		color: var(--color-text-secondary);
+	}
+
+	/* ---- Compact selected-week bar (mobile collapsed) ---- */
+	.planner-weeks__compact {
+		display: none;
+		width: 100%;
+		align-items: center;
+		gap: var(--space-2);
+		padding: var(--space-3) var(--space-4);
+		border: 1px solid var(--glass-border);
+		border-radius: var(--radius-md);
+		background: var(--glass-bg);
+		color: var(--color-text);
+		font-family: inherit;
+		font-size: var(--text-sm);
+		cursor: pointer;
+		transition: background var(--transition-fast), border-color var(--transition-fast);
+		backdrop-filter: blur(var(--glass-blur-low));
+		-webkit-backdrop-filter: blur(var(--glass-blur-low));
+	}
+	.planner-weeks__compact:hover {
+		background: var(--glass-bg-strong);
+		border-color: var(--color-border-strong);
+	}
+	.planner-weeks__compact-info {
+		flex: 1;
+		min-width: 0;
+		display: flex;
+		flex-wrap: wrap;
+		align-items: baseline;
+		gap: var(--space-2);
+	}
+	.planner-weeks__compact .planner-weeks__week {
+		font-size: var(--text-base);
+	}
+	.planner-weeks__compact .planner-weeks__range {
+		font-size: var(--text-xs);
+	}
+
+	/* Calendar wrapper for collapse control */
+	.planner-weeks__calendar {
+		display: flex;
+		flex-direction: column;
+		gap: var(--space-1);
 	}
 
 	/* ---- Plan detail area ---- */
@@ -1195,7 +1264,16 @@
 		.plan-generate {
 			padding: var(--space-6) var(--space-2);
 		}
+
+		/* Collapsed calendar: show compact bar, hide grid */
+		.planner-weeks--collapsed .planner-weeks__compact {
+			display: flex;
+		}
+		.planner-weeks--collapsed .planner-weeks__calendar {
+			display: none;
+		}
 	}
+
 
 	@media (prefers-reduced-motion: reduce) {
 		.bring-btn {
