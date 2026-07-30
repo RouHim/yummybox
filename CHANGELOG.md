@@ -1,3 +1,10 @@
+# [1.14.0](https://github.com/RouHim/yummybox/compare/v1.13.1...v1.14.0) (2026-07-30)
+
+
+### Features
+
+* add Manual tab as 4th import-tab in add dialog ([1bf96ac](https://github.com/RouHim/yummybox/commit/1bf96acaacb9bd69406319dd75afd4f618667e23))
+
 ## [1.13.1](https://github.com/RouHim/yummybox/compare/v1.13.0...v1.13.1) (2026-07-30)
 
 
