@@ -1,3 +1,10 @@
+## [1.13.1](https://github.com/RouHim/yummybox/compare/v1.13.0...v1.13.1) (2026-07-30)
+
+
+### Bug Fixes
+
+* **ci:** update artifact path to match target triple from .cargo/config.toml ([d0332d3](https://github.com/RouHim/yummybox/commit/d0332d36b6feff72f97b4223727887940ec19dec))
+
 # [1.13.0](https://github.com/RouHim/yummybox/compare/v1.12.5...v1.13.0) (2026-07-30)
 
 
