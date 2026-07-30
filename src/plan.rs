@@ -259,7 +259,7 @@ pub(crate) async fn create_or_replace_plan(
     }
 
     let mut tx = pool.begin().await?;
-    let selected = select_meals_weighted(&mut *tx, req.meal_count as usize).await?;
+    let selected = select_meals_weighted(&mut tx, req.meal_count as usize).await?;
     let now = Utc::now();
 
     sqlx::query(

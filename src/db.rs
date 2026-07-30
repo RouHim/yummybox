@@ -347,7 +347,7 @@ pub async fn find_meal(pool: &SqlitePool, id: i64) -> Result<Meal, AppError> {
 
     let mut meal = map_meal_row(row);
     let mut conn = pool.acquire().await?;
-    meal.ingredients = get_meal_ingredients(&mut *conn, meal.id).await?;
+    meal.ingredients = get_meal_ingredients(&mut conn, meal.id).await?;
     Ok(meal)
 }
 
@@ -372,10 +372,10 @@ pub async fn insert_meal(
     .bind(now)
     .fetch_one(&mut *tx)
     .await?;
-    set_meal_ingredients(&mut *tx, id.0, &new.ingredients).await?;
+    set_meal_ingredients(&mut tx, id.0, &new.ingredients).await?;
 
     if let ImageChange::Set(jpeg_bytes) = image {
-        set_meal_image(&mut *tx, id.0, jpeg_bytes).await?;
+        set_meal_image(&mut tx, id.0, jpeg_bytes).await?;
     }
 
     tx.commit().await?;
@@ -413,14 +413,14 @@ pub async fn update_meal(
         return Err(AppError::NotFound);
     }
 
-    set_meal_ingredients(&mut *tx, id, &patch.ingredients).await?;
+    set_meal_ingredients(&mut tx, id, &patch.ingredients).await?;
 
     match image {
         ImageChange::Set(jpeg_bytes) => {
-            set_meal_image(&mut *tx, id, jpeg_bytes).await?;
+            set_meal_image(&mut tx, id, jpeg_bytes).await?;
         }
         ImageChange::Clear => {
-            clear_meal_image(&mut *tx, id).await?;
+            clear_meal_image(&mut tx, id).await?;
         }
         ImageChange::Keep => {}
     }
@@ -943,7 +943,7 @@ mod tests {
         let (pool, _dir) = setup_db().await;
         let names: Vec<String> = vec!["salt".into(), "pepper".into()];
         let mut conn = pool.acquire().await.unwrap();
-        let result = upsert_ingredients(&mut *conn, &names)
+        let result = upsert_ingredients(&mut conn, &names)
             .await
             .expect("upsert");
         assert_eq!(result.len(), 2);
@@ -956,10 +956,10 @@ mod tests {
         let (pool, _dir) = setup_db().await;
         let names: Vec<String> = vec!["salt".into()];
         let mut conn = pool.acquire().await.unwrap();
-        let first = upsert_ingredients(&mut *conn, &names)
+        let first = upsert_ingredients(&mut conn, &names)
             .await
             .expect("upsert 1");
-        let second = upsert_ingredients(&mut *conn, &names)
+        let second = upsert_ingredients(&mut conn, &names)
             .await
             .expect("upsert 2");
         assert_eq!(first[0].0, second[0].0);
@@ -974,7 +974,7 @@ mod tests {
     async fn given_empty_input_when_upsert_then_returns_empty_vec() {
         let (pool, _dir) = setup_db().await;
         let mut conn = pool.acquire().await.unwrap();
-        let result = upsert_ingredients(&mut *conn, &[]).await.expect("upsert");
+        let result = upsert_ingredients(&mut conn, &[]).await.expect("upsert");
         assert!(result.is_empty());
     }
 
@@ -990,7 +990,7 @@ mod tests {
 
         let mut conn = pool.acquire().await.unwrap();
         set_meal_ingredients(
-            &mut *conn,
+            &mut conn,
             meal.id,
             &[NewIngredientLine {
                 name: "new".into(),
@@ -1000,7 +1000,7 @@ mod tests {
         .await
         .expect("set");
 
-        let ings = get_meal_ingredients(&mut *conn, meal.id)
+        let ings = get_meal_ingredients(&mut conn, meal.id)
             .await
             .expect("get");
         assert_eq!(ings.len(), 1);
@@ -1015,7 +1015,7 @@ mod tests {
 
         let mut conn = pool.acquire().await.unwrap();
         set_meal_ingredients(
-            &mut *conn,
+            &mut conn,
             meal.id,
             &[NewIngredientLine {
                 name: "salt".into(),
@@ -1025,7 +1025,7 @@ mod tests {
         .await
         .expect("set");
 
-        let ings = get_meal_ingredients(&mut *conn, meal.id)
+        let ings = get_meal_ingredients(&mut conn, meal.id)
             .await
             .expect("get");
         assert_eq!(ings[0].quantity, None);
@@ -1039,7 +1039,7 @@ mod tests {
 
         let mut conn = pool.acquire().await.unwrap();
         set_meal_ingredients(
-            &mut *conn,
+            &mut conn,
             meal.id,
             &[
                 NewIngredientLine {
@@ -1055,7 +1055,7 @@ mod tests {
         .await
         .expect("set");
 
-        let ings = get_meal_ingredients(&mut *conn, meal.id)
+        let ings = get_meal_ingredients(&mut conn, meal.id)
             .await
             .expect("get");
         assert_eq!(ings.len(), 1);
@@ -1069,7 +1069,7 @@ mod tests {
         let meal =
             insert_test_meal(&pool, "Test", &[("zucchini", None), ("apple", Some("2"))]).await;
         let mut conn = pool.acquire().await.unwrap();
-        let ings = get_meal_ingredients(&mut *conn, meal.id)
+        let ings = get_meal_ingredients(&mut conn, meal.id)
             .await
             .expect("get");
         assert_eq!(ings[0].name, "apple");
@@ -1088,7 +1088,7 @@ mod tests {
             .execute(&mut *conn)
             .await
             .unwrap();
-        let ings = get_meal_ingredients(&mut *conn, meal.id)
+        let ings = get_meal_ingredients(&mut conn, meal.id)
             .await
             .expect("get");
         assert!(ings.is_empty());
@@ -1114,10 +1114,10 @@ mod tests {
         .await;
 
         let mut conn = pool.acquire().await.unwrap();
-        let ings_a = get_meal_ingredients(&mut *conn, meal_a.id)
+        let ings_a = get_meal_ingredients(&mut conn, meal_a.id)
             .await
             .expect("get");
-        let ings_b = get_meal_ingredients(&mut *conn, meal_b.id)
+        let ings_b = get_meal_ingredients(&mut conn, meal_b.id)
             .await
             .expect("get");
 
@@ -1509,7 +1509,7 @@ mod tests {
                     .unwrap();
             }
 
-            let selected = crate::plan::select_meals_weighted(&mut *conn, 3)
+            let selected = crate::plan::select_meals_weighted(&mut conn, 3)
                 .await
                 .expect("select");
             for meal in &selected {
@@ -1535,7 +1535,7 @@ mod tests {
         insert_test_meal(&pool, "C", &[("x", None)]).await;
 
         let mut conn = pool.acquire().await.unwrap();
-        let selected = crate::plan::select_meals_weighted(&mut *conn, 5)
+        let selected = crate::plan::select_meals_weighted(&mut conn, 5)
             .await
             .expect("select");
         assert_eq!(selected.len(), 3);
@@ -1545,7 +1545,7 @@ mod tests {
     async fn given_empty_meals_table_when_select_weighted_then_returns_empty_vec() {
         let (pool, _dir) = setup_db().await;
         let mut conn = pool.acquire().await.unwrap();
-        let result = crate::plan::select_meals_weighted(&mut *conn, 3)
+        let result = crate::plan::select_meals_weighted(&mut conn, 3)
             .await
             .expect("select");
         assert!(result.is_empty());
