@@ -1,3 +1,10 @@
+## [1.14.1](https://github.com/RouHim/yummybox/compare/v1.14.0...v1.14.1) (2026-07-30)
+
+
+### Bug Fixes
+
+* apply clippy explicit_auto_deref fixes ([b87480c](https://github.com/RouHim/yummybox/commit/b87480c407c9dec81cff87fa19c7cddc81bae05a))
+
 # [1.14.0](https://github.com/RouHim/yummybox/compare/v1.13.1...v1.14.0) (2026-07-30)
 
 
