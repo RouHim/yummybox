@@ -943,9 +943,7 @@ mod tests {
         let (pool, _dir) = setup_db().await;
         let names: Vec<String> = vec!["salt".into(), "pepper".into()];
         let mut conn = pool.acquire().await.unwrap();
-        let result = upsert_ingredients(&mut conn, &names)
-            .await
-            .expect("upsert");
+        let result = upsert_ingredients(&mut conn, &names).await.expect("upsert");
         assert_eq!(result.len(), 2);
         assert_eq!(result[0].1, "salt");
         assert_eq!(result[1].1, "pepper");
@@ -1000,9 +998,7 @@ mod tests {
         .await
         .expect("set");
 
-        let ings = get_meal_ingredients(&mut conn, meal.id)
-            .await
-            .expect("get");
+        let ings = get_meal_ingredients(&mut conn, meal.id).await.expect("get");
         assert_eq!(ings.len(), 1);
         assert_eq!(ings[0].name, "new");
     }
@@ -1025,9 +1021,7 @@ mod tests {
         .await
         .expect("set");
 
-        let ings = get_meal_ingredients(&mut conn, meal.id)
-            .await
-            .expect("get");
+        let ings = get_meal_ingredients(&mut conn, meal.id).await.expect("get");
         assert_eq!(ings[0].quantity, None);
     }
 
@@ -1055,9 +1049,7 @@ mod tests {
         .await
         .expect("set");
 
-        let ings = get_meal_ingredients(&mut conn, meal.id)
-            .await
-            .expect("get");
+        let ings = get_meal_ingredients(&mut conn, meal.id).await.expect("get");
         assert_eq!(ings.len(), 1);
         assert_eq!(ings[0].name, "kept");
     }
@@ -1069,9 +1061,7 @@ mod tests {
         let meal =
             insert_test_meal(&pool, "Test", &[("zucchini", None), ("apple", Some("2"))]).await;
         let mut conn = pool.acquire().await.unwrap();
-        let ings = get_meal_ingredients(&mut conn, meal.id)
-            .await
-            .expect("get");
+        let ings = get_meal_ingredients(&mut conn, meal.id).await.expect("get");
         assert_eq!(ings[0].name, "apple");
         assert_eq!(ings[1].name, "zucchini");
         assert_eq!(ings[0].quantity.as_deref(), Some("2"));
@@ -1088,9 +1078,7 @@ mod tests {
             .execute(&mut *conn)
             .await
             .unwrap();
-        let ings = get_meal_ingredients(&mut conn, meal.id)
-            .await
-            .expect("get");
+        let ings = get_meal_ingredients(&mut conn, meal.id).await.expect("get");
         assert!(ings.is_empty());
     }
 
