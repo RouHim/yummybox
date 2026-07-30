@@ -11,6 +11,7 @@ test.describe('Import URLs — bulk', () => {
 	async function openImportUrls(page: Page) {
 		await page.getByRole('button', { name: /^Add meal$|^Mahlzeit hinzufügen$/ }).click();
 		await expect(page.getByRole('dialog')).toBeVisible();
+		await page.getByRole('tab', { name: 'Import', exact: true }).click();
 		await page.getByRole('button', { name: 'Import URLs' }).click();
 	}
 

@@ -11,6 +11,7 @@ test.describe('LLM import', () => {
 		await page.goto('/meals');
 		await page.getByRole('button', { name: /^Add meal$|^Mahlzeit hinzufügen$/ }).click();
 		await expect(page.getByRole('dialog')).toBeVisible();
+		await page.getByRole('tab', { name: 'Import', exact: true }).click();
 		await page.getByRole('button', { name: 'AI import' }).click();
 	}
 
@@ -69,7 +70,7 @@ test.describe('LLM import', () => {
 
 		await page.getByRole('button', { name: 'Parse with AI' }).click();
 
-		await expect(page.getByRole('button', { name: /^Import another$/ })).toBeVisible();
+		await expect(page.getByRole('tab', { name: 'By hand' })).toHaveAttribute('aria-selected', 'true');
 		await expect(page.getByLabel('Name', { exact: true })).toHaveValue('AI Curry');
 
 		await dialog.getByRole('button', { name: /^(Add|Hinzufügen)$/ }).click();

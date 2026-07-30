@@ -34,7 +34,7 @@ import { readStoredLlmConfig, persistLlmConfig } from '$lib/llm-config.svelte';
 	let removeImage = $state(false);
 	let submitting = $state(false);
 	let importMode = $state<'urls' | 'llm' | 'zip'>('urls');
-	let importCollapsed = $state(false);
+	let addTab = $state<'manual' | 'import'>('manual');
     let importLlmProvider = $state('');
     let importLlmModel = $state('');
     let importLlmHint = $state('');
@@ -90,7 +90,7 @@ import { readStoredLlmConfig, persistLlmConfig } from '$lib/llm-config.svelte';
             });
             importLlmHint = '';
             importToken++;
-            importCollapsed = true;
+            addTab = 'manual';
         } catch (err) {
             if (err instanceof ApiError) {
                 if (err.code === 'llm_timeout') {
@@ -306,17 +306,16 @@ import { readStoredLlmConfig, persistLlmConfig } from '$lib/llm-config.svelte';
         importLlmProvider = ''; importLlmModel = ''; importLlmHint = '';
         llmSettingsCollapsed = false;
         importing = false; importError = null; importToken++;
-        importCollapsed = false;
         bulkUrls = ''; bulkImporting = false; bulkResult = null; bulkError = null;
         zipFile = null; zipImporting = false; zipResult = null; zipError = null;
+        addTab = 'manual';
         addOpen = true;
     }
 
     function openImport() {
         menuOpen = false;
         openAdd();
-        // Focus the import section — ensure it's not collapsed
-        importCollapsed = false;
+        addTab = 'import';
     }
 	function closeAdd() {
 		if (bulkResult && bulkResult.created.length > 0) {
@@ -603,18 +602,21 @@ import { readStoredLlmConfig, persistLlmConfig } from '$lib/llm-config.svelte';
 					<button class="add-modal__close" onclick={closeAdd} aria-label={t('lightboxClose')} title={t('lightboxClose')}>
 						<Icon name="x" size={20} />
 					</button>
-				</div>
-				<div class="add-modal__body" class:add-modal__body--two-panel={!importCollapsed}>
-					<section class="add-modal__panel add-modal__panel--import">
-						{#if importCollapsed && importMode === 'llm'}
-							<div class="import-section--collapsed">
-								<Icon name="check" size={18} />
-								<span class="import-section__summary">{t('importCollapsedSummary')}</span>
-								<button type="button" class="btn btn--ghost" onclick={() => importCollapsed = false}>
-									{t('importCollapsedExpand')}
-								</button>
-							</div>
-						{:else}
+			</div>
+			<div class="import-tabs add-modal__tabs" role="tablist">
+				<button type="button" role="tab" class="import-tab" class:import-tab--active={addTab === 'manual'}
+					aria-selected={addTab === 'manual'} onclick={() => addTab = 'manual'}>
+					<Icon name="pen-line" size={16} />
+					<span>{t('addTabManual')}</span>
+				</button>
+				<button type="button" role="tab" class="import-tab" class:import-tab--active={addTab === 'import'}
+					aria-selected={addTab === 'import'} onclick={() => addTab = 'import'}>
+					<Icon name="upload" size={16} />
+					<span>{t('addTabImport')}</span>
+				</button>
+			</div>
+			<div class="add-modal__body">
+					<section class="add-modal__panel add-modal__panel--import" hidden={addTab !== 'import'}>
 							<section class="import-card">
 								<div class="import-tabs">
 					<button type="button" class="import-tab" class:import-tab--active={importMode === 'urls'}
@@ -784,9 +786,8 @@ import { readStoredLlmConfig, persistLlmConfig } from '$lib/llm-config.svelte';
 									</p>
 								{/if}
 							</section>
-						{/if}
 					</section>
-						<section class="add-modal__panel add-modal__panel--form">
+					<section class="add-modal__panel add-modal__panel--form" hidden={addTab !== 'manual'}>
 							{#key importToken}
 								<MealForm
 									editMode={false}
@@ -841,7 +842,7 @@ import { readStoredLlmConfig, persistLlmConfig } from '$lib/llm-config.svelte';
 	}
 
 	.add-modal {
-		max-width: 960px;
+		max-width: 640px;
 		width: 90vw;
 		max-height: 88vh;
 		overflow: hidden;
@@ -892,17 +893,17 @@ import { readStoredLlmConfig, persistLlmConfig } from '$lib/llm-config.svelte';
 		gap: var(--space-5);
 	}
 
-	.add-modal__body--two-panel {
-		display: grid;
-		grid-template-columns: 1fr 1fr;
-		gap: var(--space-6);
-		align-items: start;
+	.add-modal__tabs {
+		padding: var(--space-4) var(--space-6) 0;
 	}
 	.add-modal__panel {
 		display: flex;
 		flex-direction: column;
 		gap: var(--space-4);
 		min-width: 0;
+	}
+	.add-modal__panel[hidden] {
+		display: none;
 	}
 
 	@media (max-width: 768px) {
@@ -911,26 +912,6 @@ import { readStoredLlmConfig, persistLlmConfig } from '$lib/llm-config.svelte';
 			width: 100vw;
 			max-height: 92vh;
 		}
-		.add-modal__body--two-panel {
-			grid-template-columns: 1fr;
-			gap: var(--space-5);
-		}
-	}
-
-
-	.import-section--collapsed {
-		display: flex;
-		align-items: center;
-		gap: var(--space-3);
-		padding: var(--space-3) var(--space-4);
-		background: var(--color-success-bg);
-		border: 1px solid var(--color-border);
-		border-radius: var(--radius-lg);
-	}
-	.import-section__summary {
-		flex: 1;
-		font-size: var(--text-sm);
-		color: var(--color-text);
 	}
 
 	/* Import card — recessive, secondary to authoring form */
