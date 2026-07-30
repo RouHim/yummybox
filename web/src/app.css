@@ -837,6 +837,10 @@ button {
 .lang-switcher__trigger .lang-switcher__label {
 	display: none;
 }
+
+.lang-switcher__trigger > span:first-child {
+	line-height: 1;
+}
 .lang-switcher__trigger:hover {
 	color: var(--color-primary);
 	background: var(--glass-bg-strong);
