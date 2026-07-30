@@ -45,7 +45,7 @@ describe('listMeals', () => {
 
 describe('getMeal', () => {
 	it('calls /api/meals/:id', async () => {
-		const meal: Meal = { id: 5, name: 'Pasta', ingredients: [], last_planned_at: null, created_at: '', updated_at: '', has_image: false, instructions: '' };
+		const meal: Meal = { id: 5, name: 'Pasta', ingredients: [], last_planned_at: null, created_at: '', updated_at: '', has_image: false, instructions: '', portions: null };
 		mockResponse(200, meal);
 		const result = await getMeal(5);
 		expect(mockFetch).toHaveBeenCalledWith('/api/meals/5', undefined);
@@ -61,7 +61,7 @@ describe('getMeal', () => {
 describe('createMeal', () => {
 	it('sends multipart form with name and ingredients', async () => {
 		const payload: MealPayload = { name: 'Test', ingredients: [{ name: 'stuff', quantity: null }] , instructions: '' };
-		const mealResponse: Meal = { id: 1, name: 'Test', ingredients: [{ name: 'stuff', quantity: null }], last_planned_at: null, created_at: '', updated_at: '', has_image: false, instructions: '' };
+		const mealResponse: Meal = { id: 1, name: 'Test', ingredients: [{ name: 'stuff', quantity: null }], last_planned_at: null, created_at: '', updated_at: '', has_image: false, instructions: '', portions: null };
 		mockResponse(201, mealResponse);
 		await createMeal(payload);
 		expect(mockFetch).toHaveBeenCalledTimes(1);
@@ -79,7 +79,7 @@ describe('createMeal', () => {
 
 	it('includes image file when provided', async () => {
 		const payload: MealPayload = { name: 'Pizza', ingredients: [{ name: 'cheese', quantity: null }] , instructions: '' };
-		const mealResponse: Meal = { id: 2, name: 'Pizza', ingredients: [{ name: 'cheese', quantity: null }], last_planned_at: null, created_at: '', updated_at: '', has_image: true, instructions: '' };
+		const mealResponse: Meal = { id: 2, name: 'Pizza', ingredients: [{ name: 'cheese', quantity: null }], last_planned_at: null, created_at: '', updated_at: '', has_image: true, instructions: '', portions: null };
 		mockResponse(201, mealResponse);
 		const file = new File([new Uint8Array([1, 2, 3])], 'photo.png', { type: 'image/png' });
 		await createMeal(payload, file);
@@ -90,7 +90,7 @@ describe('createMeal', () => {
 
 	it('handles null image gracefully', async () => {
 		const payload: MealPayload = { name: 'X', ingredients: [{ name: 'y', quantity: null }] , instructions: '' };
-		const mealResponse: Meal = { id: 3, name: 'X', ingredients: [{ name: 'y', quantity: null }], last_planned_at: null, created_at: '', updated_at: '', has_image: false, instructions: '' };
+		const mealResponse: Meal = { id: 3, name: 'X', ingredients: [{ name: 'y', quantity: null }], last_planned_at: null, created_at: '', updated_at: '', has_image: false, instructions: '', portions: null };
 		mockResponse(201, mealResponse);
 		await createMeal(payload, null);
 		const fd = mockFetch.mock.calls[0][1].body as FormData;
@@ -101,7 +101,7 @@ describe('createMeal', () => {
 describe('updateMeal', () => {
 	it('sends multipart form with name and ingredients', async () => {
 		const payload: MealPayload = { name: 'Updated', ingredients: [{ name: 'new', quantity: null }] , instructions: '' };
-		const mealResponse: Meal = { id: 3, name: 'Updated', ingredients: [{ name: 'new', quantity: null }], last_planned_at: null, created_at: '', updated_at: '', has_image: false, instructions: '' };
+		const mealResponse: Meal = { id: 3, name: 'Updated', ingredients: [{ name: 'new', quantity: null }], last_planned_at: null, created_at: '', updated_at: '', has_image: false, instructions: '', portions: null };
 		mockResponse(200, mealResponse);
 		await updateMeal(3, payload);
 		const [url, opts] = mockFetch.mock.calls[0];
@@ -115,7 +115,7 @@ describe('updateMeal', () => {
 
 	it('sends image_action=remove when removing', async () => {
 		const payload: MealPayload = { name: 'X', ingredients: [{ name: 'y', quantity: null }] , instructions: '' };
-		const mealResponse: Meal = { id: 4, name: 'X', ingredients: [{ name: 'y', quantity: null }], last_planned_at: null, created_at: '', updated_at: '', has_image: false, instructions: '' };
+		const mealResponse: Meal = { id: 4, name: 'X', ingredients: [{ name: 'y', quantity: null }], last_planned_at: null, created_at: '', updated_at: '', has_image: false, instructions: '', portions: null };
 		mockResponse(200, mealResponse);
 		await updateMeal(4, payload, { removeImage: true });
 		const fd = mockFetch.mock.calls[0][1].body as FormData;
@@ -124,7 +124,7 @@ describe('updateMeal', () => {
 
 	it('sends image file when replacing', async () => {
 		const payload: MealPayload = { name: 'X', ingredients: [{ name: 'y', quantity: null }] , instructions: '' };
-		const mealResponse: Meal = { id: 5, name: 'X', ingredients: [{ name: 'y', quantity: null }], last_planned_at: null, created_at: '', updated_at: '', has_image: true, instructions: '' };
+		const mealResponse: Meal = { id: 5, name: 'X', ingredients: [{ name: 'y', quantity: null }], last_planned_at: null, created_at: '', updated_at: '', has_image: true, instructions: '', portions: null };
 		mockResponse(200, mealResponse);
 		const file = new File([new Uint8Array([4, 5, 6])], 'new.jpg', { type: 'image/jpeg' });
 		await updateMeal(5, payload, { image: file });

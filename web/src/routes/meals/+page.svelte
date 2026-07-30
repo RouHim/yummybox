@@ -11,6 +11,7 @@ import { readStoredLlmConfig, persistLlmConfig } from '$lib/llm-config.svelte';
 	import { prefersReducedMotion, tierDuration, staggerDuration } from '$lib/motion';
 	import Icon from '$lib/Icon.svelte';
 	import DeleteConfirmDialog from '$lib/DeleteConfirmDialog.svelte';
+import { focusTrap } from '$lib/focusTrap';
 	import MealForm from '$lib/MealForm.svelte';
 	let meals = $state<Meal[]>([]);
 
@@ -99,7 +100,7 @@ import { readStoredLlmConfig, persistLlmConfig } from '$lib/llm-config.svelte';
                 } else if (err.code) {
                     importError = t('llmErrorGeneric', { message: err.message });
                 } else {
-                    importError = err.message === '__REQUEST_FAILED__' ? t('importErrorFetch') : err.message;
+                    importError = err.code === 'REQUEST_FAILED' ? t('importErrorFetch') : err.message;
                 }
             } else {
                 importError = err instanceof Error ? err.message : '';
@@ -128,7 +129,7 @@ import { readStoredLlmConfig, persistLlmConfig } from '$lib/llm-config.svelte';
         } catch (err) {
             llmModels = [];
             if (err instanceof ApiError) {
-                llmModelsError = err.message === '__REQUEST_FAILED__'
+                llmModelsError = err.code === 'REQUEST_FAILED'
                     ? t('llmModelsLoadError')
                     : `${t('llmModelsLoadError')} (${err.message})`;
             } else {
@@ -189,7 +190,7 @@ import { readStoredLlmConfig, persistLlmConfig } from '$lib/llm-config.svelte';
             // createdCount === 0  → keep modal open, show failures via bulkResult
         } catch (err) {
             bulkError = err instanceof ApiError
-                ? (err.message === '__REQUEST_FAILED__' ? t('importErrorFetch') : err.message)
+                ? (err.code === 'REQUEST_FAILED' ? t('importErrorFetch') : err.message)
                 : (err instanceof Error ? err.message : '');
         } finally {
             bulkImporting = false;
@@ -216,7 +217,7 @@ import { readStoredLlmConfig, persistLlmConfig } from '$lib/llm-config.svelte';
             }
         } catch (err) {
             zipError = err instanceof ApiError
-                ? (err.message === '__REQUEST_FAILED__' ? t('importErrorFetch') : err.message)
+                ? (err.code === 'REQUEST_FAILED' ? t('importErrorFetch') : err.message)
                 : (err instanceof Error ? err.message : '');
         } finally {
             zipImporting = false;
@@ -336,8 +337,9 @@ import { readStoredLlmConfig, persistLlmConfig } from '$lib/llm-config.svelte';
 			meals = await listMeals(searchTerm || undefined);
 			loadError = null;
 		} catch (err) {
-			const raw = err instanceof Error ? err.message : '';
-			loadError = raw === '__REQUEST_FAILED__' ? t('errorLoadFailed') : raw;
+			loadError = err instanceof ApiError && err.code === 'REQUEST_FAILED'
+				? t('errorLoadFailed')
+				: err instanceof Error ? err.message : '';
 		}
 	}
 
@@ -393,8 +395,9 @@ import { readStoredLlmConfig, persistLlmConfig } from '$lib/llm-config.svelte';
 			await deleteMeal(id);
 			await loadMeals();
 		} catch (err) {
-			const raw = err instanceof Error ? err.message : '';
-			loadError = raw === '__REQUEST_FAILED__' ? t('errorDeleteFailed') : raw;
+			loadError = err instanceof ApiError && err.code === 'REQUEST_FAILED'
+				? t('errorDeleteFailed')
+				: err instanceof Error ? err.message : '';
 		}
 	}
 
@@ -402,34 +405,6 @@ import { readStoredLlmConfig, persistLlmConfig } from '$lib/llm-config.svelte';
 		return meal.ingredients.map(i => i.quantity ? `${i.name} (${i.quantity})` : i.name).join(', ');
 	}
 
-	// matches DeleteConfirmDialog.svelte focusTrap
-	function focusTrap(node: HTMLElement) {
-		const previouslyFocused = document.activeElement as HTMLElement | null;
-		node.focus();
-		function onKey(e: KeyboardEvent) {
-			if (e.key !== 'Tab') return;
-			const focusables = node.querySelectorAll<HTMLElement>(
-				'button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])'
-			);
-			if (focusables.length === 0) return;
-			const first = focusables[0];
-			const last = focusables[focusables.length - 1];
-			if (e.shiftKey && document.activeElement === first) {
-				e.preventDefault();
-				last.focus();
-			} else if (!e.shiftKey && document.activeElement === last) {
-				e.preventDefault();
-				first.focus();
-			}
-		}
-		node.addEventListener('keydown', onKey);
-		return {
-			destroy() {
-				node.removeEventListener('keydown', onKey);
-				previouslyFocused?.focus?.();
-			},
-		};
-	}
 </script>
 
 <svelte:window onclick={() => { if (menuOpen) menuOpen = false; }} />

@@ -35,14 +35,14 @@ pub async fn spa_fallback(uri: Uri) -> impl IntoResponse {
             .status(StatusCode::OK)
             .header("content-type", mime_for(path))
             .body(Body::from(file.data.into_owned()))
-            .unwrap()
+            .expect("response body construction")
     } else {
         let index = Assets::get("index.html").expect("index.html must exist in embedded assets");
         Response::builder()
             .status(StatusCode::OK)
             .header("content-type", "text/html; charset=utf-8")
             .body(Body::from(index.data.into_owned()))
-            .unwrap()
+            .expect("fallback response body construction")
     }
 }
 

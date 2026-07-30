@@ -10,7 +10,7 @@ export class ApiError extends Error {
 async function request<T>(url: string, options?: RequestInit): Promise<T> {
     const response = await fetch(url, options);
     if (!response.ok) {
-        let message = '__REQUEST_FAILED__';
+        let message = 'Request failed';
         let code: string | null = null;
         try {
             const body = await response.json();
@@ -98,14 +98,16 @@ export async function getPlan(year: number, week: number): Promise<Plan | null> 
 	const response = await fetch(`/api/plans?year=${year}&week=${week}`);
 	if (response.status === 404) return null;
 	if (!response.ok) {
-		let message = '__REQUEST_FAILED__';
+		let message = 'Request failed';
+		let code: string | null = null;
 		try {
 			const body = await response.json();
 			if (body && typeof body.error === 'string') message = body.error;
+			if (body && typeof body.code === 'string') code = body.code;
 		} catch {
 			// response was not JSON
 		}
-		throw new Error(message);
+		throw new ApiError(message, code, response.status);
 	}
 	if (response.status === 204) return null;
 	const raw = (await response.json()) as unknown;

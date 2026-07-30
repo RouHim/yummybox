@@ -20,6 +20,10 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: '26'
+          cache: 'npm'
+          cache-dependency-path: |
+            web/package-lock.json
+            tests/package-lock.json
       - name: cargo fmt
         run: cargo fmt --all -- --check
       - name: cargo clippy
@@ -36,10 +40,16 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: '26'
+          cache: 'npm'
+          cache-dependency-path: |
+            web/package-lock.json
+            tests/package-lock.json
       - name: npm ci
         run: cd web && npm ci
       - name: Vitest
         run: cd web && npm test
+      - name: Type-check frontend
+        run: cd web && npm run check
 
   rust-tests:
     runs-on: ubuntu-latest
@@ -50,6 +60,10 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: '26'
+          cache: 'npm'
+          cache-dependency-path: |
+            web/package-lock.json
+            tests/package-lock.json
       - name: cargo test
         run: cargo test
       - name: cargo build --release
@@ -68,6 +82,10 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: '26'
+          cache: 'npm'
+          cache-dependency-path: |
+            web/package-lock.json
+            tests/package-lock.json
       - uses: actions/download-artifact@v4
         with:
           name: yummybox-release
@@ -120,6 +138,10 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: '26'
+          cache: 'npm'
+          cache-dependency-path: |
+            web/package-lock.json
+            tests/package-lock.json
       - name: Install semantic-release
         run: |
           npm install -g \
@@ -168,6 +190,10 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: '26'
+          cache: 'npm'
+          cache-dependency-path: |
+            web/package-lock.json
+            tests/package-lock.json
       - name: Pre-build web/build on host (musl container has no Node)
         run: |
           cd web && npm ci && npm run build
@@ -232,6 +258,10 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: '26'
+          cache: 'npm'
+          cache-dependency-path: |
+            web/package-lock.json
+            tests/package-lock.json
 
       - name: Pre-build web/build on host (musl container has no Node)
         run: |
@@ -251,7 +281,6 @@ jobs:
         if: matrix.arch == 'amd64'
         run: |
           cd tests && npm ci
-          cd ../web && npm ci
 
       - name: Install Playwright browsers (amd64 only)
         if: matrix.arch == 'amd64'

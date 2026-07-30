@@ -1,5 +1,5 @@
 <script lang="ts">
-    import { getPlan, mealImageUrl } from '$lib/api';
+    import { getPlan, mealImageUrl, ApiError } from '$lib/api';
 	import { weekOfDate, mondaySundayOf } from '$lib/week';
 	import { t } from '$lib/i18n';
 	import { fly, scale } from 'svelte/transition';
@@ -29,8 +29,9 @@
 				return;
 			}
 		} catch (err) {
-			const raw = err instanceof Error ? err.message : '';
-			loadError = raw === '__REQUEST_FAILED__' ? t('errorLoadPlan') : raw;
+			loadError = err instanceof ApiError && err.code === 'REQUEST_FAILED'
+				? t('errorLoadPlan')
+				: err instanceof Error ? err.message : '';
 		} finally {
 			loading = false;
 		}

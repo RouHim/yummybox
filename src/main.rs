@@ -6,6 +6,8 @@ mod export_import;
 mod image;
 mod jsonld;
 mod llm_import;
+mod plan;
+mod import;
 
 mod model;
 mod recipe;
@@ -94,14 +96,14 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 .delete(routes::delete_meal),
         )
         .route("/meals/{id}/image", get(routes::get_meal_image))
-        .route("/import/url", post(routes::import_from_url))
-        .route("/import/llm", post(routes::import_from_llm))
-        .route("/llm/providers", get(routes::llm_providers))
-        .route("/llm/models", get(routes::llm_models))
-        .route("/llm/polish", post(routes::polish_instructions))
-        .route("/import/paste", post(routes::import_from_paste))
-        .route("/import/bulk", post(routes::import_bulk))
-        .route("/import/image-url", post(routes::load_image_from_url))
+        .route("/import/url", post(import::import_from_url))
+        .route("/import/llm", post(import::import_from_llm))
+        .route("/llm/providers", get(import::llm_providers))
+        .route("/llm/models", get(import::llm_models))
+        .route("/llm/polish", post(import::polish_instructions))
+        .route("/import/paste", post(import::import_from_paste))
+        .route("/import/bulk", post(import::import_bulk))
+        .route("/import/image-url", post(import::load_image_from_url))
         .route("/export/meals.zip", get(export_import::export_meals_zip))
         .route("/import/zip", post(export_import::import_meals_zip))
         .route("/plans", get(routes::get_plans).post(routes::create_plan))

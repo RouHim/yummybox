@@ -1,11 +1,10 @@
 use axum::Json;
 use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
-use serde_json::json;
+use serde::Serialize;
 use thiserror::Error as ThisError;
 
 #[derive(Debug, ThisError)]
-#[allow(dead_code)]
 pub enum AppError {
     #[error("not found")]
     NotFound,
@@ -18,9 +17,6 @@ pub enum AppError {
 
     #[error("{0}")]
     PayloadTooLarge(String),
-
-    #[error("{0}")]
-    UnprocessableEntity(String),
 
     #[error("database error: {0}")]
     Database(#[from] sqlx::Error),
@@ -43,6 +39,13 @@ pub enum AppError {
     DuplicateName,
 }
 
+#[derive(Serialize)]
+struct ErrorBody {
+    error: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    code: Option<&'static str>,
+}
+
 impl IntoResponse for AppError {
     fn into_response(self) -> Response {
         let (status, message, code) = match &self {
@@ -50,10 +53,10 @@ impl IntoResponse for AppError {
             AppError::Validation(msg) => (StatusCode::BAD_REQUEST, msg.clone(), None),
             AppError::BadRequest(msg) => (StatusCode::BAD_REQUEST, msg.clone(), None),
             AppError::PayloadTooLarge(msg) => (StatusCode::PAYLOAD_TOO_LARGE, msg.clone(), None),
-            AppError::UnprocessableEntity(msg) => {
-                (StatusCode::UNPROCESSABLE_ENTITY, msg.clone(), None)
+            AppError::Database(err) => {
+                tracing::error!(%err, "database error");
+                (StatusCode::INTERNAL_SERVER_ERROR, "database error".to_string(), None)
             }
-            AppError::Database(_err) => (StatusCode::INTERNAL_SERVER_ERROR, self.to_string(), None),
             AppError::Internal(msg) => (StatusCode::INTERNAL_SERVER_ERROR, msg.clone(), None),
             AppError::BringAuthFailed(msg) => (StatusCode::UNAUTHORIZED, msg.clone(), None),
             AppError::BringNetworkError(msg) => (StatusCode::BAD_GATEWAY, msg.clone(), None),
@@ -68,7 +71,11 @@ impl IntoResponse for AppError {
             }
             AppError::DuplicateName => (StatusCode::CONFLICT, self.to_string(), None),
         };
-        (status, Json(json!({ "error": message, "code": code }))).into_response()
+        let body = ErrorBody {
+            error: message,
+            code,
+        };
+        (status, Json(serde_json::to_value(body).expect("ErrorBody is always serializable"))).into_response()
     }
 }
 
@@ -99,8 +106,8 @@ mod tests {
             "body should contain '{expected_contains}', got: {body_str}"
         );
         assert!(
-            body_str.contains("\"code\""),
-            "body should contain 'code' key, got: {body_str}"
+            !body_str.contains("\"code\""),
+            "body should NOT contain 'code' key, got: {body_str}"
         );
     }
 
@@ -179,16 +186,6 @@ mod tests {
             AppError::PayloadTooLarge("image exceeds 20 MB limit".into()),
             StatusCode::PAYLOAD_TOO_LARGE,
             "image exceeds 20 MB limit",
-        )
-        .await;
-    }
-
-    #[tokio::test]
-    async fn given_unprocessable_entity_when_into_response_then_returns_422() {
-        assert_response(
-            AppError::UnprocessableEntity("could not parse a recipe from input".into()),
-            StatusCode::UNPROCESSABLE_ENTITY,
-            "could not parse a recipe from input",
         )
         .await;
     }

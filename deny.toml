@@ -14,6 +14,10 @@ confidence-threshold = 0.8
 [bans]
 multiple-versions = "warn"
 wildcards = "deny"
+skip = [
+    { name = "windows-sys", version = "0.52", reason = "transitive via ring; Windows-only crate unreachable on pinned Linux target" },
+]
+
 
 [sources]
 unknown-registry = "deny"

@@ -9,7 +9,7 @@ export default defineConfig({
 		headless: true,
 	},
 	webServer: {
-		command: './target/release/yummybox',
+		command: 'test -f ./target/x86_64-unknown-linux-gnu/release/yummybox && ./target/x86_64-unknown-linux-gnu/release/yummybox || ./target/release/yummybox',
 		cwd: '..',
 		timeout: 30000,
 		reuseExistingServer: !process.env.CI,

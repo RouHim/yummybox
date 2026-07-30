@@ -2,8 +2,11 @@ import { test, expect } from '@playwright/test';
 import { resetMeals, setLocale, createMealViaApi } from './_helpers';
 
 test.describe('Cooking view instructions rendering', () => {
-	test('renders sanitized HTML instructions as formatted paragraphs', async ({ page, request }) => {
+	test.beforeEach(async ({ request }) => {
 		await resetMeals(request);
+	});
+
+	test('renders sanitized HTML instructions as formatted paragraphs', async ({ page, request }) => {
 		await setLocale(page, 'en');
 
 		const meal = await createMealViaApi(
@@ -24,7 +27,6 @@ test.describe('Cooking view instructions rendering', () => {
 	});
 
 	test('renders plain text instructions with preserved newlines', async ({ page, request }) => {
-		await resetMeals(request);
 		await setLocale(page, 'en');
 
 		const meal = await createMealViaApi(

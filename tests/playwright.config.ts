@@ -5,14 +5,14 @@ export default defineConfig({
 	fullyParallel: true,
 	forbidOnly: !!process.env.CI,
 	retries: process.env.CI ? 2 : 0,
-	workers: process.env.CI ? 1 : undefined,
+	workers: 1,
 	reporter: process.env.CI
 		? [['github'], ['junit', { outputFile: 'results.xml' }], ['html', { open: 'never' }]]
 		: [['list'], ['html', { open: 'on-failure' }]],
 	timeout: 30_000,
 	expect: { timeout: 5_000 },
 	use: {
-		baseURL: 'http://localhost:11342',
+		baseURL: 'http://127.0.0.1:11342',
 		actionTimeout: 10_000,
 		navigationTimeout: 15_000,
 		trace: 'on-first-retry',
@@ -21,9 +21,9 @@ export default defineConfig({
 	},
 	projects: [{ name: 'chromium', use: { ...devices['Desktop Chrome'] } }],
 	webServer: process.env.YUMMYBOX_NO_WEBSERVER === '1' ? undefined : {
-		command: "bash -c 'mkdir -p .e2e-db && if [ -x target/release/yummybox ]; then exec target/release/yummybox; else exec cargo run --quiet; fi'",
+		command: "bash -c 'mkdir -p .e2e-db && if [ -x target/x86_64-unknown-linux-gnu/release/yummybox ]; then exec target/x86_64-unknown-linux-gnu/release/yummybox; elif [ -x target/release/yummybox ]; then exec target/release/yummybox; else exec cargo run --quiet; fi'",
 		cwd: '..',
-		url: 'http://localhost:11342/api/meals',
+		url: 'http://127.0.0.1:11342/api/meals',
 		reuseExistingServer: !process.env.CI,
 		timeout: 60_000,
 		stdout: 'pipe',

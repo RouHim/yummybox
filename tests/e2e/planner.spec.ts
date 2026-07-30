@@ -1,36 +1,6 @@
 import { test, expect } from '@playwright/test';
 import { createMealViaApi, resetMeals, resetPlans } from './_helpers';
-import { deflateSync } from 'node:zlib';
-
-// Minimal valid PNG builder (2×2 RGB)
-function buildMiniPng(): Buffer {
-	const w = 2, h = 2;
-	const rawRowSize = 1 + w * 3;
-	const raw = Buffer.alloc(rawRowSize * h);
-	for (let y = 0; y < h; y++) {
-		const off = y * rawRowSize;
-		raw[off] = 0; // filter: none
-		for (let x = 0; x < w; x++) {
-			const px = off + 1 + x * 3;
-			raw[px] = (x + y) % 2 === 0 ? 200 : 50;
-			raw[px + 1] = (x * 80) % 256;
-			raw[px + 2] = (y * 100) % 256;
-		}
-	}
-	const compressed = deflateSync(raw);
-	const sig = Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]);
-	const mk = (t: string, d: Buffer) => {
-		const len = Buffer.alloc(4); len.writeUInt32BE(d.length, 0);
-		const typeB = Buffer.from(t, 'ascii');
-		const crcBuf = Buffer.concat([typeB, d]);
-		let c = 0xFFFFFFFF;
-		for (let i = 0; i < crcBuf.length; i++) { c ^= crcBuf[i]!; for (let j = 0; j < 8; j++) c = (c >>> 1) ^ (c & 1 ? 0xEDB88320 : 0); }
-		c ^= 0xFFFFFFFF;
-		const crc = Buffer.alloc(4); crc.writeUInt32BE(c >>> 0, 0);
-		return Buffer.concat([len, typeB, d, crc]);
-	};
-	return Buffer.concat([sig, mk('IHDR', (b => { b.writeUInt32BE(w,0); b.writeUInt32BE(h,4); b[8]=8; b[9]=2; return b; })(Buffer.alloc(13))), mk('IDAT', compressed), mk('IEND', Buffer.alloc(0))]);
-}
+import { buildPng } from './_png';
 
 test.describe('planner', () => {
 	test.beforeEach(async ({ request }) => {
@@ -189,7 +159,7 @@ test.describe('planner', () => {
 
 	test('given_meal_with_image_when_opening_picker_then_thumbnail_shown_and_placeholder_for_no_image', async ({ page, request }) => {
 		// Create a meal with an image via API multipart upload
-		const png = buildMiniPng();
+		const png = buildPng(2, 2);
 		const imgRes = await request.post('/api/meals', {
 			multipart: {
 				name: 'Photo Pasta',
@@ -237,7 +207,7 @@ test.describe('planner', () => {
 		await expect(plainItem.locator('.meal-picker__thumb-img')).not.toBeAttached();
 		await expect(plainItem.locator('.meal-picker__thumb-placeholder')).toBeVisible();
 
-		// Wait a brief moment for lazy-loaded images to attempt loading
-		await page.waitForTimeout(500);
+		// Wait for a visible thumbnail image (lazy-loaded)
+		await photoItem.locator('.meal-picker__thumb-img').waitFor({ state: 'visible', timeout: 5000 });
 	});
 });

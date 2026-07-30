@@ -125,8 +125,8 @@ pub struct AppVersion {
     pub version: &'static str,
 }
 mod tests {
-    #[allow(unused_imports)]
-    use super::*;
+	#[allow(unused_imports)]
+	use super::*;
     #[test]
     fn given_valid_meal_json_when_deserialize_then_fields_match() {
         let json = r#"{"id":1,"name":"x","ingredients":[{"name":"y","quantity":null}],"instructions":"cook it","last_planned_at":null,"created_at":"2026-01-01T00:00:00Z","updated_at":"2026-01-01T00:00:00Z","has_image":false}"#;

@@ -2,52 +2,56 @@
 
 ## Project Overview
 
-**YummyBox** is a single-binary local-first web application for managing a personal collection of meals. A Rust backend (axum + rusqlite) serves a REST API and an embedded Svelte 5 SPA frontend — no Node.js runtime needed after compilation. The binary listens on `127.0.0.1:11341` and persists data to `./data/yummybox.db` (SQLite, auto-created on first run; override the directory with the `YUMMYBOX_DATA_DIR` env var).
+**YummyBox** is a single-binary local-first web application for managing a personal collection of meals. A Rust backend (axum + sqlx) serves a REST API and an embedded Svelte 5 SPA frontend — no Node.js runtime needed after compilation. The binary listens on `0.0.0.0:{port}` (default `11341`, override with `YUMMYBOX_PORT`) and persists data to a SQLite database (auto-created on first run; override the data directory with `YUMMYBOX_DATA_DIR`).
 
 ## Architecture & Data Flow
 
 ```
-Browser (SPA) ──fetch──▶ axum (Rust) ──sync──▶ SQLite (yummybox.db)
+Browser (SPA) ──fetch──▶ axum (Rust) ──async──▶ SQLite (via SqlitePool)
                     │
-                    ├── /api/*   → route handlers → db functions
+                    ├── /api/*   → route handlers → db/plan/import/bring functions
                     └── /*       → spa_fallback → embedded web/build/
 ```
 
 - **SPA frontend** (Svelte 5 runes, adapter-static, SSR disabled) makes `fetch` calls to `/api/*` on the same origin.
-- **API routes** live under `/api/meals` and `/api/meals/:id`. All other paths fall back to `index.html` (SPA client-side routing).
-- **State** is a single `Arc<AppState>` containing a `tokio::sync::Mutex<rusqlite::Connection>` — shared across all route handlers.
+- **API routes** live under `/api/` covering meals, import/LLM, plans, Bring! shopping, export/import, version, and meal images. All other paths fall back to `index.html` (SPA client-side routing).
+- **State** is a single `Arc<AppState>` containing a `SqlitePool` — shared across all route handlers.
 - **Frontend assets** are embedded at compile time via `rust-embed` from `web/build/`, which `build.rs` produces by running `npm install && npm run build` in `web/`.
-
-## Key Directories
 
 | Directory | Purpose |
 |-----------|---------|
 | `src/` | Rust source — flat files, no nested modules |
 | `src/main.rs` | Binary entry point, routing, server startup |
-| `src/db.rs` | SQLite operations (init, CRUD, validation, search) |
-| `src/routes.rs` | Axum handler functions + `#[cfg(test)]` integration tests |
-| `src/model.rs` | Serde DTOs: `Meal`, `NewMeal`, `MealPatch` |
+| `src/db.rs` | SQLite operations (init, CRUD, validation, search, ingredient hydration) |
+| `src/routes.rs` | Axum handler functions: meals, plans, Bring!, version, images + integration tests |
+| `src/plan.rs` | Week math, plan CRUD, ingredient aggregation, weighted meal selection |
+| `src/import.rs` | Import handlers: URL, LLM, paste, bulk; LLM config helpers |
+| `src/llm_import.rs` | LLM-based recipe extraction and parsing |
+| `src/recipe.rs` | HTML recipe scraping and ingredient extraction |
+| `src/model.rs` | Serde DTOs: `Meal`, `NewMeal`, `MealPatch`, `Plan`, etc. |
 | `src/error.rs` | `AppError` enum (thiserror) + `IntoResponse` impl |
-| `src/state.rs` | `AppState` struct holding the DB connection |
+| `src/state.rs` | `AppState` struct holding the `SqlitePool` |
 | `src/static_assets.rs` | SPA fallback via `rust-embed` |
+| `src/image.rs` | Image conversion/validation |
+| `src/jsonld.rs` | JSON-LD (schema.org Recipe) serialization |
+| `src/bring.rs` | Bring! shopping list integration |
+| `src/export_import.rs` | ZIP export/import of meals |
+| `src/seed.rs` | Database seeding with sample meals (`yummybox seed`) |
+| `src/data_dir.rs` | Data directory resolution and creation |
+| `migrations/` | SQLx migration files for schema evolution |
 | `web/` | SvelteKit project (frontend) |
-| `web/src/routes/` | Svelte page components (`+page.svelte`, `+layout.svelte`) |
-| `web/src/lib/` | Shared modules: `api.ts` (fetch client), `validation.ts`, `types.ts` |
+| `web/src/routes/` | Svelte page components: `+page.svelte` (home), `meals/` (list/create), `meals/[id]/` (detail/edit/cooking), `planner/` (weekly planner) |
+| `web/src/lib/` | Shared modules: `api.ts` (fetch client), `validation.ts`, `types.ts`, i18n, components |
 | `web/build/` | Build output (embedded into binary at compile time) |
 
 ## Development Commands
 
 ```bash
 # Build and run (production)
-cargo run --release
-
-# Build release binary only
-cargo build --release
-
-# Run all Rust tests (~40 tests)
+# Run all Rust tests (269 tests)
 cargo test
 
-# Run all frontend tests (~22 tests)
+# Run all frontend tests (114 tests)
 cd web && npm test
 
 # Type-check frontend
@@ -85,26 +89,26 @@ For the higher-level engineering principles (SOLID, YAGNI, error surfacing) see 
 
 **File structure**: Flat single files (no nested `mod` directories). Each file has a single responsibility. Module declarations live in `main.rs`.
 
-**Error handling**: Use `thiserror`-derived `AppError` enum. Every variant maps to an HTTP status code and JSON body `{"error": "..."}` via `IntoResponse`. No `unwrap`/`expect` in non-test code. Convert `rusqlite::Error` with `#[from]`, `serde_json::Error` with a manual `From` impl.
+**Error handling**: Use `thiserror`-derived `AppError` enum. Every variant maps to an HTTP status code and JSON body `{"error": "..."}` via `IntoResponse`. No `unwrap`/`expect` in non-test code. Convert `sqlx::Error` with `#[from]`, `serde_json::Error` with a manual `From` impl.
 
-**Async pattern**: Handlers are `async fn` returning `Result<Json<T>, AppError>` or `Result<(StatusCode, Json<T>), AppError>`. DB access goes through `state.conn.lock().await` using `tokio::sync::Mutex` (not `std::sync::Mutex` — would block the executor).
+**Async pattern**: Handlers are `async fn` returning `Result<Json<T>, AppError>` or `Result<(StatusCode, Json<T>), AppError>`. DB access uses `SqlitePool` with `sqlx::query!` / `sqlx::query_as!` macros — no manual locking needed.
 
-**State injection**: Axum `State(Arc<AppState>)` extractor. `AppState` holds the `Mutex<Connection>`.
+**State injection**: Axum `State(Arc<AppState>)` extractor. `AppState` holds a `SqlitePool`.
 
 **Logging**: `tracing` with `#[instrument(skip(state))]` on handlers. `tracing-subscriber` with `EnvFilter` (default `info`, overridable via `RUST_LOG`).
 
-**Validation**: `db::validate_meal()` — name: 1–200 chars, ingredients: 1–5000 chars after trim. Both backend and frontend enforce the same limits. Validation runs inside `insert_meal` and `update_meal` before touching the DB.
+**Validation**: `db::validate_meal()` enforces: name 1–200 chars, instructions 1–20000 chars, 1–100 ingredient lines (name ≤100 chars, quantity ≤50 chars), portions 1–10000. Both backend and frontend enforce the same limits. Validation runs inside `insert_meal` and `update_meal` before touching the DB.
 
 **Testing**: 
-- DB tests: synchronous `#[test]`, use `tempfile::TempDir` for isolated databases. 
+- DB tests: `#[tokio::test]` (async) for operations touching the DB, `#[test]` for pure validation/string helpers. Use `tempfile::TempDir` for isolated databases.
 - Route tests: `#[tokio::test]`, use `tower::ServiceExt::oneshot` to send `Request` objects to the router. Helper `TestCtx` struct holds the app and temp directory.
 - Naming convention: `given_<precondition>_when_<action>_then_<expected_result>`.
 
 **Dependencies**:
-- Keep external crates as low as possible; prefer `std` and built-in features (e.g., `tokio` is already in the tree — use its `sync::Mutex`, not `parking_lot`).
+- Keep external crates as low as possible; prefer `std` and built-in features (e.g., `sqlx`'s `SqlitePool` is already in the tree — use its connection pool, not a standalone connection manager).
 - Before adding a third-party crate, evaluate the trade-off: maintenance burden, transitive deps, MSRV impact, and whether `std` or an existing dep already covers it.
 - Pin the very latest stable version available on crates.io at the time of introduction; bump via `cargo upgrade` and review changelogs for breaking changes.
-- Current set: `axum` (http1+json+query+macros), `rusqlite` (bundled), `serde`/`serde_json`, `chrono`, `tokio`, `tracing`/`tracing-subscriber`, `thiserror`, `rust-embed`. Dev: `tempfile`, `tower` (util only).
+- Current set: `axum` (http1+json+query+multipart+macros), `sqlx` (sqlite+runtime-tokio+chrono+migrate+macros), `serde`/`serde_json`, `chrono`, `tokio`, `tracing`/`tracing-subscriber`, `thiserror`, `rust-embed`, `reqwest` (rustls+json+form), `image` (jpeg+png+gif+bmp+webp), `scraper`, `recipe-scraper`, `genai`, `base64`, `rand`, `ammonia`, `zip`. Dev: `tempfile`, `tower` (util only).
 
 ### Frontend (Svelte 5 + TypeScript)
 
@@ -130,7 +134,7 @@ One-line summary: each principle maps directly to a project convention — follo
 - **Single Responsibility**: one file = one concern (already encoded in the file-structure rule above).
 - **Open/Closed**: extend behavior by adding new route handlers or DB functions rather than mutating existing ones whose tests are green.
 - **Liskov Substitution**: handlers and DB functions are called through their concrete return types; no subtype-swap tricks. Listed for completeness — not a current concern.
-- **Interface Segregation**: prefer narrow function signatures over fat `AppState` accessors; pass only the needed value (e.g., the `MutexGuard`) into helpers.
+- **Interface Segregation**: prefer narrow function signatures over fat `AppState` accessors; pass only the needed value (e.g., a `&SqlitePool` reference) into helpers.
 - **Dependency Inversion**: handlers depend on `AppState` (a concrete struct); DB-free logic lives in pure functions that take their inputs by value, keeping them testable without a DB.
 
 ### YAGNI
@@ -148,18 +152,21 @@ If a function has no call site, delete it — no commented-out scaffolds, no `#[
 
 | File | Role |
 |------|------|
-| `Cargo.toml` | Binary name `yummybox`, edition 2024, Rust 1.85+ |
+| `Cargo.toml` | Binary name `yummybox`, edition 2024, Rust 1.85+, sqlx with compile-time checked queries |
 | `build.rs` | Auto-runs `npm install && npm run build` in `web/` |
-| `src/main.rs` | Router assembly, port binding, logging init |
-| `src/db.rs` | All SQL queries, validation, `init_db` schema creation |
-| `src/routes.rs` | Five handlers: list, get, create, update, delete |
+| `src/main.rs` | Router assembly, port binding, logging init, subcommand dispatch |
+| `src/db.rs` | SQL queries, validation, `init_db` schema creation, ingredient hydration |
+| `src/routes.rs` | Handlers: meals (list/get/create/update/delete), meal images, plans CRUD, Bring!, version |
+| `src/plan.rs` | Week math, plan CRUD, ingredient aggregation, weighted meal selection |
+| `src/import.rs` | Import handlers: URL, LLM, paste, bulk; LLM config helpers |
 | `src/error.rs` | `AppError` → HTTP response mapping |
-| `src/state.rs` | `AppState` (Mutex-wrapped Connection) |
+| `src/state.rs` | `AppState` (`SqlitePool`) |
 | `src/static_assets.rs` | MIME type mapping, SPA fallback logic |
+| `migrations/` | SQLx migration files for schema evolution |
 | `web/package.json` | Scripts: `dev`, `build`, `test`, `check` |
 | `web/vite.config.ts` | SvelteKit plugin, adapter-static, SSR disabled |
 | `web/vitest.config.ts` | Test include pattern: `src/**/*.test.ts` |
-| `web/src/routes/+page.svelte` | Entire app UI — form, list, search, edit, delete |
+| `web/src/routes/` | Svelte page components: home, meals list/detail/cooking, weekly planner |
 | `web/src/lib/api.ts` | Fetch client for all API endpoints |
 | `web/playwright.config.ts` | E2E config: visual tests on :11341 (release binary) |
 | `tests/playwright.config.ts` | E2E config: workflow tests on :11342 (auto-build, isolated DB) |
@@ -168,16 +175,16 @@ If a function has no call site, delete it — no commented-out scaffolds, no `#[
 ## Workflow Practices
 
 1. **Web search second opinion**: when planning a non-trivial feature, do not rely solely on training data — run a web search (or `mcp__context_query_docs` for libraries) to confirm current best practices, latest API shape, and any deprecations since the model's cutoff. Record the source in the plan's Research Notes if it changes the design.
-2. **Lint before done**: before finishing any task, run `cargo fmt`, then `cargo clippy --all-targets --all-features -- -D warnings` on the Rust side and `cd web && npm run check` on the frontend. CI gating policy (when CI is added): these must all pass before merge.
+2. **Lint before done**: CI enforces these gates on every push/PR: `cargo fmt --all -- --check`, `cargo clippy --all-targets --all-features -- -D warnings`, and `cd web && npm run check`. Run them locally before opening a PR to avoid round-trips.
 3. **Consistent style**: match the existing file's formatting (4-space indent, no trailing whitespace, `rustfmt` defaults), so a reviewer can read the diff rather than the new file.
 
 ## Runtime/Tooling Preferences
 
 - **Rust**: 1.85+ (edition 2024). Use `rustfmt` and `clippy`.
 - **Node.js**: 26+ (build-time only, for SvelteKit/Vite compilation).
-- **Port**: `127.0.0.1:11341` (hardcoded in `main.rs`).
-- **CI**: `.github/workflows/ci.yml` — Gitleaks → lint-format + frontend-tests + rust-tests (parallel) → e2e-tests (both suites) → create-release.
-- **Database**: SQLite via `rusqlite` with `bundled` feature — no system SQLite needed.
+- **Port**: `0.0.0.0:11341` by default, overridable via `YUMMYBOX_PORT` env var.
+- **CI**: `.github/workflows/ci.yml` — lint-format + frontend-tests + rust-tests (parallel) → e2e-tests (both suites) → create-release → build-binaries + build-container.
+- **Database**: SQLite via `sqlx` (bundled) — no system SQLite needed. Schema managed via `migrations/`.
 - **TLS**: `rustls` only (project rule: no OpenSSL / no `native-tls`). No TLS endpoints today, but any future TLS feature must use a `rustls`-based crate (e.g., `rustls`, `reqwest` with `rustls-tls` feature).
 
 ## Testing & QA
@@ -188,11 +195,12 @@ All tests are written in **BDD** style: name them by behavior, not implementatio
 ### Rust tests (`cargo test`)
 
 - **Location**: Inline `#[cfg(test)] mod tests` within each source file.
-- **DB layer** (`db.rs`, ~18 tests): Unit tests for CRUD, validation edge cases (empty strings, boundary lengths, whitespace-only), search filtering (by name, ingredients, both, whitespace search term).
-- **Route layer** (`routes.rs`, ~7 tests): Integration tests using `tower::ServiceExt::oneshot`. Verify status codes, response bodies, search filtering, 404 for missing resources.
-- **Error layer** (`error.rs`, ~6 tests): Verify each `AppError` variant maps to correct status code and JSON body.
-- **Model layer** (`model.rs`, ~3 tests): Serde round-trip and field deserialization.
-- **Static assets** (`static_assets.rs`, ~3 tests): Verify SPA fallback returns index.html, correct MIME types.
+- **DB layer** (`db.rs`): Unit tests for CRUD, validation edge cases (empty strings, boundary lengths, whitespace-only), search filtering, week math, weighted meal selection, ingredient aggregation.
+- **Route layer** (`routes.rs`): Integration tests using `tower::ServiceExt::oneshot`. Verify status codes, response bodies, search filtering, 404 for missing resources, plan CRUD, import endpoints, Bring! handlers.
+- **Plan, import, seed, image** (`plan.rs`, `import.rs`, `seed.rs`, `image.rs`): Unit tests for week math, weighted selection determinism, seeding idempotency, image conversion.
+- **Error layer** (`error.rs`): Verify each `AppError` variant maps to correct status code and JSON body.
+- **Model layer** (`model.rs`): Serde round-trip and field deserialization.
+- **Static assets** (`static_assets.rs`): Verify SPA fallback returns index.html, correct MIME types.
 - **Isolation**: Every test uses `tempfile::TempDir` for fresh databases. No shared state between tests.
 - **TDD workflow**: for any new DB function or route handler, add the failing test inside the same `#[cfg(test)] mod tests` block, run `cargo test -- <test_name>`, watch red, then implement.
 - **No unwrap/expect in non-test code** is the production rule; tests may use them freely, but prefer `assert_eq!` / `assert!` with a failure message naming the precondition.
@@ -200,9 +208,9 @@ All tests are written in **BDD** style: name them by behavior, not implementatio
 ### Frontend tests (`cd web && npm test`)
 
 - **Framework**: Vitest 4 with `@sveltejs/kit/vite` plugin.
-- **API tests** (`api.test.ts`, ~6 tests): Mock `fetch`, verify correct URL/method/body/headers for each API function, test error message extraction.
-- **Validation tests** (`validation.test.ts`, ~8 tests): Boundary and edge-case validation (empty, whitespace, exact-limit, one-over-limit).
-- **Page validation tests** (`page-validation.test.ts`, ~7 tests): Same validation logic imported via `$lib` alias (duplicate coverage from page level).
+- **API tests** (`api.test.ts`): Mock `fetch`, verify correct URL/method/body/headers for each API function, test error message extraction.
+- **Validation tests** (`validation.test.ts`): Boundary and edge-case validation (empty, whitespace, exact-limit, one-over-limit).
+- **Component tests**: Form rendering, focus trap behavior, i18n coverage.
 - **TDD workflow**: write the failing Vitest case first (`it(...)` with the observable behavior in the name), run `cd web && npm test -- -t <name>` to confirm red, then implement.
 
 ### E2E tests

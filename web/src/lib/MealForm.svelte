@@ -109,8 +109,9 @@
 			if (err instanceof ApiError && err.status === 409) {
 				formError = t('errorDuplicateMeal');
 			} else {
-				const raw = err instanceof Error ? err.message : String(err ?? '');
-				formError = raw === '__REQUEST_FAILED__' ? t('errorSaveFailed') : raw;
+				formError = err instanceof ApiError && err.code === 'REQUEST_FAILED'
+					? t('errorSaveFailed')
+					: err instanceof Error ? err.message : String(err ?? '');
 			}
 		}
 	}

@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { listPlansForYear, getPlan, createPlan, updatePlan, deletePlan, listMeals, sendToBring, mealImageUrl } from '$lib/api';
+	import { listPlansForYear, getPlan, createPlan, updatePlan, deletePlan, listMeals, sendToBring, mealImageUrl, ApiError } from '$lib/api';
 	import type { Plan, PlanSummaryItem, Meal } from '$lib/types';
 	import { t, formatDate } from '$lib/i18n';
 	import { weekOfDate, mondaySundayOf, isPastWeek, monthGrid, type MonthCell } from '$lib/week';
@@ -8,6 +8,7 @@
 	import { flip } from 'svelte/animate';
 	import { tierDuration } from '$lib/motion';
 	import DeleteConfirmDialog from '$lib/DeleteConfirmDialog.svelte';
+import { focusTrap } from '$lib/focusTrap';
 	import { page } from '$app/state';
 
 	let viewYear = $state(new Date().getFullYear());
@@ -116,7 +117,8 @@
 			selectedPlan = await getPlan(selectedWeekYear, selectedWeek);
 		} catch (err) {
 			selectedPlan = null;
-			if (err instanceof Error && err.message !== '__REQUEST_FAILED__') {
+			const isRequestFailed = err instanceof ApiError && err.code === 'REQUEST_FAILED';
+			if (err instanceof Error && !isRequestFailed) {
 				planError = err.message;
 			}
 		} finally {
@@ -185,34 +187,6 @@
 		} catch (err) {
 			planError = err instanceof Error ? err.message : String(err);
 		}
-	}
-
-	function focusTrap(node: HTMLElement) {
-		const previouslyFocused = document.activeElement as HTMLElement | null;
-		node.focus();
-		function onKey(e: KeyboardEvent) {
-			if (e.key !== 'Tab') return;
-			const focusables = node.querySelectorAll<HTMLElement>(
-				'button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])'
-			);
-			if (focusables.length === 0) return;
-			const first = focusables[0];
-			const last = focusables[focusables.length - 1];
-			if (e.shiftKey && document.activeElement === first) {
-				e.preventDefault();
-				last.focus();
-			} else if (!e.shiftKey && document.activeElement === last) {
-				e.preventDefault();
-				first.focus();
-			}
-		}
-		node.addEventListener('keydown', onKey);
-		return {
-			destroy() {
-				node.removeEventListener('keydown', onKey);
-				previouslyFocused?.focus?.();
-			},
-		};
 	}
 
 	/** Format the Mon–Sun date range for a given ISO week. */

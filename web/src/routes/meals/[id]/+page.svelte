@@ -8,6 +8,7 @@
 	import { fly, fade } from 'svelte/transition';
 	import { tierDuration } from '$lib/motion';
 	import DeleteConfirmDialog from '$lib/DeleteConfirmDialog.svelte';
+import { focusTrap } from '$lib/focusTrap';
 	import { readStoredLlmConfig } from '$lib/llm-config.svelte';
 	import MealForm from '$lib/MealForm.svelte';
 
@@ -106,34 +107,6 @@
 		}
 	}
 
-	// matches DeleteConfirmDialog.svelte and meals/+page.svelte focusTrap
-	function focusTrap(node: HTMLElement) {
-		const previouslyFocused = document.activeElement as HTMLElement | null;
-		node.focus();
-		function onKey(e: KeyboardEvent) {
-			if (e.key !== 'Tab') return;
-			const focusables = node.querySelectorAll<HTMLElement>(
-				'button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])'
-			);
-			if (focusables.length === 0) return;
-			const first = focusables[0];
-			const last = focusables[focusables.length - 1];
-			if (e.shiftKey && document.activeElement === first) {
-				e.preventDefault();
-				last.focus();
-			} else if (!e.shiftKey && document.activeElement === last) {
-				e.preventDefault();
-				first.focus();
-			}
-		}
-		node.addEventListener('keydown', onKey);
-		return {
-			destroy() {
-				node.removeEventListener('keydown', onKey);
-				previouslyFocused?.focus?.();
-			},
-		};
-	}
 
 	async function doPolish() {
 		if (!meal || polishing) return;
@@ -177,6 +150,7 @@
 	{:else if notFound}
 		<p class="cooking-view__not-found">{t('cookingViewNotFound')}</p>
 	{:else if meal}
+		{@const m = meal}
 		<article class="cooking-view" in:fly={{ y: 8, duration: tierDuration(250) }}>
 
 			<figure class="cooking-view__hero">
@@ -245,21 +219,22 @@
 				</p>
 
 			{#if meal.portions != null}
+				{@const p = meal.portions}
 				<div class="cooking-view__servings">
-					<span class="cooking-view__servings-label">{t('cookingViewServes', { count: String(meal.portions) })}</span>
+					<span class="cooking-view__servings-label">{t('cookingViewServes', { count: String(p) })}</span>
 					<span class="cooking-view__stepper">
 						<button
 							type="button" class="cooking-view__stepper-btn"
 							aria-label={t('cookingViewDecrement')}
-							onclick={() => desiredPortions = Math.max(1, (desiredPortions ?? meal.portions!) - 1)}
-							disabled={(desiredPortions ?? meal.portions!) <= 1}
+							onclick={() => desiredPortions = Math.max(1, (desiredPortions ?? p) - 1)}
+							disabled={(desiredPortions ?? p) <= 1}
 						>&minus;</button>
-						<span class="cooking-view__stepper-value">{desiredPortions ?? meal.portions}</span>
+						<span class="cooking-view__stepper-value">{desiredPortions ?? p}</span>
 						<button
 							type="button" class="cooking-view__stepper-btn"
 							aria-label={t('cookingViewIncrement')}
-							onclick={() => desiredPortions = Math.min(10000, (desiredPortions ?? meal.portions!) + 1)}
-							disabled={(desiredPortions ?? meal.portions!) >= 10000}
+							onclick={() => desiredPortions = Math.min(10000, (desiredPortions ?? p) + 1)}
+							disabled={(desiredPortions ?? p) >= 10000}
 						>+</button>
 					</span>
 				</div>
