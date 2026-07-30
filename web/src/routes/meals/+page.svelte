@@ -33,8 +33,7 @@ import { readStoredLlmConfig, persistLlmConfig } from '$lib/llm-config.svelte';
 	let formImage = $state<File | null>(null);
 	let removeImage = $state(false);
 	let submitting = $state(false);
-	let importMode = $state<'urls' | 'llm' | 'zip'>('urls');
-	let importCollapsed = $state(false);
+	let importMode = $state<'manual' | 'urls' | 'llm' | 'zip'>('urls');
     let importLlmProvider = $state('');
     let importLlmModel = $state('');
     let importLlmHint = $state('');
@@ -90,7 +89,7 @@ import { readStoredLlmConfig, persistLlmConfig } from '$lib/llm-config.svelte';
             });
             importLlmHint = '';
             importToken++;
-            importCollapsed = true;
+            importMode = 'manual';
         } catch (err) {
             if (err instanceof ApiError) {
                 if (err.code === 'llm_timeout') {
@@ -302,11 +301,10 @@ import { readStoredLlmConfig, persistLlmConfig } from '$lib/llm-config.svelte';
     function openAdd() {
         formName = ''; formIngredients = [{ name: '', quantity: null }]; formInstructions = '';
         formPortions = null; formImage = null; removeImage = false; submitting = false; llmConfigRestored = false;
-        importMode = 'urls';
+        importMode = 'manual';
         importLlmProvider = ''; importLlmModel = ''; importLlmHint = '';
         llmSettingsCollapsed = false;
         importing = false; importError = null; importToken++;
-        importCollapsed = false;
         bulkUrls = ''; bulkImporting = false; bulkResult = null; bulkError = null;
         zipFile = null; zipImporting = false; zipResult = null; zipError = null;
         addOpen = true;
@@ -315,8 +313,7 @@ import { readStoredLlmConfig, persistLlmConfig } from '$lib/llm-config.svelte';
     function openImport() {
         menuOpen = false;
         openAdd();
-        // Focus the import section — ensure it's not collapsed
-        importCollapsed = false;
+        importMode = 'urls';
     }
 	function closeAdd() {
 		if (bulkResult && bulkResult.created.length > 0) {
@@ -604,19 +601,15 @@ import { readStoredLlmConfig, persistLlmConfig } from '$lib/llm-config.svelte';
 						<Icon name="x" size={20} />
 					</button>
 				</div>
-				<div class="add-modal__body" class:add-modal__body--two-panel={!importCollapsed}>
+				<div class="add-modal__body">
 					<section class="add-modal__panel add-modal__panel--import">
-						{#if importCollapsed && importMode === 'llm'}
-							<div class="import-section--collapsed">
-								<Icon name="check" size={18} />
-								<span class="import-section__summary">{t('importCollapsedSummary')}</span>
-								<button type="button" class="btn btn--ghost" onclick={() => importCollapsed = false}>
-									{t('importCollapsedExpand')}
-								</button>
-							</div>
-						{:else}
-							<section class="import-card">
+						<section class="import-card">
 								<div class="import-tabs">
+					<button type="button" class="import-tab" class:import-tab--active={importMode === ('manual' as typeof importMode)}
+						onclick={() => importMode = 'manual'}>
+						<Icon name="pen-line" size={16} />
+						<span>{t('importTabManual')}</span>
+					</button>
 					<button type="button" class="import-tab" class:import-tab--active={importMode === 'urls'}
 						onclick={() => importMode = 'urls'}>
 						<Icon name="layers" size={16} />
@@ -633,7 +626,9 @@ import { readStoredLlmConfig, persistLlmConfig } from '$lib/llm-config.svelte';
 						<span>{t('importTabZip')}</span>
 					</button>
 								</div>
-								{#if importMode === 'urls'}
+								{#if importMode === 'manual'}
+									<!-- fill in the form on the right -->
+								{:else if importMode === 'urls'}
 								{#if bulkResult}
 									<div class="bulk-results">
 										<p class="bulk-results__success">
@@ -784,8 +779,8 @@ import { readStoredLlmConfig, persistLlmConfig } from '$lib/llm-config.svelte';
 									</p>
 								{/if}
 							</section>
-						{/if}
 					</section>
+					{#if importMode === 'manual'}
 						<section class="add-modal__panel add-modal__panel--form">
 							{#key importToken}
 								<MealForm
@@ -801,6 +796,7 @@ import { readStoredLlmConfig, persistLlmConfig } from '$lib/llm-config.svelte';
 								/>
 							{/key}
 						</section>
+					{/if}
 				</div>
 			</div>
 	</div>
@@ -892,12 +888,6 @@ import { readStoredLlmConfig, persistLlmConfig } from '$lib/llm-config.svelte';
 		gap: var(--space-5);
 	}
 
-	.add-modal__body--two-panel {
-		display: grid;
-		grid-template-columns: 1fr 1fr;
-		gap: var(--space-6);
-		align-items: start;
-	}
 	.add-modal__panel {
 		display: flex;
 		flex-direction: column;
@@ -911,27 +901,9 @@ import { readStoredLlmConfig, persistLlmConfig } from '$lib/llm-config.svelte';
 			width: 100vw;
 			max-height: 92vh;
 		}
-		.add-modal__body--two-panel {
-			grid-template-columns: 1fr;
-			gap: var(--space-5);
-		}
 	}
 
 
-	.import-section--collapsed {
-		display: flex;
-		align-items: center;
-		gap: var(--space-3);
-		padding: var(--space-3) var(--space-4);
-		background: var(--color-success-bg);
-		border: 1px solid var(--color-border);
-		border-radius: var(--radius-lg);
-	}
-	.import-section__summary {
-		flex: 1;
-		font-size: var(--text-sm);
-		color: var(--color-text);
-	}
 
 	/* Import card — recessive, secondary to authoring form */
 	.import-card {

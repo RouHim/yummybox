@@ -69,7 +69,7 @@ test.describe('LLM import', () => {
 
 		await page.getByRole('button', { name: 'Parse with AI' }).click();
 
-		await expect(page.getByRole('button', { name: /^Import another$/ })).toBeVisible();
+		// After LLM import, form should be visible with populated data (auto-switched to manual tab)
 		await expect(page.getByLabel('Name', { exact: true })).toHaveValue('AI Curry');
 
 		await dialog.getByRole('button', { name: /^(Add|Hinzufügen)$/ }).click();
