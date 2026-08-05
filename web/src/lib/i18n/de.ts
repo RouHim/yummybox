@@ -94,6 +94,7 @@ export const de: Record<TranslationKey, string> = {
 	importTabLlm: 'KI-Import',
     importLlmModelPlaceholder: 'Modellname (z. B. gpt-4o-mini)',
     importLlmHintPlaceholder: 'Beschreibe das Gericht oder füge eine Rezept-URL ein...',
+    importLlmImageLabel: 'Foto (optional) — die KI kann daraus ein Rezept extrahieren',
     importButtonLlm: 'Mit KI parsen',
     llmProviderLabel: 'Anbieter',
     llmProviderPlaceholder: 'Anbieter wählen…',

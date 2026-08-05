@@ -100,6 +100,7 @@ export type TranslationKey =
 	| 'importTabLlm'
 	| 'importLlmModelPlaceholder'
 	| 'importLlmHintPlaceholder'
+	| 'importLlmImageLabel'
 	| 'importButtonLlm'
 	| 'llmProviderLabel'
 	| 'llmProviderPlaceholder'
