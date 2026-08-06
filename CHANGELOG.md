@@ -1,3 +1,15 @@
+# [1.15.0](https://github.com/RouHim/yummybox/compare/v1.14.1...v1.15.0) (2026-08-06)
+
+
+### Bug Fixes
+
+* **ci:** pin semantic-release toolchain and upload release log on failure ([793aa2e](https://github.com/RouHim/yummybox/commit/793aa2e828e6c8da25e0e0ed5a73f8168dd1ef54))
+
+
+### Features
+
+* restore photo upload for AI recipe import ([5267a5d](https://github.com/RouHim/yummybox/commit/5267a5d67ba078d4d0e400f75e74c0ce31e8f4f2))
+
 ## [1.14.1](https://github.com/RouHim/yummybox/compare/v1.14.0...v1.14.1) (2026-07-30)
 
 
