@@ -145,19 +145,19 @@ jobs:
       - name: Install semantic-release
         run: |
           npm install -g \
-            semantic-release \
-            @semantic-release/git \
-            @semantic-release/changelog \
-            @semantic-release/commit-analyzer \
-            @semantic-release/release-notes-generator \
-            conventional-changelog-conventionalcommits
+            semantic-release@25.0.9 \
+            @semantic-release/git@11.0.1 \
+            @semantic-release/changelog@7.0.0 \
+            @semantic-release/commit-analyzer@13.0.1 \
+            @semantic-release/release-notes-generator@14.1.1 \
+            conventional-changelog-conventionalcommits@10.2.1
       - name: semantic-release
         id: semantic
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           BEFORE_TAG=$(git tag --list 'v*' --sort=-version:refname | head -n1)
-          npx semantic-release
+          npx semantic-release 2>&1 | tee /tmp/semantic-release.log
           git remote set-url origin "https://x-access-token:${GITHUB_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
           git fetch --tags --force
           AFTER_TAG=$(git tag --list 'v*' --sort=-version:refname | head -n1)
@@ -169,6 +169,13 @@ jobs:
             echo "new_release_published=false" >> "$GITHUB_OUTPUT"
             echo "new_release_version=" >> "$GITHUB_OUTPUT"
           fi
+      - name: Upload semantic-release log
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: semantic-release-log
+          path: /tmp/semantic-release.log
+          retention-days: 14
 
   build-binaries:
     needs: create-release
