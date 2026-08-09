@@ -24,6 +24,7 @@ import { focusTrap } from '$lib/focusTrap';
 
 	let deleteOpen = $state(false);
 	let deleting = $state(false);
+	let deleteError = $state<string | null>(null);
 
 	let editOpen = $state(false);
 	let editSubmitting = $state(false);
@@ -65,16 +66,21 @@ import { focusTrap } from '$lib/focusTrap';
 		if (!Number.isNaN(mealId)) loadMeal();
 	});
 
-	function openDelete() { deleteOpen = true; }
+	function openDelete() { deleteOpen = true; deleteError = null; }
 	function closeDelete() { deleteOpen = false; }
 
 	async function confirmDelete() {
 		if (!meal) return;
 		deleting = true;
+		deleteError = null;
 		try {
 			await deleteMeal(meal.id);
 			deleteOpen = false;
 			await goto('/meals');
+		} catch (err) {
+			deleteError = err instanceof ApiError && err.code === 'REQUEST_FAILED'
+				? t('errorDeleteFailed')
+				: err instanceof Error ? err.message : String(err);
 		} finally {
 			deleting = false;
 		}
@@ -301,6 +307,12 @@ import { focusTrap } from '$lib/focusTrap';
 		onconfirm={confirmDelete}
 		oncancel={closeDelete}
 	/>
+	{#if deleteError}
+		<p class="form-error" role="alert">
+			<Icon name="circle-alert" size={18} />
+			<span>{deleteError}</span>
+		</p>
+	{/if}
 </main>
 
 <style>
