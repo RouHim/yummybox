@@ -583,7 +583,10 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(mode, "wal");
-        assert_eq!(sync, 2, "synchronous must be FULL (2) so committed writes survive power loss");
+        assert_eq!(
+            sync, 2,
+            "synchronous must be FULL (2) so committed writes survive power loss"
+        );
     }
 
     async fn insert_test_meal(
