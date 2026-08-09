@@ -130,14 +130,27 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let listener = tokio::net::TcpListener::bind(&addr).await?;
     info!("listening on http://{addr}");
 
-    let serve = axum::serve(listener, app).with_graceful_shutdown(shutdown_signal());
-    match tokio::time::timeout(Duration::from_secs(15), serve).await {
-        Ok(Ok(())) => Ok(()),
-        Ok(Err(e)) => Err(e.into()),
-        Err(_elapsed) => {
-            tracing::warn!("graceful shutdown timed out after 15s, forcing exit");
-            Ok(())
+    let (signal_tx, mut signal_rx) = tokio::sync::watch::channel(false);
+    let serve = axum::serve(listener, app).with_graceful_shutdown(async move {
+        shutdown_signal().await;
+        let _ = signal_tx.send(true);
+    });
+    // Hard cap on the drain only: the 15s clock starts when the shutdown
+    // signal arrives, not when the server starts. Without a signal the
+    // server runs indefinitely.
+    let drain_cap = async {
+        if signal_rx.changed().await.is_err() {
+            return;
         }
+        tokio::time::sleep(Duration::from_secs(15)).await;
+        tracing::warn!("graceful shutdown timed out after 15s, forcing exit");
+    };
+    tokio::select! {
+        result = serve => match result {
+            Ok(()) => Ok(()),
+            Err(e) => Err(e.into()),
+        },
+        _ = drain_cap => Ok(()),
     }
 }
 
