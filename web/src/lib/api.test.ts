@@ -33,13 +33,13 @@ describe('listMeals', () => {
 	it('calls /api/meals without search', async () => {
 		mockResponse(200, []);
 		await listMeals();
-		expect(mockFetch).toHaveBeenCalledWith('/api/meals', undefined);
+		expect(mockFetch).toHaveBeenCalledWith('/api/meals', expect.objectContaining({ signal: expect.any(AbortSignal) }));
 	});
 
 	it('calls /api/meals?search=...', async () => {
 		mockResponse(200, []);
 		await listMeals('pizza');
-		expect(mockFetch).toHaveBeenCalledWith('/api/meals?search=pizza', undefined);
+		expect(mockFetch).toHaveBeenCalledWith('/api/meals?search=pizza', expect.objectContaining({ signal: expect.any(AbortSignal) }));
 	});
 });
 
@@ -48,7 +48,7 @@ describe('getMeal', () => {
 		const meal: Meal = { id: 5, name: 'Pasta', ingredients: [], last_planned_at: null, created_at: '', updated_at: '', has_image: false, instructions: '', portions: null };
 		mockResponse(200, meal);
 		const result = await getMeal(5);
-		expect(mockFetch).toHaveBeenCalledWith('/api/meals/5', undefined);
+		expect(mockFetch).toHaveBeenCalledWith('/api/meals/5', expect.objectContaining({ signal: expect.any(AbortSignal) }));
 		expect(result).toEqual(meal);
 	});
 
@@ -138,7 +138,7 @@ describe('deleteMeal', () => {
 	it('deletes /api/meals/:id', async () => {
 		mockResponse(204);
 		await deleteMeal(7);
-		expect(mockFetch).toHaveBeenCalledWith('/api/meals/7', { method: 'DELETE' });
+		expect(mockFetch).toHaveBeenCalledWith('/api/meals/7', expect.objectContaining({ method: 'DELETE', signal: expect.any(AbortSignal) }));
 	});
 });
 
@@ -190,6 +190,76 @@ describe('error handling', () => {
     });
 });
 
+describe('network failures and retries', () => {
+    it('retries GET failures and rejects with REQUEST_FAILED after exhausting retries', async () => {
+        mockFetch.mockRejectedValue(new TypeError('Failed to fetch'));
+        try {
+            await listMeals();
+            expect.fail('should have thrown');
+        } catch (err) {
+            expect(err).toBeInstanceOf(ApiError);
+            expect((err as ApiError).code).toBe('REQUEST_FAILED');
+            expect((err as ApiError).message).toContain('connection');
+        }
+        expect(mockFetch).toHaveBeenCalledTimes(3);
+    });
+
+    it('recovers from transient GET failures and resolves', async () => {
+        mockFetch.mockRejectedValueOnce(new TypeError('Failed to fetch'));
+        mockFetch.mockRejectedValueOnce(new TypeError('Failed to fetch'));
+        mockResponse(200, []);
+        const result = await listMeals();
+        expect(result).toEqual([]);
+        expect(mockFetch).toHaveBeenCalledTimes(3);
+    });
+
+    it('never retries HTTP error responses', async () => {
+        mockResponse(500, { error: 'boom' });
+        try {
+            await getMeal(5);
+            expect.fail('should have thrown');
+        } catch (err) {
+            expect(err).toBeInstanceOf(ApiError);
+            expect((err as ApiError).status).toBe(500);
+            expect((err as ApiError).message).toBe('boom');
+        }
+        expect(mockFetch).toHaveBeenCalledTimes(1);
+    });
+
+    it('never retries POST requests', async () => {
+        mockFetch.mockRejectedValueOnce(new TypeError('Failed to fetch'));
+        try {
+            await createMeal({ name: 'X', ingredients: [], instructions: '' });
+            expect.fail('should have thrown');
+        } catch (err) {
+            expect(err).toBeInstanceOf(ApiError);
+            expect((err as ApiError).code).toBe('REQUEST_FAILED');
+        }
+        expect(mockFetch).toHaveBeenCalledTimes(1);
+    });
+
+    it('times out after 30s and rejects with REQUEST_FAILED', async () => {
+        vi.useFakeTimers();
+        try {
+            mockFetch.mockImplementation(
+                (_url: unknown, init?: RequestInit) =>
+                    new Promise((_, reject) => {
+                        init?.signal?.addEventListener('abort', () =>
+                            reject(new DOMException('The operation was aborted.', 'AbortError'))
+                        );
+                    })
+            );
+            const promise = createMeal({ name: 'X', ingredients: [], instructions: '' });
+            const rejection = expect(promise).rejects.toMatchObject({ code: 'REQUEST_FAILED' });
+            await vi.advanceTimersByTimeAsync(30_000);
+            await rejection;
+            expect(mockFetch).toHaveBeenCalledTimes(1);
+        } finally {
+            vi.useRealTimers();
+        }
+    });
+});
+
 // ---------------------------------------------------------------------------
 // Plan API
 // ---------------------------------------------------------------------------
@@ -198,7 +268,7 @@ describe('listPlansForYear', () => {
 	it('calls /api/plans?year=...', async () => {
 		mockResponse(200, []);
 		await listPlansForYear(2026);
-		expect(mockFetch).toHaveBeenCalledWith('/api/plans?year=2026', undefined);
+		expect(mockFetch).toHaveBeenCalledWith('/api/plans?year=2026', expect.objectContaining({ signal: expect.any(AbortSignal) }));
 	});
 
 	it('throws on non-array response', async () => {
@@ -212,7 +282,7 @@ describe('getPlan', () => {
 		const plan: Plan = { id: 1, year: 2026, week_number: 1, created_at: '', meals: [], ingredient_summary: [] };
 		mockResponse(200, plan);
 		const result = await getPlan(2026, 1);
-		expect(mockFetch).toHaveBeenCalledWith('/api/plans?year=2026&week=1');
+		expect(mockFetch).toHaveBeenCalledWith('/api/plans?year=2026&week=1', expect.objectContaining({ signal: expect.any(AbortSignal) }));
 		expect(result).toEqual(plan);
 	});
 
@@ -229,11 +299,12 @@ describe('createPlan', () => {
 		const plan: Plan = { id: 1, year: 2026, week_number: 1, created_at: '', meals: [], ingredient_summary: [] };
 		mockResponse(201, plan);
 		await createPlan(payload);
-		expect(mockFetch).toHaveBeenCalledWith('/api/plans', {
+		expect(mockFetch).toHaveBeenCalledWith('/api/plans', expect.objectContaining({
 			method: 'POST',
 			headers: { 'content-type': 'application/json' },
-			body: JSON.stringify(payload)
-		});
+			body: JSON.stringify(payload),
+			signal: expect.any(AbortSignal)
+		}));
 	});
 });
 
@@ -243,11 +314,12 @@ describe('updatePlan', () => {
 		const plan: Plan = { id: 1, year: 2026, week_number: 1, created_at: '', meals: [], ingredient_summary: [] };
 		mockResponse(200, plan);
 		await updatePlan(2026, 1, payload);
-		expect(mockFetch).toHaveBeenCalledWith('/api/plans/2026/1', {
+		expect(mockFetch).toHaveBeenCalledWith('/api/plans/2026/1', expect.objectContaining({
 			method: 'PUT',
 			headers: { 'content-type': 'application/json' },
-			body: JSON.stringify(payload)
-		});
+			body: JSON.stringify(payload),
+			signal: expect.any(AbortSignal)
+		}));
 	});
 });
 
@@ -255,7 +327,7 @@ describe('deletePlan', () => {
 	it('deletes /api/plans/:year/:week', async () => {
 		mockResponse(204);
 		await deletePlan(2026, 1);
-		expect(mockFetch).toHaveBeenCalledWith('/api/plans/2026/1', { method: 'DELETE' });
+		expect(mockFetch).toHaveBeenCalledWith('/api/plans/2026/1', expect.objectContaining({ method: 'DELETE', signal: expect.any(AbortSignal) }));
 	});
 });
 
@@ -268,11 +340,12 @@ describe('importFromUrl', () => {
 		const draft = { name: 'Pasta', ingredients: [], instructions: 'Boil water', imageBase64: null };
 		mockResponse(200, draft);
 		const result = await importFromUrl('https://example.com/recipe');
-		expect(mockFetch).toHaveBeenCalledWith('/api/import/url', {
+		expect(mockFetch).toHaveBeenCalledWith('/api/import/url', expect.objectContaining({
 			method: 'POST',
 			headers: { 'Content-Type': 'application/json' },
 			body: JSON.stringify({ url: 'https://example.com/recipe' }),
-		});
+			signal: expect.any(AbortSignal)
+		}));
 		expect(result).toEqual(draft);
 	});
 });
@@ -282,11 +355,12 @@ describe('importFromPaste', () => {
 		const draft = { name: 'Toast', ingredients: [{ name: 'bread', quantity: null }], instructions: 'Toast it', imageBase64: null };
 		mockResponse(200, draft);
 		const result = await importFromPaste('<html>raw html</html>');
-		expect(mockFetch).toHaveBeenCalledWith('/api/import/paste', {
+		expect(mockFetch).toHaveBeenCalledWith('/api/import/paste', expect.objectContaining({
 			method: 'POST',
 			headers: { 'Content-Type': 'application/json' },
 			body: JSON.stringify({ content: '<html>raw html</html>' }),
-		});
+			signal: expect.any(AbortSignal)
+		}));
 		expect(result).toEqual(draft);
 	});
 });
@@ -302,11 +376,12 @@ describe('importBulk', () => {
 		mockResponse(200, result);
 
 		const response = await importBulk({ urls: ['https://example.com/a', 'https://example.com/b'] });
-		expect(mockFetch).toHaveBeenCalledWith('/api/import/bulk', {
+		expect(mockFetch).toHaveBeenCalledWith('/api/import/bulk', expect.objectContaining({
 			method: 'POST',
 			headers: { 'Content-Type': 'application/json' },
 			body: JSON.stringify({ urls: ['https://example.com/a', 'https://example.com/b'] }),
-		});
+			signal: expect.any(AbortSignal)
+		}));
 		expect(response).toEqual(result);
 	});
 });
@@ -322,11 +397,12 @@ describe('sendToBring', () => {
 
 		const result = await sendToBring('Tomatoes', '400 g');
 
-		expect(mockFetch).toHaveBeenCalledWith('/api/bring/items', {
+		expect(mockFetch).toHaveBeenCalledWith('/api/bring/items', expect.objectContaining({
 			method: 'POST',
 			headers: { 'Content-Type': 'application/json' },
 			body: JSON.stringify({ name: 'Tomatoes', spec: '400 g' }),
-		});
+			signal: expect.any(AbortSignal)
+		}));
 		expect(result).toEqual({ sent: true });
 	});
 
@@ -335,11 +411,12 @@ describe('sendToBring', () => {
 
 		await sendToBring('Tomatoes', null);
 
-		expect(mockFetch).toHaveBeenCalledWith('/api/bring/items', {
+		expect(mockFetch).toHaveBeenCalledWith('/api/bring/items', expect.objectContaining({
 			method: 'POST',
 			headers: { 'Content-Type': 'application/json' },
 			body: JSON.stringify({ name: 'Tomatoes', spec: null }),
-		});
+			signal: expect.any(AbortSignal)
+		}));
 	});
 
 	it('throws with error message from server', async () => {
@@ -359,7 +436,7 @@ describe('checkBringStatus', () => {
 
 		const result = await checkBringStatus();
 
-		expect(mockFetch).toHaveBeenCalledWith('/api/bring/status', undefined);
+		expect(mockFetch).toHaveBeenCalledWith('/api/bring/status', expect.objectContaining({ signal: expect.any(AbortSignal) }));
 		expect(result).toEqual({ configured: true, connected: true, error: null });
 	});
 
@@ -380,7 +457,7 @@ describe('listLlmProviders', () => {
         const providers = [{ id: 'openai', name: 'OpenAI', envVar: 'OPENAI_API_KEY', configured: false, supportsCustomEndpoint: false }];
         mockResponse(200, { providers });
         const result = await listLlmProviders();
-        expect(mockFetch).toHaveBeenCalledWith('/api/llm/providers', undefined);
+        expect(mockFetch).toHaveBeenCalledWith('/api/llm/providers', expect.objectContaining({ signal: expect.any(AbortSignal) }));
         expect(result).toEqual(providers);
     });
 });
@@ -390,7 +467,7 @@ describe('listLlmModels', () => {
         const models = { models: ['gpt-4o-mini', 'gpt-4o'] };
         mockResponse(200, models);
         const result = await listLlmModels('openai');
-        expect(mockFetch).toHaveBeenCalledWith('/api/llm/models?provider=openai', undefined);
+        expect(mockFetch).toHaveBeenCalledWith('/api/llm/models?provider=openai', expect.objectContaining({ signal: expect.any(AbortSignal) }));
         expect(result).toEqual(models);
     });
 
@@ -510,7 +587,7 @@ describe('getVersion', () => {
 	it('calls /api/version and returns version', async () => {
 		mockResponse(200, { version: '0.1.0' });
 		const result = await getVersion();
-		expect(mockFetch).toHaveBeenCalledWith('/api/version', undefined);
+		expect(mockFetch).toHaveBeenCalledWith('/api/version', expect.objectContaining({ signal: expect.any(AbortSignal) }));
 		expect(result.version).toBe('0.1.0');
 	});
 });
