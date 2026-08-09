@@ -157,14 +157,14 @@ export async function importFromPaste(content: string, imageUrl?: string): Promi
 export async function importFromLlm(
     model: string,
     hint: string | null,
-    image: File | null,
+    images: File[],
     baseUrl?: string,
     apiKey?: string,
 ): Promise<ImportDraft> {
     const form = new FormData();
     form.set('model', model);
     if (hint && hint.trim()) form.set('hint', hint.trim());
-    if (image) form.set('image', image);
+    for (const img of images) form.append('image', img);
     if (baseUrl) form.set('base_url', baseUrl);
     if (apiKey) form.set('api_key', apiKey);
     return request<ImportDraft>('/api/import/llm', { method: 'POST', body: form });

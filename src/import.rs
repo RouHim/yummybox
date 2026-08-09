@@ -98,6 +98,17 @@ pub(crate) async fn load_image_from_url(
     Ok(Json(ImageFromUrlResponse { image_base64: b64 }))
 }
 
+/// Map a multipart error to an `AppError`. Body-size-limit violations are
+/// reported as 413 (they can surface from `next_field()`, `field.bytes()`, or
+/// `field.text()` alike); everything else is a 400 with the given context.
+fn map_multipart_error(e: axum::extract::multipart::MultipartError, what: &str) -> AppError {
+    if e.status() == StatusCode::PAYLOAD_TOO_LARGE {
+        AppError::PayloadTooLarge("request body exceeds 50 MB limit".into())
+    } else {
+        AppError::BadRequest(format!("{what}: {e}"))
+    }
+}
+
 #[instrument(skip(_state))]
 pub(crate) async fn import_from_llm(
     State(_state): State<Arc<AppState>>,
@@ -105,52 +116,50 @@ pub(crate) async fn import_from_llm(
 ) -> Result<Json<recipe::ImportDraft>, AppError> {
     let mut model: Option<String> = None;
     let mut hint: Option<String> = None;
-    let mut image_bytes: Option<Vec<u8>> = None;
-    let mut image_content_type: Option<String> = None;
+    let mut images: Vec<(Vec<u8>, Option<String>)> = Vec::new(); // (bytes, content_type) in multipart order
     let mut base_url: Option<String> = None;
     let mut api_key: Option<String> = None;
 
     while let Some(field) = multipart
         .next_field()
         .await
-        .map_err(|e| AppError::BadRequest(format!("invalid multipart data: {e}")))?
+        .map_err(|e| map_multipart_error(e, "invalid multipart data"))?
     {
         match field.name() {
             Some("model") => {
-                let text = field.text().await.map_err(|e| {
-                    AppError::BadRequest(format!("failed to read model field: {e}"))
-                })?;
+                let text = field
+                    .text()
+                    .await
+                    .map_err(|e| map_multipart_error(e, "failed to read model field"))?;
                 model = Some(text);
             }
             Some("hint") => {
                 let text = field
                     .text()
                     .await
-                    .map_err(|e| AppError::BadRequest(format!("failed to read hint field: {e}")))?;
+                    .map_err(|e| map_multipart_error(e, "failed to read hint field"))?;
                 hint = Some(text);
             }
             Some("image") => {
-                if image_bytes.is_some() {
-                    return Err(AppError::BadRequest(
-                        "only one image may be uploaded".into(),
-                    ));
-                }
-                image_content_type = field.content_type().map(String::from);
-                let data = field.bytes().await.map_err(|e| {
-                    AppError::BadRequest(format!("failed to read image field: {e}"))
-                })?;
-                image_bytes = Some(data.to_vec());
+                let content_type = field.content_type().map(String::from);
+                let data = field
+                    .bytes()
+                    .await
+                    .map_err(|e| map_multipart_error(e, "failed to read image field"))?;
+                images.push((data.to_vec(), content_type));
             }
             Some("base_url") => {
-                let text = field.text().await.map_err(|e| {
-                    AppError::BadRequest(format!("failed to read base_url field: {e}"))
-                })?;
+                let text = field
+                    .text()
+                    .await
+                    .map_err(|e| map_multipart_error(e, "failed to read base_url field"))?;
                 base_url = Some(text);
             }
             Some("api_key") => {
-                let text = field.text().await.map_err(|e| {
-                    AppError::BadRequest(format!("failed to read api_key field: {e}"))
-                })?;
+                let text = field
+                    .text()
+                    .await
+                    .map_err(|e| map_multipart_error(e, "failed to read api_key field"))?;
                 api_key = Some(text);
             }
             _ => {}
@@ -169,11 +178,30 @@ pub(crate) async fn import_from_llm(
         .map(|s| s.trim().to_string())
         .filter(|s| !s.is_empty());
 
-    let image_bytes = match image_bytes {
-        Some(b) if !b.is_empty() => Some(b),
-        _ => None,
-    };
-    if image_bytes.is_none() && hint.is_none() {
+    const MAX_IMAGES: usize = 5;
+    if images.len() > MAX_IMAGES {
+        return Err(AppError::BadRequest(format!(
+            "maximum {MAX_IMAGES} images allowed"
+        )));
+    }
+
+    const MAX_IMAGE_BYTES: usize = 20 * 1024 * 1024;
+    let mut llm_images: Vec<crate::llm_import::LlmImage> = Vec::with_capacity(images.len());
+    for (bytes, content_type) in images {
+        if bytes.is_empty() {
+            return Err(AppError::BadRequest("image field is empty".into()));
+        }
+        if bytes.len() > MAX_IMAGE_BYTES {
+            return Err(AppError::PayloadTooLarge(
+                "image exceeds 20 MB limit".into(),
+            ));
+        }
+        llm_images.push(crate::llm_import::LlmImage {
+            bytes,
+            content_type: content_type.unwrap_or_else(|| "image/jpeg".to_string()),
+        });
+    }
+    if llm_images.is_empty() && hint.is_none() {
         return Err(AppError::BadRequest(
             "at least one of image or hint is required".into(),
         ));
@@ -215,28 +243,12 @@ pub(crate) async fn import_from_llm(
         hint
     };
 
-    const MAX_IMAGE_BYTES: usize = 20 * 1024 * 1024;
-    let image = match image_bytes {
-        Some(bytes) => {
-            if bytes.len() > MAX_IMAGE_BYTES {
-                return Err(AppError::PayloadTooLarge(
-                    "image exceeds 20 MB limit".into(),
-                ));
-            }
-            Some(crate::llm_import::LlmImage {
-                bytes,
-                content_type: image_content_type.unwrap_or_else(|| "image/jpeg".to_string()),
-            })
-        }
-        None => None,
-    };
-
-    let has_user_image = image.is_some();
+    let has_user_image = !llm_images.is_empty();
 
     let draft = crate::llm_import::import_via_llm(
         &model,
         hint.as_deref(),
-        image,
+        llm_images,
         base_url.as_deref(),
         api_key.as_deref(),
         has_user_image,
@@ -263,44 +275,49 @@ pub(crate) async fn polish_instructions(
     while let Some(field) = multipart
         .next_field()
         .await
-        .map_err(|e| AppError::BadRequest(format!("invalid multipart data: {e}")))?
+        .map_err(|e| map_multipart_error(e, "invalid multipart data"))?
     {
         match field.name() {
             Some("model") => {
-                let text = field.text().await.map_err(|e| {
-                    AppError::BadRequest(format!("failed to read model field: {e}"))
-                })?;
+                let text = field
+                    .text()
+                    .await
+                    .map_err(|e| map_multipart_error(e, "failed to read model field"))?;
                 model = Some(text);
             }
             Some("name") => {
                 let text = field
                     .text()
                     .await
-                    .map_err(|e| AppError::BadRequest(format!("failed to read name field: {e}")))?;
+                    .map_err(|e| map_multipart_error(e, "failed to read name field"))?;
                 name = Some(text);
             }
             Some("ingredients") => {
-                let text = field.text().await.map_err(|e| {
-                    AppError::BadRequest(format!("failed to read ingredients field: {e}"))
-                })?;
+                let text = field
+                    .text()
+                    .await
+                    .map_err(|e| map_multipart_error(e, "failed to read ingredients field"))?;
                 ingredients_json = Some(text);
             }
             Some("instructions") => {
-                let text = field.text().await.map_err(|e| {
-                    AppError::BadRequest(format!("failed to read instructions field: {e}"))
-                })?;
+                let text = field
+                    .text()
+                    .await
+                    .map_err(|e| map_multipart_error(e, "failed to read instructions field"))?;
                 instructions = Some(text);
             }
             Some("base_url") => {
-                let text = field.text().await.map_err(|e| {
-                    AppError::BadRequest(format!("failed to read base_url field: {e}"))
-                })?;
+                let text = field
+                    .text()
+                    .await
+                    .map_err(|e| map_multipart_error(e, "failed to read base_url field"))?;
                 base_url = Some(text);
             }
             Some("api_key") => {
-                let text = field.text().await.map_err(|e| {
-                    AppError::BadRequest(format!("failed to read api_key field: {e}"))
-                })?;
+                let text = field
+                    .text()
+                    .await
+                    .map_err(|e| map_multipart_error(e, "failed to read api_key field"))?;
                 api_key = Some(text);
             }
             _ => {}

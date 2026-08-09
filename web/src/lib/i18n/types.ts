@@ -101,6 +101,7 @@ export type TranslationKey =
 	| 'importLlmModelPlaceholder'
 	| 'importLlmHintPlaceholder'
 	| 'importLlmImageLabel'
+	| 'importLlmImageMax'
 	| 'importButtonLlm'
 	| 'llmProviderLabel'
 	| 'llmProviderPlaceholder'

@@ -410,7 +410,7 @@ describe('importFromLlm', () => {
         const draft = { name: 'Pasta', ingredients: [], instructions: '', imageBase64: null };
         mockResponse(200, draft);
         const file = new File([new Uint8Array([1])], 'photo.jpg', { type: 'image/jpeg' });
-        await importFromLlm('gpt-4o-mini', 'pasta dish', file);
+        await importFromLlm('gpt-4o-mini', 'pasta dish', [file]);
         expect(mockFetch).toHaveBeenCalledTimes(1);
         const [url, opts] = mockFetch.mock.calls[0];
         expect(url).toBe('/api/import/llm');
@@ -418,13 +418,14 @@ describe('importFromLlm', () => {
         const fd = opts.body as FormData;
         expect(fd.get('model')).toBe('gpt-4o-mini');
         expect(fd.get('hint')).toBe('pasta dish');
-        expect(fd.get('image')).toBeInstanceOf(File);
+        expect(fd.getAll('image')).toHaveLength(1);
+        expect(fd.getAll('image')[0]).toBeInstanceOf(File);
     });
 
     it('sends base_url and api_key for custom endpoints', async () => {
         const draft = { name: 'Pasta', ingredients: [], instructions: '', imageBase64: null };
         mockResponse(200, draft);
-        await importFromLlm('local-model', null, null, 'http://localhost:8080/v1/', 'sk-123');
+        await importFromLlm('local-model', null, [], 'http://localhost:8080/v1/', 'sk-123');
         const fd = mockFetch.mock.calls[0][1].body as FormData;
         expect(fd.get('base_url')).toBe('http://localhost:8080/v1/');
         expect(fd.get('api_key')).toBe('sk-123');
@@ -433,10 +434,25 @@ describe('importFromLlm', () => {
     it('omits base_url and api_key when not provided', async () => {
         const draft = { name: 'Pasta', ingredients: [], instructions: '', imageBase64: null };
         mockResponse(200, draft);
-        await importFromLlm('gpt-4o-mini', 'pasta', null);
+        await importFromLlm('gpt-4o-mini', 'pasta', []);
         const fd = mockFetch.mock.calls[0][1].body as FormData;
         expect(fd.get('base_url')).toBeNull();
         expect(fd.get('api_key')).toBeNull();
+    });
+
+    it('appends multiple images in order', async () => {
+        const draft = { name: 'Pasta', ingredients: [], instructions: '', imageBase64: null };
+        mockResponse(200, draft);
+        const front = new File([new Uint8Array([1])], 'front.jpg', { type: 'image/jpeg' });
+        const back = new File([new Uint8Array([2])], 'back.jpg', { type: 'image/jpeg' });
+        const extra = new File([new Uint8Array([3])], 'extra.jpg', { type: 'image/jpeg' });
+        await importFromLlm('gpt-4o-mini', 'front and back', [front, back, extra]);
+        const fd = mockFetch.mock.calls[0][1].body as FormData;
+        const parts = fd.getAll('image');
+        expect(parts).toHaveLength(3);
+        expect(parts[0]).toBe(front);
+        expect(parts[1]).toBe(back);
+        expect(parts[2]).toBe(extra);
     });
 });
 
