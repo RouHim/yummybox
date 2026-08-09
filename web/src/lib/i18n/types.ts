@@ -70,6 +70,7 @@ export type TranslationKey =
 	| 'plannerAddMeal'
 	| 'plannerChangeWeek'
 	| 'plannerDeletePlan'
+	| 'plannerError'
 	| 'fieldImageChoose'
 	| 'fieldImageReplace'
 	| 'fieldImageRemove'

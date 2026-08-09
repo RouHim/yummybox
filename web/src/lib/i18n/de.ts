@@ -63,6 +63,7 @@ export const de: Record<TranslationKey, string> = {
 	plannerRemove: 'Entfernen',
 	plannerAddMeal: 'Zum Plan hinzufügen',
 	plannerDeletePlan: 'Essensplan löschen',
+	plannerError: 'Server nicht erreichbar — Verbindung prüfen und erneut versuchen.',
 	fieldImageChoose: 'Bild auswählen\u2026',
 	fieldImageReplace: 'Bild ersetzen',
 	fieldImageRemove: 'Bild entfernen',
