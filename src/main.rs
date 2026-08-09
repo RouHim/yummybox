@@ -18,6 +18,7 @@ mod static_assets;
 
 use std::path::PathBuf;
 use std::sync::Arc;
+use std::time::Duration;
 
 use axum::Router;
 use axum::extract::DefaultBodyLimit;
@@ -129,9 +130,37 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let listener = tokio::net::TcpListener::bind(&addr).await?;
     info!("listening on http://{addr}");
 
-    axum::serve(listener, app).await?;
+    let serve = axum::serve(listener, app).with_graceful_shutdown(shutdown_signal());
+    match tokio::time::timeout(Duration::from_secs(15), serve).await {
+        Ok(Ok(())) => Ok(()),
+        Ok(Err(e)) => Err(e.into()),
+        Err(_elapsed) => {
+            tracing::warn!("graceful shutdown timed out after 15s, forcing exit");
+            Ok(())
+        }
+    }
+}
 
-    Ok(())
+async fn shutdown_signal() {
+    let ctrl_c = async {
+        tokio::signal::ctrl_c()
+            .await
+            .expect("failed to install Ctrl+C handler");
+    };
+    #[cfg(unix)]
+    let terminate = async {
+        tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate())
+            .expect("failed to install SIGTERM handler")
+            .recv()
+            .await;
+    };
+    #[cfg(not(unix))]
+    let terminate = std::future::pending::<()>();
+    tokio::select! {
+        _ = ctrl_c => {},
+        _ = terminate => {},
+    }
+    tracing::info!("shutdown signal received, draining in-flight requests");
 }
 
 async fn run_seed() -> Result<(), Box<dyn std::error::Error>> {
