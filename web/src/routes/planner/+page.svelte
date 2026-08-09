@@ -98,14 +98,18 @@ import { focusTrap } from '$lib/focusTrap';
 						}
 					}
 					plans = merged;
+					planError = null;
 					return;
 				} catch {
 					// Fall through to primary only
 				}
 			}
 			plans = primaryPlans;
+			planError = null;
 		} catch {
-			plans = [];
+			// Keep the previously loaded plans — a failed reload must not make
+			// existing plans disappear.
+			planError = t('plannerError');
 		}
 	}
 
@@ -118,9 +122,9 @@ import { focusTrap } from '$lib/focusTrap';
 		} catch (err) {
 			selectedPlan = null;
 			const isRequestFailed = err instanceof ApiError && err.code === 'REQUEST_FAILED';
-			if (err instanceof Error && !isRequestFailed) {
-				planError = err.message;
-			}
+			planError = isRequestFailed
+				? t('plannerError')
+				: err instanceof Error ? err.message : String(err);
 		} finally {
 			loading = false;
 		}
@@ -132,7 +136,9 @@ import { focusTrap } from '$lib/focusTrap';
 			selectedPlan = await createPlan({ year: selectedWeekYear!, week_number: selectedWeek!, meal_count: mealCount });
 			await loadPlans();
 		} catch (err) {
-			planError = err instanceof Error ? err.message : String(err);
+			planError = err instanceof ApiError && err.code === 'REQUEST_FAILED'
+				? t('plannerError')
+				: err instanceof Error ? err.message : String(err);
 		}
 	}
 
@@ -148,7 +154,9 @@ import { focusTrap } from '$lib/focusTrap';
 			selectedPlan = null;
 			await loadPlans();
 		} catch (err) {
-			planError = err instanceof Error ? err.message : String(err);
+			planError = err instanceof ApiError && err.code === 'REQUEST_FAILED'
+				? t('plannerError')
+				: err instanceof Error ? err.message : String(err);
 		}
 	}
 
@@ -159,7 +167,9 @@ import { focusTrap } from '$lib/focusTrap';
 			selectedPlan = await updatePlan(selectedWeekYear, selectedWeek, { meal_ids: mealIds });
 			await loadPlans();
 		} catch (err) {
-			planError = err instanceof Error ? err.message : String(err);
+			planError = err instanceof ApiError && err.code === 'REQUEST_FAILED'
+				? t('plannerError')
+				: err instanceof Error ? err.message : String(err);
 		}
 	}
 
@@ -185,7 +195,9 @@ import { focusTrap } from '$lib/focusTrap';
 			selectedPlan = await updatePlan(selectedWeekYear, selectedWeek, { meal_ids: [...existing, mealId] });
 			await loadPlans();
 		} catch (err) {
-			planError = err instanceof Error ? err.message : String(err);
+			planError = err instanceof ApiError && err.code === 'REQUEST_FAILED'
+				? t('plannerError')
+				: err instanceof Error ? err.message : String(err);
 		}
 	}
 
