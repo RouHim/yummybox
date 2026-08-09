@@ -57,7 +57,7 @@ pub async fn init_db(path: &Path) -> Result<SqlitePool, AppError> {
                 .filename(path)
                 .create_if_missing(true)
                 .journal_mode(sqlx::sqlite::SqliteJournalMode::Wal)
-                .synchronous(sqlx::sqlite::SqliteSynchronous::Normal),
+                .synchronous(sqlx::sqlite::SqliteSynchronous::Full),
         )
         .await?;
     sqlx::migrate!("./migrations")
@@ -569,6 +569,21 @@ mod tests {
         let db_path = dir.path().join("test.db");
         let pool = init_db(&db_path).await.expect("init_db");
         (pool, dir)
+    }
+
+    #[tokio::test]
+    async fn given_init_db_when_connect_then_uses_wal_and_full_synchronous() {
+        let (pool, _dir) = setup_db().await;
+        let mode: String = sqlx::query_scalar("PRAGMA journal_mode")
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+        let sync: i64 = sqlx::query_scalar("PRAGMA synchronous")
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+        assert_eq!(mode, "wal");
+        assert_eq!(sync, 2, "synchronous must be FULL (2) so committed writes survive power loss");
     }
 
     async fn insert_test_meal(
