@@ -96,6 +96,10 @@ test.describe('Meal images', () => {
 		});
 		await editDialog.getByRole('button', { name: 'Save' }).click();
 
+		// The dialog closes only after the PUT has committed and the list
+		// reloaded — wait for it before reading the stored bytes, otherwise
+		// the fetch can race the in-flight update.
+		await expect(editDialog).not.toBeVisible();
 		await expect(mealCard.locator('img.meal-card__hero')).toBeVisible();
 		const afterRes = await request.get(`/api/meals/${mealId}/image`);
 		const afterBytes = Buffer.from(await afterRes.body());
