@@ -12,6 +12,8 @@ mod plan;
 mod model;
 mod recipe;
 mod routes;
+#[cfg(test)]
+mod routes_tests;
 mod seed;
 mod state;
 mod static_assets;
