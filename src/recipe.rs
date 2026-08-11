@@ -200,62 +200,63 @@ fn parse_recipe_with_image_url(text: &str) -> Result<(ImportDraft, Option<String
     ))
 }
 
+/// Unit words recognized as a quantity prefix in ingredient lines.
+const UNITS: &[&str] = &[
+    "cup",
+    "cups",
+    "tbsp",
+    "tablespoon",
+    "tablespoons",
+    "tsp",
+    "teaspoon",
+    "teaspoons",
+    "g",
+    "gram",
+    "grams",
+    "kg",
+    "kilogram",
+    "kilograms",
+    "ml",
+    "milliliter",
+    "milliliters",
+    "l",
+    "liter",
+    "liters",
+    "oz",
+    "ounce",
+    "ounces",
+    "lb",
+    "lbs",
+    "pound",
+    "pounds",
+    "clove",
+    "cloves",
+    "slice",
+    "slices",
+    "piece",
+    "pieces",
+    "pinch",
+    "dash",
+    "quart",
+    "quarts",
+    "pint",
+    "pints",
+    "gallon",
+    "gallons",
+    "stick",
+    "sticks",
+    "bunch",
+    "bunches",
+    "handful",
+    "handfuls",
+    "can",
+    "cans",
+];
+
 /// Split an ingredient line into name and optional quantity.
 /// Best-effort: if the line starts with a quantity prefix (number + unit word),
 /// the prefix is the quantity and the rest is the name. Otherwise the whole line is the name.
 pub(crate) fn split_ingredient_line(line: &str) -> NewIngredientLine {
-    let units = [
-        "cup",
-        "cups",
-        "tbsp",
-        "tablespoon",
-        "tablespoons",
-        "tsp",
-        "teaspoon",
-        "teaspoons",
-        "g",
-        "gram",
-        "grams",
-        "kg",
-        "kilogram",
-        "kilograms",
-        "ml",
-        "milliliter",
-        "milliliters",
-        "l",
-        "liter",
-        "liters",
-        "oz",
-        "ounce",
-        "ounces",
-        "lb",
-        "lbs",
-        "pound",
-        "pounds",
-        "clove",
-        "cloves",
-        "slice",
-        "slices",
-        "piece",
-        "pieces",
-        "pinch",
-        "dash",
-        "quart",
-        "quarts",
-        "pint",
-        "pints",
-        "gallon",
-        "gallons",
-        "stick",
-        "sticks",
-        "bunch",
-        "bunches",
-        "handful",
-        "handfuls",
-        "can",
-        "cans",
-    ];
-
     let tokens: Vec<&str> = line.split_whitespace().collect();
     if tokens.is_empty() {
         return NewIngredientLine {
@@ -274,7 +275,7 @@ pub(crate) fn split_ingredient_line(line: &str) -> NewIngredientLine {
     if starts_with_number && tokens.len() >= 2 {
         // Check if the second token (or sometimes third) is a unit word
         let unit_idx = tokens.iter().skip(1).take(2).position(|t| {
-            units.contains(&t.to_lowercase().trim_end_matches(',').trim_end_matches('.'))
+            UNITS.contains(&t.to_lowercase().trim_end_matches(',').trim_end_matches('.'))
         });
 
         if let Some(rel_idx) = unit_idx {
