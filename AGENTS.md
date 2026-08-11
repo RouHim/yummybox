@@ -51,7 +51,7 @@ Browser (SPA) ──fetch──▶ axum (Rust) ──async──▶ SQLite (via 
 # Run all Rust tests (269 tests)
 cargo test
 
-# Run all frontend tests (114 tests)
+# Run all frontend tests (141 tests)
 cd web && npm test
 
 # Type-check frontend
@@ -194,7 +194,7 @@ All tests are written in **BDD** style: name them by behavior, not implementatio
 
 ### Rust tests (`cargo test`)
 
-- **Location**: Inline `#[cfg(test)] mod tests` within each source file.
+- **Location**: `#[cfg(test)]` modules — inline within each source file, or in flat sibling `*_tests.rs` modules declared in `main.rs` (e.g. `routes_tests.rs`, `db_tests.rs`).
 - **DB layer** (`db.rs`): Unit tests for CRUD, validation edge cases (empty strings, boundary lengths, whitespace-only), search filtering, week math, weighted meal selection, ingredient aggregation.
 - **Route layer** (`routes.rs`): Integration tests using `tower::ServiceExt::oneshot`. Verify status codes, response bodies, search filtering, 404 for missing resources, plan CRUD, import endpoints, Bring! handlers.
 - **Plan, import, seed, image** (`plan.rs`, `import.rs`, `seed.rs`, `image.rs`): Unit tests for week math, weighted selection determinism, seeding idempotency, image conversion.
