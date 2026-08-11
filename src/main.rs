@@ -1,6 +1,8 @@
 mod bring;
 mod data_dir;
 mod db;
+#[cfg(test)]
+mod db_tests;
 mod error;
 mod export_import;
 mod image;
