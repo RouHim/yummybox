@@ -28,6 +28,12 @@ use tracing_subscriber::EnvFilter;
 use crate::error::AppError;
 use crate::state::AppState;
 
+/// Default port for the HTTP server (override with `YUMMYBOX_PORT`).
+const DEFAULT_PORT: u16 = 11341;
+
+/// Maximum accepted request body size (50 MB).
+const MAX_BODY_BYTES: usize = 50 * 1024 * 1024;
+
 enum Subcommand {
     Serve,
     Seed,
@@ -114,7 +120,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .route("/bring/items", post(routes::add_bring_item))
         .route("/bring/status", get(routes::get_bring_status))
         .route("/version", get(routes::get_version))
-        .layer(DefaultBodyLimit::max(50 * 1024 * 1024))
+        .layer(DefaultBodyLimit::max(MAX_BODY_BYTES))
         .with_state(state);
 
     let app = Router::new()
@@ -124,7 +130,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let port: u16 = std::env::var("YUMMYBOX_PORT")
         .ok()
         .and_then(|v| v.parse().ok())
-        .unwrap_or(11341);
+        .unwrap_or(DEFAULT_PORT);
     let addr = format!("0.0.0.0:{port}");
     let listener = tokio::net::TcpListener::bind(&addr).await?;
     info!("listening on http://{addr}");
