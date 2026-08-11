@@ -15,6 +15,8 @@ mod plan;
 
 mod model;
 mod recipe;
+#[cfg(test)]
+mod recipe_tests;
 mod routes;
 #[cfg(test)]
 mod routes_tests;
