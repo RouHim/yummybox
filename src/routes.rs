@@ -404,7 +404,3 @@ pub async fn get_version(State(_state): State<Arc<AppState>>) -> Json<crate::mod
         version: env!("CARGO_PKG_VERSION"),
     })
 }
-
-// ===========================================================================
-// Tests
-// ===========================================================================

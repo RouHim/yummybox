@@ -56,6 +56,13 @@ test.describe('i18n', () => {
 		await dialog.getByRole('button', { name: 'Hinzufügen', exact: true }).click();
 		await expect(dialog.getByText('Name ist erforderlich')).toBeVisible();
 
+		// AI import tab: photo label translates too (real backend always
+		// returns ollama+custom providers, so the LLM form renders).
+		await dialog.getByRole('button', { name: 'KI-Import' }).click();
+		await expect(
+			dialog.getByText('Fotos (optional, bis zu 5) — die KI kann daraus ein Rezept extrahieren')
+		).toBeVisible();
+
 		await context.close();
 	});
 });

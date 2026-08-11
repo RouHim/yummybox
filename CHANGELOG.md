@@ -1,3 +1,10 @@
+# [1.16.0](https://github.com/RouHim/yummybox/compare/v1.15.0...v1.16.0) (2026-08-09)
+
+
+### Features
+
+* support multiple images in LLM recipe import ([04819a7](https://github.com/RouHim/yummybox/commit/04819a78c168a40cea01b790c12a4d85ffc13532))
+
 # [1.15.0](https://github.com/RouHim/yummybox/compare/v1.14.1...v1.15.0) (2026-08-06)
 
 

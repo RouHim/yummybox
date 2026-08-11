@@ -146,7 +146,7 @@ pub async fn list_models(
 
 const TOOL_NAME: &str = "extract_recipe";
 
-const SYSTEM_PROMPT: &str = "You are a recipe extraction assistant. Extract the recipe from the user's input (an image of a meal, a text description, a recipe URL, or any combination) and call the extract_recipe tool with the result. Always call the tool. If you can identify a photo URL of the finished dish from the recipe context (page text or your own knowledge for description-only inputs), provide it in the imageUrl field; otherwise omit it. When candidate dish image URLs are listed in the input, pick the most relevant one for imageUrl. Never invent a URL you are not confident exists.";
+const SYSTEM_PROMPT: &str = "You are a recipe extraction assistant. Extract the recipe from the user's input (one or more images of a meal, a text description, a recipe URL, or any combination) and call the extract_recipe tool with the result. When the input contains multiple images — for example the front and back of a recipe card, or several pages of a recipe — treat all of them as parts of ONE recipe and merge their content into a single complete recipe: take the dish name and any dish photo from whichever image shows them, and combine ingredients and instructions from all images without duplicating entries. Always call the tool. If you can identify a photo URL of the finished dish from the recipe context (page text or your own knowledge for description-only inputs), provide it in the imageUrl field; otherwise omit it. When candidate dish image URLs are listed in the input, pick the most relevant one for imageUrl. Never invent a URL you are not confident exists.";
 
 fn recipe_tool() -> genai::chat::Tool {
     genai::chat::Tool::new(TOOL_NAME)
@@ -178,12 +178,12 @@ fn recipe_tool() -> genai::chat::Tool {
 // User content builder
 // ---------------------------------------------------------------------------
 
-fn build_user_content(hint: Option<&str>, image: Option<&LlmImage>) -> genai::chat::MessageContent {
+fn build_user_content(hint: Option<&str>, images: &[LlmImage]) -> genai::chat::MessageContent {
     let mut parts = Vec::new();
     if let Some(h) = hint.map(str::trim).filter(|s| !s.is_empty()) {
         parts.push(genai::chat::ContentPart::from_text(h));
     }
-    if let Some(img) = image {
+    for img in images {
         let b64 = base64::engine::general_purpose::STANDARD.encode(&img.bytes);
         parts.push(genai::chat::ContentPart::from_binary_base64(
             &img.content_type,
@@ -234,13 +234,13 @@ fn build_model_spec(
 pub async fn import_via_llm(
     model: &str,
     hint: Option<&str>,
-    image: Option<LlmImage>,
+    images: Vec<LlmImage>,
     base_url: Option<&str>,
     api_key: Option<&str>,
     has_user_image: bool,
 ) -> Result<recipe::ImportDraft, AppError> {
     let client = genai::Client::default();
-    let user_content = build_user_content(hint, image.as_ref());
+    let user_content = build_user_content(hint, &images);
 
     let chat_req = genai::chat::ChatRequest::new(vec![
         genai::chat::ChatMessage::system(SYSTEM_PROMPT),
@@ -555,13 +555,46 @@ mod tests {
     #[tokio::test]
     async fn given_quantity_blank_when_build_draft_then_quantity_none() {
         let args = serde_json::json!({
-            "name": "Pasta",
+            "name": "Blank Qty",
             "ingredients": [{"name": "flour", "quantity": "  "}]
         });
         let draft = build_draft_from_tool_args(&args, false)
             .await
             .expect("should succeed");
         assert_eq!(draft.ingredients[0].quantity, None);
+    }
+
+    #[test]
+    fn given_multiple_images_when_build_user_content_then_parts_in_order() {
+        let hint = Some("front and back");
+        let images = vec![
+            LlmImage {
+                bytes: b"front".to_vec(),
+                content_type: "image/jpeg".to_string(),
+            },
+            LlmImage {
+                bytes: b"back".to_vec(),
+                content_type: "image/jpeg".to_string(),
+            },
+        ];
+        let content = build_user_content(hint, &images);
+        let parts = content.parts();
+        assert_eq!(parts.len(), 3);
+        // parts[0] is the hint text; parts[1..] are the images in order.
+        for (idx, img) in images.iter().enumerate() {
+            match &parts[idx + 1] {
+                genai::chat::ContentPart::Binary(b) => match &b.source {
+                    genai::chat::BinarySource::Base64(b64) => {
+                        let decoded = base64::engine::general_purpose::STANDARD
+                            .decode(b64.as_bytes())
+                            .expect("valid base64");
+                        assert_eq!(decoded, img.bytes);
+                    }
+                    _ => panic!("expected base64 binary source"),
+                },
+                _ => panic!("expected binary content part"),
+            }
+        }
     }
 
     #[test]

@@ -1111,7 +1111,9 @@ async fn given_import_draft_when_received_then_not_persisted() {
 fn build_llm_multipart(
     model: Option<&str>,
     hint: Option<&str>,
-    image_data: Option<&[u8]>,
+    images: &[&[u8]],
+    base_url: Option<&str>,
+    api_key: Option<&str>,
 ) -> (Vec<u8>, String) {
     let boundary = "testboundaryLLM";
     let mut body = Vec::new();
@@ -1132,7 +1134,7 @@ fn build_llm_multipart(
         body.extend_from_slice(h.as_bytes());
         body.extend_from_slice(b"\r\n");
     }
-    if let Some(img) = image_data {
+    for img in images {
         body.extend_from_slice(b"--");
         body.extend_from_slice(boundary.as_bytes());
         body.extend_from_slice(b"\r\n");
@@ -1141,6 +1143,22 @@ fn build_llm_multipart(
         );
         body.extend_from_slice(b"Content-Type: image/jpeg\r\n\r\n");
         body.extend_from_slice(img);
+        body.extend_from_slice(b"\r\n");
+    }
+    if let Some(b) = base_url {
+        body.extend_from_slice(b"--");
+        body.extend_from_slice(boundary.as_bytes());
+        body.extend_from_slice(b"\r\n");
+        body.extend_from_slice(b"Content-Disposition: form-data; name=\"base_url\"\r\n\r\n");
+        body.extend_from_slice(b.as_bytes());
+        body.extend_from_slice(b"\r\n");
+    }
+    if let Some(k) = api_key {
+        body.extend_from_slice(b"--");
+        body.extend_from_slice(boundary.as_bytes());
+        body.extend_from_slice(b"\r\n");
+        body.extend_from_slice(b"Content-Disposition: form-data; name=\"api_key\"\r\n\r\n");
+        body.extend_from_slice(k.as_bytes());
         body.extend_from_slice(b"\r\n");
     }
 
@@ -1155,7 +1173,7 @@ fn build_llm_multipart(
 #[tokio::test]
 async fn given_empty_body_when_import_llm_then_400() {
     let ctx = setup().await;
-    let (body, content_type) = build_llm_multipart(None, None, None);
+    let (body, content_type) = build_llm_multipart(None, None, &[], None, None);
     let response = ctx
         .app
         .oneshot(
@@ -1182,7 +1200,7 @@ async fn given_empty_body_when_import_llm_then_400() {
 #[tokio::test]
 async fn given_model_but_no_image_no_hint_when_import_llm_then_400() {
     let ctx = setup().await;
-    let (body, content_type) = build_llm_multipart(Some("gpt-4o-mini"), None, None);
+    let (body, content_type) = build_llm_multipart(Some("gpt-4o-mini"), None, &[], None, None);
     let response = ctx
         .app
         .oneshot(
@@ -1202,7 +1220,8 @@ async fn given_model_but_no_image_no_hint_when_import_llm_then_400() {
 async fn given_hint_over_20000_chars_when_import_llm_then_400() {
     let ctx = setup().await;
     let long_hint = "x".repeat(20001);
-    let (body, content_type) = build_llm_multipart(Some("gpt-4o-mini"), Some(&long_hint), None);
+    let (body, content_type) =
+        build_llm_multipart(Some("gpt-4o-mini"), Some(&long_hint), &[], None, None);
     let response = ctx
         .app
         .oneshot(
@@ -1222,7 +1241,8 @@ async fn given_hint_over_20000_chars_when_import_llm_then_400() {
 async fn given_image_over_20mb_when_import_llm_then_413() {
     let ctx = setup().await;
     let oversized = vec![0u8; 21_000_001];
-    let (body, content_type) = build_llm_multipart(Some("gpt-4o-mini"), None, Some(&oversized));
+    let (body, content_type) =
+        build_llm_multipart(Some("gpt-4o-mini"), None, &[&oversized], None, None);
     let response = ctx
         .app
         .oneshot(
@@ -1243,6 +1263,272 @@ async fn given_image_over_20mb_when_import_llm_then_413() {
             .as_str()
             .unwrap()
             .contains("image exceeds 20 MB limit")
+    );
+}
+
+#[tokio::test]
+async fn given_six_images_when_import_llm_then_400_with_limit_message() {
+    let ctx = setup().await;
+    let (body, content_type) = build_llm_multipart(
+        Some("gpt-4o-mini"),
+        None,
+        &[&[1u8], &[1u8], &[1u8], &[1u8], &[1u8], &[1u8]],
+        None,
+        None,
+    );
+    let response = ctx
+        .app
+        .oneshot(
+            Request::builder()
+                .method(Method::POST)
+                .uri("/import/llm")
+                .header("content-type", content_type)
+                .body(axum::body::Body::from(body))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+    let resp_body = to_bytes(response.into_body(), 4096).await.unwrap();
+    let error: serde_json::Value = serde_json::from_slice(&resp_body).unwrap();
+    assert!(
+        error["error"]
+            .as_str()
+            .unwrap()
+            .contains("maximum 5 images allowed")
+    );
+}
+
+#[tokio::test]
+async fn given_empty_image_field_when_import_llm_then_400() {
+    let ctx = setup().await;
+    let (body, content_type) = build_llm_multipart(Some("gpt-4o-mini"), None, &[&[]], None, None);
+    let response = ctx
+        .app
+        .oneshot(
+            Request::builder()
+                .method(Method::POST)
+                .uri("/import/llm")
+                .header("content-type", content_type)
+                .body(axum::body::Body::from(body))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+    let resp_body = to_bytes(response.into_body(), 4096).await.unwrap();
+    let error: serde_json::Value = serde_json::from_slice(&resp_body).unwrap();
+    assert!(
+        error["error"]
+            .as_str()
+            .unwrap()
+            .contains("image field is empty")
+    );
+}
+
+#[tokio::test]
+async fn given_three_oversized_images_when_import_llm_then_413() {
+    let ctx = setup().await;
+    let oversized = vec![0u8; 21_000_001];
+    let (body, content_type) = build_llm_multipart(
+        Some("gpt-4o-mini"),
+        None,
+        &[&oversized, &oversized, &oversized],
+        None,
+        None,
+    );
+    let response = ctx
+        .app
+        .oneshot(
+            Request::builder()
+                .method(Method::POST)
+                .uri("/import/llm")
+                .header("content-type", content_type)
+                .body(axum::body::Body::from(body))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::PAYLOAD_TOO_LARGE);
+    // The 63 MB body exceeds the 50 MiB body limit, so the limit fires
+    // during the field read, not the per-image check.
+    let resp_body = to_bytes(response.into_body(), 4096).await.unwrap();
+    let error: serde_json::Value = serde_json::from_slice(&resp_body).unwrap();
+    assert!(
+        error["error"]
+            .as_str()
+            .unwrap()
+            .contains("request body exceeds 50 MB limit")
+    );
+}
+
+#[tokio::test]
+async fn given_two_images_each_over_20mb_when_import_llm_then_413_with_per_image_message() {
+    let ctx = setup().await;
+    let oversized = vec![0u8; 21_000_001];
+    let (body, content_type) = build_llm_multipart(
+        Some("gpt-4o-mini"),
+        None,
+        &[&oversized, &oversized],
+        None,
+        None,
+    );
+    let response = ctx
+        .app
+        .oneshot(
+            Request::builder()
+                .method(Method::POST)
+                .uri("/import/llm")
+                .header("content-type", content_type)
+                .body(axum::body::Body::from(body))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::PAYLOAD_TOO_LARGE);
+    // 42 MB body is under the 50 MiB body limit; the per-image 20 MB
+    // check must be what fires.
+    let resp_body = to_bytes(response.into_body(), 4096).await.unwrap();
+    let error: serde_json::Value = serde_json::from_slice(&resp_body).unwrap();
+    assert!(
+        error["error"]
+            .as_str()
+            .unwrap()
+            .contains("image exceeds 20 MB limit")
+    );
+}
+
+#[tokio::test]
+async fn given_body_over_50mb_with_images_under_20mb_each_when_import_llm_then_413_with_body_message()
+ {
+    let ctx = setup().await;
+    let image = vec![0u8; 19_000_000];
+    let (body, content_type) = build_llm_multipart(
+        Some("gpt-4o-mini"),
+        None,
+        &[&image, &image, &image],
+        None,
+        None,
+    );
+    let response = ctx
+        .app
+        .oneshot(
+            Request::builder()
+                .method(Method::POST)
+                .uri("/import/llm")
+                .header("content-type", content_type)
+                .body(axum::body::Body::from(body))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::PAYLOAD_TOO_LARGE);
+    // Each image is under the per-image cap; the 57 MB body trips the
+    // 50 MiB body limit mid-field-read and must surface as 413.
+    let resp_body = to_bytes(response.into_body(), 4096).await.unwrap();
+    let error: serde_json::Value = serde_json::from_slice(&resp_body).unwrap();
+    assert!(
+        error["error"]
+            .as_str()
+            .unwrap()
+            .contains("request body exceeds 50 MB limit")
+    );
+}
+
+#[tokio::test]
+async fn given_two_images_when_import_llm_then_sent_in_order_and_draft_returned() {
+    use base64::Engine;
+    use std::sync::Mutex;
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+
+    let ctx = setup().await;
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let port = listener.local_addr().unwrap().port();
+
+    let captured: Arc<Mutex<Vec<Vec<u8>>>> = Arc::new(Mutex::new(Vec::new()));
+    let captured_server = captured.clone();
+    let mock_body = r#"{"id":"chatcmpl-test","object":"chat.completion","created":0,"model":"test-model","choices":[{"index":0,"message":{"role":"assistant","content":null,"tool_calls":[{"id":"call_1","type":"function","function":{"name":"extract_recipe","arguments":"{\"name\":\"Front Back Curry\",\"ingredients\":[{\"name\":\"chicken\",\"quantity\":\"200 g\"}],\"instructions\":\"Cook both sides.\",\"portion\":2}"}}]},"finish_reason":"tool_calls"}],"usage":{"prompt_tokens":1,"completion_tokens":1,"total_tokens":2}}"#;
+    tokio::spawn(async move {
+        let (mut stream, _) = listener.accept().await.unwrap();
+        // Read headers until the blank line, then the body per Content-Length.
+        let mut buf = Vec::new();
+        let mut byte = [0u8; 1];
+        while !buf.ends_with(b"\r\n\r\n") {
+            stream.read_exact(&mut byte).await.unwrap();
+            buf.push(byte[0]);
+        }
+        let headers = String::from_utf8_lossy(&buf);
+        let content_length = headers
+            .lines()
+            .find_map(|l| {
+                l.to_ascii_lowercase()
+                    .strip_prefix("content-length:")
+                    .map(|v| v.trim().parse::<usize>().unwrap())
+            })
+            .unwrap_or(0);
+        let mut body = vec![0u8; content_length];
+        if content_length > 0 {
+            stream.read_exact(&mut body).await.unwrap();
+        }
+        // Collect the user message's image parts in array order.
+        let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
+        let messages = json["messages"].as_array().unwrap();
+        let user = messages
+            .iter()
+            .find(|m| m["role"] == "user")
+            .expect("user message present");
+        let mut decoded = Vec::new();
+        for part in user["content"].as_array().unwrap() {
+            if part["type"] == "image_url" {
+                let url = part["image_url"]["url"].as_str().unwrap();
+                let b64 = url.split("base64,").nth(1).unwrap();
+                decoded.push(
+                    base64::engine::general_purpose::STANDARD
+                        .decode(b64)
+                        .unwrap(),
+                );
+            }
+        }
+        *captured_server.lock().unwrap() = decoded;
+        let resp = format!(
+            "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
+            mock_body.len(),
+            mock_body
+        );
+        let _ = stream.write_all(resp.as_bytes()).await;
+    });
+
+    let base_url = format!("http://127.0.0.1:{port}/v1/");
+    let (body, content_type) = build_llm_multipart(
+        Some("test-model"),
+        None,
+        &[&[0x01, 0x02], &[0x03, 0x04]],
+        Some(&base_url),
+        Some("test-key"),
+    );
+    let response = ctx
+        .app
+        .oneshot(
+            Request::builder()
+                .method(Method::POST)
+                .uri("/import/llm")
+                .header("content-type", content_type)
+                .body(axum::body::Body::from(body))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    let status = response.status();
+    let resp_body = to_bytes(response.into_body(), 4096).await.unwrap();
+    assert_eq!(status, StatusCode::OK);
+    let draft: serde_json::Value = serde_json::from_slice(&resp_body).unwrap();
+    assert_eq!(draft["name"], "Front Back Curry");
+    assert_eq!(draft["ingredients"][0]["name"], "chicken");
+    assert_eq!(draft["portions"], 2);
+    assert_eq!(
+        *captured.lock().unwrap(),
+        vec![vec![0x01, 0x02], vec![0x03, 0x04]],
+        "images must reach the LLM in upload order"
     );
 }
 
@@ -1809,6 +2095,53 @@ async fn given_missing_model_when_polish_instructions_then_returns_400() {
         .await
         .unwrap();
     assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+}
+
+#[tokio::test]
+async fn given_body_over_50mb_when_polish_instructions_then_413() {
+    let ctx = setup().await;
+    let boundary = "testpolishboundary";
+    let mut body = Vec::new();
+    // name field
+    body.extend_from_slice(b"--");
+    body.extend_from_slice(boundary.as_bytes());
+    body.extend_from_slice(b"\r\n");
+    body.extend_from_slice(b"Content-Disposition: form-data; name=\"name\"\r\n\r\n");
+    body.extend_from_slice(b"Test Meal\r\n");
+    // oversized instructions field — 53 MB of a single field trips the
+    // 50 MiB body limit mid-field-read, which must surface as 413.
+    body.extend_from_slice(b"--");
+    body.extend_from_slice(boundary.as_bytes());
+    body.extend_from_slice(b"\r\n");
+    body.extend_from_slice(b"Content-Disposition: form-data; name=\"instructions\"\r\n\r\n");
+    body.extend_from_slice(&vec![b'x'; 53_000_000]);
+    body.extend_from_slice(b"\r\n");
+    body.extend_from_slice(b"--");
+    body.extend_from_slice(boundary.as_bytes());
+    body.extend_from_slice(b"--\r\n");
+    let content_type = format!("multipart/form-data; boundary={boundary}");
+    let response = ctx
+        .app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method(Method::POST)
+                .uri("/llm/polish")
+                .header("content-type", &content_type)
+                .body(axum::body::Body::from(body))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::PAYLOAD_TOO_LARGE);
+    let resp_body = to_bytes(response.into_body(), 4096).await.unwrap();
+    let error: serde_json::Value = serde_json::from_slice(&resp_body).unwrap();
+    assert!(
+        error["error"]
+            .as_str()
+            .unwrap()
+            .contains("request body exceeds 50 MB limit")
+    );
 }
 
 #[test]

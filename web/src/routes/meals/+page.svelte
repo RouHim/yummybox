@@ -13,7 +13,7 @@ import { readStoredLlmConfig, persistLlmConfig } from '$lib/llm-config.svelte';
 	import DeleteConfirmDialog from '$lib/DeleteConfirmDialog.svelte';
 import { focusTrap } from '$lib/focusTrap';
 	import MealForm from '$lib/MealForm.svelte';
-	import ImageInput from '$lib/components/ImageInput.svelte';
+	import MultiImageInput from '$lib/components/MultiImageInput.svelte';
 	let meals = $state<Meal[]>([]);
 
 	let existingMealNames = $derived(
@@ -39,7 +39,7 @@ import { focusTrap } from '$lib/focusTrap';
     let importLlmProvider = $state('');
     let importLlmModel = $state('');
     let importLlmHint = $state('');
-    let importLlmImage = $state<File | null>(null);
+    let importLlmImages = $state<File[]>([]);
     let importing = $state(false);
     let importError = $state<string | null>(null);
     let importToken = $state(0);
@@ -69,7 +69,7 @@ import { focusTrap } from '$lib/focusTrap';
         importing = true;
         try {
             const draft = await importFromLlm(
-                importLlmModel, importLlmHint || null, importLlmImage,
+                importLlmModel, importLlmHint || null, importLlmImages,
                 importLlmProvider === 'custom' ? importLlmCustomBaseUrl : undefined,
                 importLlmProvider === 'custom' ? importLlmCustomApiKey : undefined,
             );
@@ -91,7 +91,7 @@ import { focusTrap } from '$lib/focusTrap';
                 customApiKey: importLlmCustomApiKey,
             });
             importLlmHint = '';
-            importLlmImage = null;
+            importLlmImages = [];
             importToken++;
             importMode = 'manual';
         } catch (err) {
@@ -114,8 +114,8 @@ import { focusTrap } from '$lib/focusTrap';
     }
 
 
-    function onLlmImageChange(file: File | null, removeImage: boolean) {
-        importLlmImage = removeImage ? null : file;
+    function onLlmImagesChange(files: File[]) {
+        importLlmImages = files;
     }
 
 
@@ -312,7 +312,7 @@ import { focusTrap } from '$lib/focusTrap';
         formPortions = null; formImage = null; removeImage = false; submitting = false; llmConfigRestored = false;
         importMode = 'manual';
         importLlmProvider = ''; importLlmModel = ''; importLlmHint = '';
-        importLlmImage = null;
+        importLlmImages = [];
         llmSettingsCollapsed = false;
         importing = false; importError = null; importToken++;
         bulkUrls = ''; bulkImporting = false; bulkResult = null; bulkError = null;
@@ -751,14 +751,13 @@ import { focusTrap } from '$lib/focusTrap';
 									></textarea>
 
 									<p class="import-info">{t('importLlmImageLabel')}</p>
-									<ImageInput
-										editMode={false}
-										onchange={onLlmImageChange}
+									<MultiImageInput
+										onchange={onLlmImagesChange}
 										onerror={(msg) => (importError = msg)}
 									/>
 
 									<button type="button" class="btn btn--primary" onclick={onImport}
-										disabled={importing || !importLlmModel.trim() || (!importLlmHint.trim() && !importLlmImage)}>
+										disabled={importing || !importLlmModel.trim() || (!importLlmHint.trim() && importLlmImages.length === 0)}>
 										{importing ? t('importButtonLlmLoading') : t('importButtonLlm')}
 									</button>
 								{/if}
