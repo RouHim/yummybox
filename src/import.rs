@@ -216,32 +216,7 @@ pub(crate) async fn import_from_llm(
         }
     }
 
-    // If the hint is a bare URL, fetch the page server-side and expand to
-    // readable text so the LLM can extract a recipe from it.
-    let hint = if let Some(h) = hint.as_deref() {
-        if recipe::is_bare_url(h) {
-            let html = recipe::fetch_page_html(h).await?;
-            let text = recipe::extract_readable_text(&html);
-            if text.trim().is_empty() {
-                return Err(AppError::BadRequest(
-                    "URL returned no extractable text".into(),
-                ));
-            }
-            let mut prompt = format!("Recipe from {h}:\n{text}");
-            let image_urls = recipe::extract_image_urls_from_html(&html, h);
-            if !image_urls.is_empty() {
-                prompt.push_str(&format!(
-                    "\n\nCandidate dish image URLs found on the page:\n{}",
-                    image_urls.join("\n")
-                ));
-            }
-            Some(prompt)
-        } else {
-            hint
-        }
-    } else {
-        hint
-    };
+    let hint = expand_hint_if_bare_url(hint).await?;
 
     let has_user_image = !llm_images.is_empty();
 
@@ -255,6 +230,33 @@ pub(crate) async fn import_from_llm(
     )
     .await?;
     Ok(Json(draft))
+}
+
+/// If the hint is a bare URL, fetch the page server-side and expand to
+/// readable text so the LLM can extract a recipe from it.
+async fn expand_hint_if_bare_url(hint: Option<String>) -> Result<Option<String>, AppError> {
+    let Some(h) = hint else {
+        return Ok(None);
+    };
+    if !recipe::is_bare_url(&h) {
+        return Ok(Some(h));
+    }
+    let html = recipe::fetch_page_html(&h).await?;
+    let text = recipe::extract_readable_text(&html);
+    if text.trim().is_empty() {
+        return Err(AppError::BadRequest(
+            "URL returned no extractable text".into(),
+        ));
+    }
+    let mut prompt = format!("Recipe from {h}:\n{text}");
+    let image_urls = recipe::extract_image_urls_from_html(&html, &h);
+    if !image_urls.is_empty() {
+        prompt.push_str(&format!(
+            "\n\nCandidate dish image URLs found on the page:\n{}",
+            image_urls.join("\n")
+        ));
+    }
+    Ok(Some(prompt))
 }
 // ---------------------------------------------------------------------------
 // Polish instructions handler
