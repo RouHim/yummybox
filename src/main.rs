@@ -5,6 +5,8 @@ mod db;
 mod db_tests;
 mod error;
 mod export_import;
+#[cfg(test)]
+mod export_import_tests;
 mod image;
 mod import;
 mod jsonld;
