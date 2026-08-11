@@ -2,6 +2,7 @@ use std::collections::HashMap;
 use std::sync::Arc;
 
 use axum::Json;
+use axum::extract::multipart::Field;
 use axum::extract::{Multipart, Path, Query, State};
 use axum::http::{HeaderMap, HeaderValue, StatusCode, header};
 use axum::response::{IntoResponse, Response};
@@ -71,28 +72,16 @@ async fn parse_meal_multipart(mut multipart: Multipart) -> Result<ParsedMealForm
     {
         match field.name() {
             Some("name") => {
-                let text = field
-                    .text()
-                    .await
-                    .map_err(|e| AppError::BadRequest(format!("failed to read name field: {e}")))?;
-                name = Some(text);
+                name = Some(read_text_field(field, "name").await?);
             }
             Some("ingredients") => {
-                let text = field.text().await.map_err(|e| {
-                    AppError::BadRequest(format!("failed to read ingredients field: {e}"))
-                })?;
-                ingredients_raw = Some(text);
+                ingredients_raw = Some(read_text_field(field, "ingredients").await?);
             }
             Some("instructions") => {
-                let text = field.text().await.map_err(|e| {
-                    AppError::BadRequest(format!("failed to read instructions field: {e}"))
-                })?;
-                instructions = Some(text);
+                instructions = Some(read_text_field(field, "instructions").await?);
             }
             Some("portions") => {
-                let text = field.text().await.map_err(|e| {
-                    AppError::BadRequest(format!("failed to read portions field: {e}"))
-                })?;
+                let text = read_text_field(field, "portions").await?;
                 let trimmed = text.trim();
                 if !trimmed.is_empty() {
                     portions =
@@ -107,16 +96,10 @@ async fn parse_meal_multipart(mut multipart: Multipart) -> Result<ParsedMealForm
                         "only one image may be uploaded".into(),
                     ));
                 }
-                let data = field.bytes().await.map_err(|e| {
-                    AppError::BadRequest(format!("failed to read image field: {e}"))
-                })?;
-                image_data = Some(data.to_vec());
+                image_data = Some(read_bytes_field(field, "image").await?);
             }
             Some("image_action") => {
-                let text = field.text().await.map_err(|e| {
-                    AppError::BadRequest(format!("failed to read image_action field: {e}"))
-                })?;
-                image_action = Some(text);
+                image_action = Some(read_text_field(field, "image_action").await?);
             }
             _ => {} // ignore unknown fields
         }
@@ -136,6 +119,23 @@ async fn parse_meal_multipart(mut multipart: Multipart) -> Result<ParsedMealForm
         image_data,
         image_action,
     })
+}
+
+/// Read a multipart text field, mapping read errors to a 400 response.
+async fn read_text_field(field: Field<'_>, field_name: &str) -> Result<String, AppError> {
+    field
+        .text()
+        .await
+        .map_err(|e| AppError::BadRequest(format!("failed to read {field_name} field: {e}")))
+}
+
+/// Read a multipart binary field, mapping read errors to a 400 response.
+async fn read_bytes_field(field: Field<'_>, field_name: &str) -> Result<Vec<u8>, AppError> {
+    let data = field
+        .bytes()
+        .await
+        .map_err(|e| AppError::BadRequest(format!("failed to read {field_name} field: {e}")))?;
+    Ok(data.to_vec())
 }
 
 #[instrument(skip(state))]
