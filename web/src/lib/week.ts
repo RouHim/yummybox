@@ -11,7 +11,6 @@ export function weekOfDate(d: Date): { year: number; week: number } {
 	const year = d.getUTCFullYear();
 	const mon = mondayOfJan1(year);
 	if (d < mon) {
-		// Date falls in previous year's last week
 		return weekOfDate(d);
 	}
 	const diffMs = d.getTime() - mon.getTime();

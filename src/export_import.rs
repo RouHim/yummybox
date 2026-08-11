@@ -401,7 +401,6 @@ async fn import_single_recipe(
     // --- validate -----------------------------------------------------------
     if let Err(e) = db::validate_meal(trimmed_name, &ingredients, &instructions, portions) {
         let msg = e.to_string();
-        // Strip the "Validation error: " prefix if present (it's not, but be safe)
         return Err(format!("validation failed: {msg}"));
     }
 
