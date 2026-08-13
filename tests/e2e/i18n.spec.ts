@@ -30,6 +30,9 @@ test.describe('i18n', () => {
 		// Header
 		await expect(page.getByRole('link', { name: 'Mahlzeiten' })).toBeVisible();
 
+		// Top bar
+		await expect(page.getByRole('link', { name: 'Spontan kochen' })).toBeVisible();
+
 		// Search
 		await expect(page.getByPlaceholder('Mahlzeiten suchen...')).toBeVisible();
 
@@ -63,6 +66,14 @@ test.describe('i18n', () => {
 			dialog.getByText('Fotos (optional, bis zu 5) — die KI kann daraus ein Rezept extrahieren')
 		).toBeVisible();
 
+		// Close the dialog, then open the standalone generate page.
+		await page.keyboard.press('Escape');
+		await expect(dialog).not.toBeVisible();
+		await page.getByRole('link', { name: 'Spontan kochen' }).click();
+		await expect(page.getByRole('heading', { name: 'Spontan kochen' })).toBeVisible();
+		await expect(page.getByText('Zutaten (eine pro Zeile, Menge optional)')).toBeVisible();
+		await expect(page.getByText('Liste auf, was du hast. Die KI entwirft ein Rezept, das du vor dem Speichern bearbeiten kannst.')).toBeVisible();
+		await expect(page.getByRole('button', { name: 'Rezept generieren' })).toBeVisible();
 		await context.close();
 	});
 });

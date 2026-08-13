@@ -40,7 +40,7 @@ use crate::state::AppState;
 const DEFAULT_PORT: u16 = 11341;
 
 /// Maximum accepted request body size (50 MB).
-const MAX_BODY_BYTES: usize = 50 * 1024 * 1024;
+pub(crate) const MAX_BODY_BYTES: usize = 50 * 1024 * 1024;
 
 enum Subcommand {
     Serve,
@@ -112,6 +112,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .route("/meals/{id}/image", get(routes::get_meal_image))
         .route("/import/url", post(import::import_from_url))
         .route("/import/llm", post(import::import_from_llm))
+        .route("/import/generate", post(import::generate_meal))
         .route("/llm/providers", get(import::llm_providers))
         .route("/llm/models", get(import::llm_models))
         .route("/llm/polish", post(import::polish_instructions))

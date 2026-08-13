@@ -68,7 +68,7 @@ async fn parse_meal_multipart(mut multipart: Multipart) -> Result<ParsedMealForm
     while let Some(field) = multipart
         .next_field()
         .await
-        .map_err(|e| AppError::BadRequest(format!("invalid multipart data: {e}")))?
+        .map_err(|e| crate::import::map_multipart_error(e, "invalid multipart data"))?
     {
         match field.name() {
             Some("name") => {
@@ -121,20 +121,20 @@ async fn parse_meal_multipart(mut multipart: Multipart) -> Result<ParsedMealForm
     })
 }
 
-/// Read a multipart text field, mapping read errors to a 400 response.
+/// Read a multipart text field, mapping read errors to an `AppError`
+/// (body-size-limit violations are reported as 413, like the import routes).
 async fn read_text_field(field: Field<'_>, field_name: &str) -> Result<String, AppError> {
-    field
-        .text()
-        .await
-        .map_err(|e| AppError::BadRequest(format!("failed to read {field_name} field: {e}")))
+    field.text().await.map_err(|e| {
+        crate::import::map_multipart_error(e, &format!("failed to read {field_name} field"))
+    })
 }
 
-/// Read a multipart binary field, mapping read errors to a 400 response.
+/// Read a multipart binary field, mapping read errors to an `AppError`
+/// (body-size-limit violations are reported as 413, like the import routes).
 async fn read_bytes_field(field: Field<'_>, field_name: &str) -> Result<Vec<u8>, AppError> {
-    let data = field
-        .bytes()
-        .await
-        .map_err(|e| AppError::BadRequest(format!("failed to read {field_name} field: {e}")))?;
+    let data = field.bytes().await.map_err(|e| {
+        crate::import::map_multipart_error(e, &format!("failed to read {field_name} field"))
+    })?;
     Ok(data.to_vec())
 }
 

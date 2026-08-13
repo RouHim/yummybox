@@ -26,6 +26,15 @@ export interface MealPayload {
 	portions?: number | null;
 }
 
+export interface MealFormPayload {
+	name: string;
+	ingredients: NewIngredientLine[];
+	instructions: string;
+	portions: number | null;
+	image: File | null;
+	removeImage: boolean;
+}
+
 export interface NumericTotal {
 	value: number;
 	unit: string | null;

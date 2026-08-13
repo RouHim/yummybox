@@ -170,6 +170,22 @@ export async function importFromLlm(
     return request<ImportDraft>('/api/import/llm', { method: 'POST', body: form });
 }
 
+export async function generateMeal(
+    model: string,
+    ingredients: string,
+    images: File[],
+    baseUrl?: string,
+    apiKey?: string,
+): Promise<ImportDraft> {
+    const form = new FormData();
+    form.set('model', model);
+    if (ingredients.trim()) form.set('ingredients', ingredients);
+    for (const img of images) form.append('image', img);
+    if (baseUrl) form.set('base_url', baseUrl);
+    if (apiKey) form.set('api_key', apiKey);
+    return request<ImportDraft>('/api/import/generate', { method: 'POST', body: form });
+}
+
 export async function listLlmProviders(): Promise<LlmProviderInfo[]> {
     const data = await request<{ providers: LlmProviderInfo[] }>('/api/llm/providers');
     return data.providers;

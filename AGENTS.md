@@ -48,10 +48,10 @@ Browser (SPA) ──fetch──▶ axum (Rust) ──async──▶ SQLite (via 
 
 ```bash
 # Build and run (production)
-# Run all Rust tests (269 tests)
+# Run all Rust tests (286 tests)
 cargo test
 
-# Run all frontend tests (141 tests)
+# Run all frontend tests (147 tests)
 cd web && npm test
 
 # Type-check frontend
