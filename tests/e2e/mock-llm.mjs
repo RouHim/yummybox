@@ -24,9 +24,20 @@ http
 		}
 		if (req.method === 'POST' && req.url === '/v1/chat/completions') {
 			let body = '';
+			// A client disconnect mid-request emits 'error' (ECONNRESET) on the
+			// streams; without a listener Node throws and kills the mock server.
+			req.on('error', () => {});
+			res.on('error', () => {});
 			req.on('data', (chunk) => (body += chunk));
 			req.on('end', () => {
-				const payload = JSON.parse(body);
+				let payload;
+				try {
+					payload = JSON.parse(body);
+				} catch {
+					res.writeHead(400, { 'content-type': 'application/json' });
+					res.end(JSON.stringify({ error: { message: 'invalid JSON body' } }));
+					return;
+				}
 				res.writeHead(200, { 'content-type': 'application/json' });
 				res.end(
 					JSON.stringify({

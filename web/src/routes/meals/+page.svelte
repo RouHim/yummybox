@@ -762,7 +762,7 @@ import { focusTrap } from '$lib/focusTrap';
 									</button>
 								{/if}
 								{/if}
-								{#if importError || (importMode === 'urls' && bulkError) || (importMode === 'zip' && zipError)}
+								{#if (importMode === 'llm' && importError) || (importMode === 'urls' && bulkError) || (importMode === 'zip' && zipError)}
 									<p class="form-error" role="alert">
 										<Icon name="circle-alert" size={18} />
 										<span>{importMode === 'urls' && bulkError ? bulkError : importMode === 'zip' && zipError ? zipError : importError}</span>

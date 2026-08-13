@@ -55,6 +55,7 @@ Expected: FAIL — the draft form still shows the "Add" button, so the `Save` lo
 ```ts
 	cookNowButton: 'Cook now',
 	cookDraftMissing: 'No draft to cook. Create one first.',
+	cookDraftSaveError: 'The draft could not be saved. Try again with a smaller image.',
 ```
 
 `web/src/lib/i18n/de.ts` (same position, line 109):
@@ -62,6 +63,7 @@ Expected: FAIL — the draft form still shows the "Add" button, so the `Save` lo
 ```ts
 	cookNowButton: 'Jetzt kochen',
 	cookDraftMissing: 'Kein Entwurf zum Kochen. Erstelle zuerst einen.',
+	cookDraftSaveError: 'Der Entwurf konnte nicht gespeichert werden. Versuche es erneut mit einem kleineren Bild.',
 ```
 
 `web/src/lib/i18n/types.ts` (insert after `generateStartOver`, line 115):
@@ -69,6 +71,7 @@ Expected: FAIL — the draft form still shows the "Add" button, so the `Save` lo
 ```ts
 	| 'cookNowButton'
 	| 'cookDraftMissing'
+	| 'cookDraftSaveError'
 ```
 
 - [ ] **Step 4: Run the i18n parity test**
@@ -187,7 +190,7 @@ Keep the edit-mode cancel button exactly as it is.
 - [ ] **Step 7: Run the affected specs to verify they pass**
 
 Run: `cd tests && npx playwright test e2e/generate-meal.spec.ts`
-Expected: PASS (6 tests; the save clicks now match "Save").
+Expected: PASS (7 tests; the save clicks now match "Save").
 
 - [ ] **Step 8: Commit**
 
@@ -397,25 +400,61 @@ Expected: FAIL — no "Cook now" button exists yet.
 
 a) Add the helper above the component (script section, after `onSave`):
 
+> **Implementation note:** The helper shipped as `downscaleImage` (canvas re-encode to a bounded JPEG, max edge 1280, quality 0.8) instead of the originally planned `fileToDataUrl` FileReader read: raw data URLs of generated JPEGs and user photos routinely exceed the ~5 MB sessionStorage quota. The code below is what shipped.
+
 ```ts
-	function fileToDataUrl(file: File): Promise<string> {
+	const COOK_DRAFT_MAX_EDGE = 1280;
+
+	// Bound the draft image before storing it: generated JPEGs and user photos
+	// routinely exceed the ~5 MB sessionStorage quota as base64 data URLs, so
+	// re-encode to a downscaled JPEG that always fits.
+	function downscaleImage(file: File): Promise<string> {
 		return new Promise((resolve, reject) => {
-			const reader = new FileReader();
-			reader.onload = () => resolve(String(reader.result));
-			reader.onerror = () => reject(reader.error);
-			reader.readAsDataURL(file);
+			const url = URL.createObjectURL(file);
+			const img = new Image();
+			img.onload = () => {
+				URL.revokeObjectURL(url);
+				const scale = Math.min(
+					1,
+					COOK_DRAFT_MAX_EDGE / Math.max(img.naturalWidth, img.naturalHeight)
+				);
+				const canvas = document.createElement('canvas');
+				canvas.width = Math.max(1, Math.round(img.naturalWidth * scale));
+				canvas.height = Math.max(1, Math.round(img.naturalHeight * scale));
+				const ctx = canvas.getContext('2d');
+				if (!ctx) {
+					reject(new Error('could not create canvas context'));
+					return;
+				}
+				// Flatten transparency onto white so JPEG re-encoding keeps a clean background.
+				ctx.fillStyle = '#fff';
+				ctx.fillRect(0, 0, canvas.width, canvas.height);
+				ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+				resolve(canvas.toDataURL('image/jpeg', 0.8));
+			};
+			img.onerror = () => {
+				URL.revokeObjectURL(url);
+				reject(new Error('could not load image'));
+			};
+			img.src = url;
 		});
 	}
 
 	async function onCook(payload: import('$lib/types').MealFormPayload) {
-		const imageDataUrl = payload.image ? await fileToDataUrl(payload.image) : null;
-		sessionStorage.setItem('yummybox-cook-draft', JSON.stringify({
-			name: payload.name,
-			ingredients: payload.ingredients,
-			instructions: payload.instructions,
-			portions: payload.portions,
-			imageDataUrl,
-		}));
+		cookError = null;
+		try {
+			const imageDataUrl = payload.image ? await downscaleImage(payload.image) : null;
+			sessionStorage.setItem('yummybox-cook-draft', JSON.stringify({
+				name: payload.name,
+				ingredients: payload.ingredients,
+				instructions: payload.instructions,
+				portions: payload.portions,
+				imageDataUrl,
+			}));
+		} catch {
+			cookError = t('cookDraftSaveError');
+			return;
+		}
 		await goto('/spontaneous/cook');
 	}
 ```
@@ -518,7 +557,7 @@ git commit -m "feat: cook spontaneous draft without persisting"
 - [ ] **Step 1: Frontend gates**
 
 Run: `cd web && npm run check` → Expected: 0 errors, 10 pre-existing warnings.
-Run: `cd web && npm test` → Expected: 146/146 (i18n parity covers the 2 new keys).
+Run: `cd web && npm test` → Expected: 147/147 (i18n parity covers the 2 new keys).
 
 - [ ] **Step 2: Fresh release build**
 
@@ -526,7 +565,7 @@ Run: `rm -rf web/build && cargo build --release` (from the repo root; required s
 
 - [ ] **Step 3: Full workflow e2e suite**
 
-Run: `cd tests && npm test` → Expected: all pass (90 existing + 1 new cook test). The mock LLM webServer on 127.0.0.1:18999 must be free (stop any hub-managed `mock-llm` process first if present).
+Run: `cd tests && npm test` → Expected: all pass (91 existing + 1 new cook test, 92 total). The mock LLM webServer on 127.0.0.1:18999 must be free (stop any hub-managed `mock-llm` process first if present).
 
 - [ ] **Step 4: Visual e2e suite**
 

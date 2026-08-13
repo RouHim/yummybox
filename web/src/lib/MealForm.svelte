@@ -56,6 +56,7 @@
 	let removeImage = $state(false);
 	let imageError = $state<string | null>(null);
 	let formError = $state<string | null>(null);
+	let cooking = $state(false);
 
 	function normalizeName(name: string): string {
 		return name.trim().toLowerCase().split(/\s+/).join(' ');
@@ -129,10 +130,13 @@
 	async function onCookClick() {
 		const payload = buildPayload();
 		if (!payload || !oncook) return;
+		cooking = true;
 		try {
 			await oncook(payload);
 		} catch (err) {
 			formError = err instanceof Error ? err.message : String(err ?? '');
+		} finally {
+			cooking = false;
 		}
 	}
 </script>
@@ -240,12 +244,12 @@
 		{/if}
 		<div class="form-card__actions">
 			{#if oncook}
-				<button type="button" class="btn btn--ghost" onclick={onCookClick} disabled={submitting}>
+				<button type="button" class="btn btn--ghost" onclick={onCookClick} disabled={submitting || cooking}>
 					<Icon name="utensils" size={16} />
 					{t('cookNowButton')}
 				</button>
 			{/if}
-			<button type="submit" class="btn btn--primary" disabled={submitting || isDuplicate}>
+			<button type="submit" class="btn btn--primary" disabled={submitting || cooking || isDuplicate}>
 				{#if editMode}
 					<Icon name="check" size={16} />
 					{t('buttonSave')}

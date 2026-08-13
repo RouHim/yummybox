@@ -242,6 +242,7 @@ async fn route_setup() -> RouteTestCtx {
     let app = Router::new()
         .route("/export/meals.zip", get(export_meals_zip))
         .route("/import/zip", post(import_meals_zip))
+        .layer(axum::extract::DefaultBodyLimit::max(crate::MAX_BODY_BYTES))
         .with_state(Arc::clone(&state));
     RouteTestCtx {
         app,
@@ -474,6 +475,37 @@ async fn import_valid_zip_creates_meals() {
     assert_eq!(result.created.len(), 2);
     assert_eq!(result.skipped, 0);
     assert_eq!(result.failed.len(), 0);
+}
+
+#[tokio::test]
+async fn given_body_over_50mb_when_import_zip_then_413() {
+    let ctx = route_setup().await;
+    // 53 MB of a single file field trips the 50 MiB body limit
+    // mid-field-read, which must surface as 413.
+    let oversized = vec![0u8; 53_000_000];
+    let (body, content_type) = build_zip_multipart(&oversized);
+    let response = ctx
+        .app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method(Method::POST)
+                .uri("/import/zip")
+                .header("content-type", &content_type)
+                .body(axum::body::Body::from(body))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::PAYLOAD_TOO_LARGE);
+    let resp_body = to_bytes(response.into_body(), 4096).await.unwrap();
+    let error: serde_json::Value = serde_json::from_slice(&resp_body).unwrap();
+    assert!(
+        error["error"]
+            .as_str()
+            .unwrap()
+            .contains("request body exceeds 50 MB limit")
+    );
 }
 
 #[tokio::test]

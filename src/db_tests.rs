@@ -8,9 +8,7 @@ use sqlx::{Row, SqlitePool};
 
 use crate::db::*;
 use crate::error::AppError;
-use crate::model::{Meal, MealPatch, NewIngredientLine, NewMeal};
-
-use crate::model::{NewPlanRequest, PlanPatch};
+use crate::model::{Meal, MealPatch, NewIngredientLine, NewMeal, NewPlanRequest, PlanPatch};
 
 async fn setup_db() -> (SqlitePool, tempfile::TempDir) {
     let dir = tempfile::tempdir().expect("tempdir");
@@ -895,7 +893,7 @@ async fn given_meal_shares_ingredient_with_others_when_delete_meal_then_ingredie
 // -----------------------------------------------------------------------
 
 #[tokio::test]
-async fn given_3_unplanned_and_3_recent_meals_when_select_3_weighted_over_100_trials_then_unplanned_chosen_at_least_twice_as_often()
+async fn given_3_unplanned_and_3_recent_meals_when_select_3_weighted_over_100_trials_then_unplanned_chosen_at_least_ten_times_as_often()
  {
     let (pool, _dir) = setup_db().await;
 
@@ -954,7 +952,7 @@ async fn given_3_unplanned_and_3_recent_meals_when_select_3_weighted_over_100_tr
     }
 
     assert!(
-        unplanned_picks >= 2 * recent_picks,
+        unplanned_picks > recent_picks * 10,
         "unplanned_picks={unplanned_picks}, recent_picks={recent_picks}"
     );
 }
@@ -1155,6 +1153,8 @@ async fn given_plan_with_meals_when_get_plan_meals_then_returns_hydrated_meals_i
         .await
         .expect("get_plan_meals");
     assert_eq!(meals.len(), 2);
+    assert_eq!(meals[0].id, m1.id);
+    assert_eq!(meals[1].id, m2.id);
     assert!(!meals[0].ingredients.is_empty());
 }
 
@@ -1196,7 +1196,21 @@ async fn given_existing_plan_when_create_or_replace_plan_then_replaces_meals_and
     .await
     .expect("create plan 1");
 
-    let _old_meal_ids: std::collections::HashSet<i64> = plan1.meals.iter().map(|m| m.id).collect();
+    // Snapshot last_planned_at right after plan 1: the two picked meals were
+    // stamped, the third meal is still NULL.
+    let lp_before: std::collections::HashMap<i64, Option<DateTime<Utc>>> = {
+        let mut conn = pool.acquire().await.unwrap();
+        let rows = sqlx::query("SELECT id, last_planned_at FROM meals")
+            .fetch_all(&mut *conn)
+            .await
+            .unwrap();
+        rows.iter()
+            .map(|r| (r.get::<i64, _>(0), r.get::<Option<DateTime<Utc>>, _>(1)))
+            .collect()
+    };
+
+    let old_ids: std::collections::HashSet<i64> = plan1.meals.iter().map(|m| m.id).collect();
+    assert_eq!(old_ids.len(), 2);
 
     let plan2 = crate::plan::create_or_replace_plan(
         &pool,
@@ -1211,6 +1225,42 @@ async fn given_existing_plan_when_create_or_replace_plan_then_replaces_meals_and
 
     assert_eq!(plan2.meals.len(), 2);
     assert!(!plan2.ingredient_summary.is_empty());
+
+    // (a) plan2 replaces plan1's set: the weighted selection favors the
+    // never-planned meal (NEVER_PLANNED_WEIGHT vs seconds since last
+    // planned), so plan2 must pick it plus one of plan1's two meals — the
+    // two plans share exactly one meal.
+    let new_ids: std::collections::HashSet<i64> = plan2.meals.iter().map(|m| m.id).collect();
+    assert_eq!(new_ids.len(), 2);
+    assert_ne!(old_ids, new_ids, "plan2 must differ from plan1's meal set");
+    assert_eq!(
+        new_ids.difference(&old_ids).count(),
+        1,
+        "plan2 must select the never-planned meal"
+    );
+    assert_eq!(
+        new_ids.intersection(&old_ids).count(),
+        1,
+        "plan2 must keep exactly one of plan1's meals"
+    );
+
+    // (b) only meals in the new set get last_planned_at re-stamped: the
+    // never-planned meal goes from NULL to a timestamp, the carried-over
+    // meal is stamped again (later than after plan 1).
+    for meal in &plan2.meals {
+        let before = lp_before[&meal.id];
+        let fresh = find_meal(&pool, meal.id).await.unwrap();
+        assert!(
+            fresh.last_planned_at.is_some() && fresh.last_planned_at != before,
+            "meal {} should have been re-stamped by plan2",
+            meal.id
+        );
+    }
+
+    // (c) the meal dropped from the plan keeps its plan1 timestamp.
+    let dropped_id = *old_ids.difference(&new_ids).next().expect("dropped meal");
+    let dropped = find_meal(&pool, dropped_id).await.unwrap();
+    assert_eq!(dropped.last_planned_at, lp_before[&dropped_id]);
 }
 
 #[tokio::test]
@@ -1384,6 +1434,7 @@ async fn given_existing_plan_when_update_plan_meals_then_returns_plan_with_new_m
 
     let m1_fresh = find_meal(&pool, m1.id).await.unwrap();
     let m3_fresh = find_meal(&pool, m3.id).await.unwrap();
+    let m2_fresh = find_meal(&pool, m2.id).await.unwrap();
     let expected = Some(
         DateTime::parse_from_rfc3339(ts)
             .unwrap()
@@ -1391,6 +1442,8 @@ async fn given_existing_plan_when_update_plan_meals_then_returns_plan_with_new_m
     );
     assert_eq!(m1_fresh.last_planned_at, expected);
     assert_eq!(m3_fresh.last_planned_at, expected);
+    // The meal removed from the plan is left untouched.
+    assert_eq!(m2_fresh.last_planned_at, expected);
 }
 
 #[tokio::test]

@@ -237,7 +237,7 @@ pub async fn import_via_llm(
     images: Vec<LlmImage>,
     base_url: Option<&str>,
     api_key: Option<&str>,
-    has_user_image: bool,
+    skip_image_download: bool,
 ) -> Result<recipe::ImportDraft, AppError> {
     let client = genai::Client::default();
     let user_content = build_user_content(hint, &images);
@@ -268,19 +268,20 @@ pub async fn import_via_llm(
             "llm_parse_failed",
         )
     })?;
-    build_draft_from_tool_args(&first.fn_arguments, has_user_image).await
+    build_draft_from_tool_args(&first.fn_arguments, skip_image_download).await
 }
 
 // ---------------------------------------------------------------------------
 // Generate meal (on-the-fly from ingredients / photos)
 // ---------------------------------------------------------------------------
 
-const GENERATE_SYSTEM_PROMPT: &str = "You are a creative cooking assistant. Create a recipe from the user's available ingredients (a text list, photos, or both). The recipe must primarily use the provided ingredients; you may add only staple seasonings such as salt, pepper, oil, herbs, and spices. Preserve the exact quantities the user specified; assign plausible quantities to ingredients that have none. If an ingredient appears in both the text list and the photos, list it once, using the quantity from the text list. Respond in the same language as the user's input. Call the extract_recipe tool with the result. Always call the tool.";
+const GENERATE_SYSTEM_PROMPT: &str = "You are a creative cooking assistant. Create a recipe from the user's available ingredients (a text list, photos, or both). The recipe must primarily use the provided ingredients; you may add only staple seasonings such as salt, pepper, oil, herbs, and spices. Preserve the exact quantities the user specified; assign plausible quantities to ingredients that have none. If an ingredient appears in both the text list and the photos, list it once, using the quantity from the text list. Respond in the same language as the user's input. Never invent an image URL; always leave the imageUrl field empty. Call the extract_recipe tool with the result. Always call the tool.";
 
 /// Generate a complete recipe draft from an ingredient list and/or photos.
-/// Same plumbing as `import_via_llm` (tool call, 60s timeout, error mapping);
-/// `has_user_image` is derived from `!images.is_empty()` so the draft does not
-/// try to download a dish photo when the user already uploaded photos.
+/// Same plumbing as `import_via_llm` (tool call, 60s timeout, error mapping).
+/// The draft never downloads a dish photo: the dish is created from scratch,
+/// so any `imageUrl` the model returns is necessarily invented (SSRF guard),
+/// and user photos are sent to the model directly.
 pub async fn generate_meal_via_llm(
     model: &str,
     ingredients: Option<&str>,
@@ -317,7 +318,9 @@ pub async fn generate_meal_via_llm(
             "llm_parse_failed",
         )
     })?;
-    build_draft_from_tool_args(&first.fn_arguments, !images.is_empty()).await
+    // The dish is created from scratch, so any `imageUrl` the model returns is
+    // necessarily invented; never fetch it (SSRF guard).
+    build_draft_from_tool_args(&first.fn_arguments, true).await
 }
 
 // ---------------------------------------------------------------------------
@@ -438,7 +441,7 @@ struct LlmIngredient {
 
 async fn build_draft_from_tool_args(
     args: &serde_json::Value,
-    has_user_image: bool,
+    skip_image_download: bool,
 ) -> Result<recipe::ImportDraft, AppError> {
     let draft: LlmRecipeDraft = serde_json::from_value(args.clone()).map_err(|e| {
         AppError::Llm(
@@ -472,8 +475,9 @@ async fn build_draft_from_tool_args(
         .map(str::trim)
         .filter(|s| !s.is_empty());
 
-    // FR-005: skip download when the user uploaded an image.
-    let image_base64 = if has_user_image {
+    // Skip the download when the user uploaded an image (FR-005) or when the
+    // caller must not fetch an LLM-supplied URL (generate flow, SSRF guard).
+    let image_base64 = if skip_image_download {
         None
     } else {
         try_download_llm_image(image_url).await
@@ -897,7 +901,9 @@ mod tests {
         };
         let content = build_user_content(Some("   "), &[img]);
         let debug = format!("{:?}", content);
-        assert!(!debug.contains("eggs"));
+        // The trimmed-empty hint must not become a content part; only the image remains.
+        assert_eq!(content.parts().len(), 1);
+        assert!(!debug.contains("   "));
         assert!(debug.contains("Y2Nj")); // b64("ccc")
     }
 }

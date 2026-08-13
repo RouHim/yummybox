@@ -4,7 +4,7 @@
 
 **Goal:** Let users generate a complete recipe on the fly from a free-text ingredient list and/or up to 5 ingredient photos via a configured LLM, then optionally save it as a meal.
 
-**Architecture:** A new multipart endpoint `POST /api/import/generate` (handler in `src/import.rs`) sends the ingredient text plus up to 5 images to a new `generate_meal_via_llm` function in `src/llm_import.rs` — the same genai tool-call plumbing as the existing LLM import, with a new system prompt. It returns the existing `recipe::ImportDraft`; nothing persists until the user saves. On the frontend, a top-bar "Generate meal" link deep-links to `/meals?generate=1`, which opens the existing add-meal modal in a new "Generate" import tab. The tab reuses the LLM provider/model picker (extracted into `web/src/lib/components/LlmConfigPicker.svelte`) and a new multi-photo input component; a successful generation fills the existing editable add-meal form, whose save flow is unchanged.
+**Architecture:** A new multipart endpoint `POST /api/import/generate` (handler in `src/import.rs`) sends the ingredient text plus up to 5 images to a new `generate_meal_via_llm` function in `src/llm_import.rs` — the same genai tool-call plumbing as the existing LLM import, with a new system prompt. It returns the existing `recipe::ImportDraft`; nothing persists until the user saves. On the frontend, a top-bar "Generate meal" link opens a dedicated `/spontaneous` route (`web/src/routes/spontaneous/+page.svelte`) hosting an inline generator: an ingredients textarea, a photo input (`GenerateImageInput`), and the LLM provider/model picker (extracted into `web/src/lib/components/LlmConfigPicker.svelte`) in a side panel. A successful generation renders an editable draft inline (`MealForm`) that can be saved as a meal (POST `/api/meals`, then navigate to `/meals`) or cooked without persisting via the "Cook now" action (the draft crosses to `/spontaneous/cook` through `sessionStorage`); the provider config is persisted and restored on revisit with the settings panel collapsed. **Implementation note:** the original deep-link design (`/meals?generate=1` opening the add-meal modal in a new "Generate" import tab) was replaced during implementation by this dedicated `/spontaneous` route and inline draft — the flow the 2026-08-13 plan already assumes — and the shipped `tests/e2e/generate-meal.spec.ts` tests that route.
 
 **Tech Stack:** Rust (axum 0.8, sqlx 0.9, genai 0.6), Svelte 5 runes + SvelteKit (adapter-static, SSR off), Vitest, Playwright.
 
@@ -599,7 +599,7 @@ git commit -m "feat: add generateMeal API client"
 
 **Interfaces:**
 - Consumes: nothing (pure module).
-- Produces: `export const MAX_GENERATE_IMAGES = 5`, `export const MAX_GENERATE_IMAGE_BYTES = 20 * 1024 * 1024`, `export function validateGenerateImage(file: File): TranslationKey | null` (returns a `TranslationKey` on rejection — the type is imported from `$lib/i18n/types` — or `null` on accept) — consumed by Task 5's `MultiImageInput` (which passes the result straight to `t()`).
+- Produces: `export const MAX_GENERATE_IMAGES = 5`, `export const MAX_GENERATE_IMAGE_BYTES = 20 * 1024 * 1024`, `export function validateGenerateImage(file: File): TranslationKey | null` (returns a `TranslationKey` on rejection — the type is imported from `$lib/i18n/types` — or `null` on accept) — consumed by Task 5's `GenerateImageInput` (which passes the result straight to `t()`).
 
 - [ ] **Step 1: Write the failing tests**
 
@@ -667,18 +667,20 @@ git commit -m "feat: add multi-image upload validation helpers"
 
 ---
 
-### Task 5: Frontend — `MultiImageInput` component
+### Task 5: Frontend — `GenerateImageInput` component
 
 **Files:**
-- Create: `web/src/lib/components/MultiImageInput.svelte`
+- Create: `web/src/lib/components/GenerateImageInput.svelte`
 
 **Interfaces:**
 - Consumes: `MAX_GENERATE_IMAGES`, `validateGenerateImage` from Task 4; `t` from `$lib/i18n`; `Icon` from `$lib/Icon.svelte`.
-- Produces: `MultiImageInput` with props `files: File[]` (bindable), `disabled: boolean`, `onerror: (error: string | null) => void` — consumed by Task 7's generate tab.
+- Produces: `GenerateImageInput` with props `files: File[]` (bindable), `disabled: boolean`, `onerror: (error: string | null) => void` — consumed by Task 7's generate tab.
+
+> **Implementation note:** The component shipped as `GenerateImageInput.svelte` (used by the `/spontaneous` route in Task 7). The name `MultiImageInput` belongs to a separate component that also shipped in this PR — `web/src/lib/components/MultiImageInput.svelte`, the add-meal dialog photo strip used by the LLM import tab of `web/src/routes/meals/+page.svelte`. That component exposes `onchange: (files: File[]) => void` and `onerror: (error: string | null) => void` props (no bindable `files`), caps staged photos at 5 (`MAX_PHOTOS`), supports paste/drag/URL staging, and uses `.multi-image-thumbs`/`.multi-image-thumb` classes; it is not produced by any task in this plan.
 
 - [ ] **Step 1: Implement the component**
 
-Create `web/src/lib/components/MultiImageInput.svelte`:
+Create `web/src/lib/components/GenerateImageInput.svelte`:
 
 ```svelte
 <script lang="ts">
@@ -803,8 +805,8 @@ Expected: 0 type errors.
 - [ ] **Step 3: Commit**
 
 ```bash
-git add web/src/lib/components/MultiImageInput.svelte
-git commit -m "feat: add MultiImageInput component"
+git add web/src/lib/components/GenerateImageInput.svelte
+git commit -m "feat: add GenerateImageInput component"
 ```
 
 ---
@@ -813,7 +815,7 @@ git commit -m "feat: add MultiImageInput component"
 
 **Files:**
 - Create: `web/src/lib/components/LlmConfigPicker.svelte`
-- Modify: `web/src/routes/meals/+page.svelte` (delete moved logic/state, use the component in the `llm` tab)
+- Modify: none — the planned `web/src/routes/meals/+page.svelte` refactor (delete moved logic/state, use the component in the `llm` tab) did not ship (see Step 2).
 
 **Interfaces:**
 - Consumes: `listLlmProviders`, `listLlmModels` from `$lib/api`; `readStoredLlmConfig` from `$lib/llm-config.svelte`; `t` from `$lib/i18n`; type `LlmProviderInfo` from `$lib/types`.
@@ -1006,253 +1008,47 @@ Create `web/src/lib/components/LlmConfigPicker.svelte`:
 
 - [ ] **Step 2: Refactor `web/src/routes/meals/+page.svelte`**
 
-Delete the following from `+page.svelte` (they moved into the component):
-- State: `llmProviders`, `llmProvidersLoading`, `llmProvidersLoaded`, `llmModels`, `llmModelsLoading`, `llmModelsError`, `llmConfigRestored` (lines ~46-55).
-- The `// Restore stored LLM config when opening the import card` effect (lines ~244-263), the `// Load providers when LLM tab is first activated` effect (lines ~266-282), and the `// Debounced model loading for custom endpoint...` effect + `_customDebounceTimer` (lines ~285-311).
-- Functions `loadLlmModels()` and `onProviderChange()`.
-- The import of `listLlmProviders` and `listLlmModels` from `$lib/api` (keep `ApiError` — still used by error mapping; if it becomes unused, remove it from the import).
-- The `import('$lib/types').LlmProviderInfo` type annotation on the deleted `llmProviders` state.
+> **Implementation note:** This refactor did not ship. The meals page kept its full inline provider/model picker — its diff in this PR only swaps `ImageInput` for `MultiImageInput` in the LLM import tab (single-file `importLlmImage: File | null` state becomes `importLlmImages: File[]`, fed through the new `onLlmImagesChange`). No state/effects/functions were moved out, and no `<LlmConfigPicker>` was added to the meals page; `LlmConfigPicker` is used exclusively by the `/spontaneous` route (Task 7). The planned deletions (provider/model state, restore/load/debounce effects, `loadLlmModels()`, `onProviderChange()`, the `listLlmProviders`/`listLlmModels` import, and the `LlmProviderInfo` annotation) and the settings-block replacement were never applied.
 
-Keep: `importLlmProvider`, `importLlmModel`, `importLlmHint`, `importLlmImage`, `importing`, `importError`, `importToken`, `llmSettingsCollapsed`, `onImport`, `onLlmImageChange`, `switchImportMode`, `openAdd` (minus the `llmConfigRestored = false;` line).
-
-Replace the entire settings block in the `llm` tab (currently wrapped in `{#if !llmSettingsCollapsed || !importLlmProvider}` … with the `llm-provider-row`, custom fields, and error/hint paragraphs) with:
-
-```svelte
-{#if !llmSettingsCollapsed || !importLlmProvider}
-	<LlmConfigPicker
-		bind:provider={importLlmProvider}
-		bind:model={importLlmModel}
-		bind:customBaseUrl={importLlmCustomBaseUrl}
-		bind:customApiKey={importLlmCustomApiKey}
-		disabled={importing}
-		onrestored={() => {
-			if (importLlmProvider && importLlmModel) llmSettingsCollapsed = true;
-		}}
-	/>
-{/if}
-```
-
-Add the import:
-
-```svelte
-	import LlmConfigPicker from '$lib/components/LlmConfigPicker.svelte';
-```
-
-- [ ] **Step 3: Verify the refactor**
+- [ ] **Step 3: Verify the component**
 
 Run: `cd web && npm run check` — expected 0 errors.
-Run: `cd web && npm test` — expected all existing tests pass (the LLM-import UI itself is exercised by Task 9's e2e, which drives the same picker).
+Run: `cd web && npm test` — expected all existing tests pass (the picker itself is exercised by Task 9's e2e, which drives the same component on the `/spontaneous` route).
 
 - [ ] **Step 4: Commit**
 
 ```bash
-git add web/src/lib/components/LlmConfigPicker.svelte web/src/routes/meals/+page.svelte
+git add web/src/lib/components/LlmConfigPicker.svelte
 git commit -m "refactor: extract shared LlmConfigPicker component"
 ```
 
 ---
 
-### Task 7: Frontend — generate tab, top-bar entry, deep link
+### Task 7: Frontend — dedicated `/spontaneous` route with inline generator
+
+> **Implementation note:** The original design for this task — a `/meals?generate=1` deep link that opens the existing add-meal modal in a new "Generate" import tab — was replaced during implementation by a dedicated `/spontaneous` route with an inline draft (the flow the 2026-08-13 plan already assumes). The shipped `tests/e2e/generate-meal.spec.ts` tests this route, not the modal. The steps below document what actually shipped.
 
 **Files:**
-- Modify: `web/src/routes/meals/+page.svelte` (add `'generate'` to the `importMode` union, generate state + `onGenerate`, `openGenerate`, query-param effect, generate tab markup, shared error mapping, extend the error display condition)
-- Modify: `web/src/routes/+layout.svelte` (top-bar "Generate meal" link)
-- Modify: `web/src/app.css` (only if the reused `.app-bar__link` classes do not render acceptably in `app-bar__actions`)
+- Add: `web/src/routes/spontaneous/+page.svelte` (generator page: ingredients textarea, photo input, Generate button, inline draft section)
+- Add: `web/src/routes/spontaneous/cook/+page.svelte` (draft cooking view; see the 2026-08-13 plan for the `CookingView` extraction)
+- Modify: `web/src/routes/+layout.svelte` (top-bar "Generate meal" link → `/spontaneous`)
+- Modify: `web/src/app.css` (spontaneous page styles: `.generate-card`, `.generate-draft`, settings panel, responsive grid)
 
 **Interfaces:**
-- Consumes: `generateMeal` (Task 3), `MultiImageInput` (Task 5), `LlmConfigPicker` (Task 6), existing `formName`/`formIngredients`/`formInstructions`/`formPortions`/`formImage`/`removeImage`, `persistLlmConfig`, `t`, `page` from `$app/state`, `goto` from `$app/navigation` (already imported in the page).
-- Produces: `importMode` union including `'generate'`; `openGenerate()`; the `/meals?generate=1` deep-link contract (the top-bar link targets it).
+- Consumes: `generateMeal` (Task 3), `GenerateImageInput` (Task 5), `LlmConfigPicker` (Task 6), `MealForm` (existing; `submitLabel` + `oncook` come from the 2026-08-13 plan), `persistLlmConfig`, `llmErrorMessage` (`web/src/lib/llm-error.ts`), `t`.
+- Produces: the `/spontaneous` route with `onGenerate`, `discardDraft`, `onSave` (POST `/api/meals` via `createMeal`, then `goto('/meals')`) and `onCook` (draft image downscaled to a bounded JPEG data URL, stored in `sessionStorage` under `yummybox-cook-draft`, then `goto('/spontaneous/cook')`); the provider config is persisted via `persistLlmConfig` and restored on revisit with the settings panel collapsed.
 
-- [ ] **Step 1: Add state and handlers to `+page.svelte`**
+- [ ] **Step 1: Add the generator page**
 
-Extend the union and add generate state (near the other import state):
+`web/src/routes/spontaneous/+page.svelte` holds the whole flow: an `ingredients` textarea (max 20000 chars) and `images` (`GenerateImageInput`, max 5) feed `onGenerate`, which calls `generateMeal(model, ingredients, images, baseUrl?, apiKey?)`, maps failures through `llmErrorMessage` into `generateError`, and on success stores the draft (`name`, `ingredients`, `instructions`, `portions`, `draftImage` built from `imageBase64`), persists the LLM config, collapses the settings panel, and scrolls the inline `.generate-draft` section into view.
 
-```ts
-	let importMode = $state<'manual' | 'urls' | 'llm' | 'zip' | 'generate'>('urls');
-```
+- [ ] **Step 2: Inline editable draft**
 
-```ts
-	let generateIngredients = $state('');
-	let generateImages = $state<File[]>([]);
-	let generating = $state(false);
-	let generateError = $state<string | null>(null);
-```
+A successful generation renders `MealForm` inside the `.generate-draft` section, pre-filled with the draft values (`{#key draftToken}` re-mounts it on new generations). "Save" (`onSave`) validates via the existing form and persists the meal through `createMeal`, then navigates to `/meals`. "Cook now" (`onCook`) serializes the draft — with the image downscaled to a bounded JPEG data URL so it fits the `sessionStorage` quota — and navigates to `/spontaneous/cook` without persisting anything. "Start over" (`discardDraft`) clears the draft and photo.
 
-Extract the shared LLM error mapping from `onImport`'s catch block and reuse it in both handlers. Replace the `catch (err) { ... }` body of `onImport` with `importError = llmErrorMessage(err);` and add:
+- [ ] **Step 3: Top-bar entry**
 
-```ts
-	function llmErrorMessage(err: unknown): string {
-		if (err instanceof ApiError) {
-			if (err.code === 'llm_timeout') return t('llmErrorTimeout');
-			if (err.code === 'llm_parse_failed') return t('llmErrorParseFailed');
-			if (err.code) return t('llmErrorGeneric', { message: err.message });
-			return err.code === 'REQUEST_FAILED' ? t('importErrorFetch') : err.message;
-		}
-		return err instanceof Error ? err.message : '';
-	}
-```
-
-Add `onGenerate` (after `onImport`), `openGenerate`, and the deep-link effect:
-
-```ts
-	async function onGenerate() {
-		generateError = null;
-		generating = true;
-		try {
-			const draft = await generateMeal(
-				importLlmModel,
-				generateIngredients,
-				generateImages,
-				importLlmProvider === 'custom' ? importLlmCustomBaseUrl : undefined,
-				importLlmProvider === 'custom' ? importLlmCustomApiKey : undefined,
-			);
-			formName = draft.name;
-			formIngredients = draft.ingredients.length > 0
-				? draft.ingredients.map(i => ({ name: i.name, quantity: i.quantity }))
-				: [{ name: '', quantity: null }];
-			formInstructions = draft.instructions;
-			formPortions = draft.portions;
-			if (draft.imageBase64) {
-				const bytes = Uint8Array.from(atob(draft.imageBase64), c => c.charCodeAt(0));
-				formImage = new File([bytes], 'generated.jpg', { type: 'image/jpeg' });
-				removeImage = false;
-			}
-			persistLlmConfig({
-				provider: importLlmProvider,
-				model: importLlmModel,
-				customBaseUrl: importLlmCustomBaseUrl,
-				customApiKey: importLlmCustomApiKey,
-			});
-			generateIngredients = '';
-			generateImages = [];
-			importMode = 'manual';
-		} catch (err) {
-			generateError = llmErrorMessage(err);
-		} finally {
-			generating = false;
-		}
-	}
-```
-
-```ts
-	function openGenerate() {
-		openAdd();
-		importMode = 'generate';
-		generateIngredients = '';
-		generateImages = [];
-		generateError = null;
-	}
-
-	$effect(() => {
-		if (page.url.searchParams.get('generate') === '1' && !addOpen) {
-			openGenerate();
-			goto('/meals', { replaceState: true });
-		}
-	});
-```
-
-Update `switchImportMode` so leaving the generate tab clears its staged input (mirroring the existing `importLlmImage` handling):
-
-```ts
-	function switchImportMode(mode: typeof importMode) {
-		if (mode !== 'llm') {
-			importLlmImage = null;
-		}
-		if (mode !== 'generate') {
-			generateIngredients = '';
-			generateImages = [];
-			generateError = null;
-		}
-		importMode = mode;
-	}
-```
-
-Update `openAdd` to also reset generate state (add the same three lines as above next to the other resets; remove the now-deleted `llmConfigRestored = false;` if Task 6 left it).
-
-- [ ] **Step 2: Add the generate tab markup**
-
-In the `import-tabs` block (after the `llm` tab button):
-
-```svelte
-					<button type="button" class="import-tab" class:import-tab--active={importMode === 'generate'}
-						onclick={() => switchImportMode('generate')}>
-						<Icon name="sparkles" size={16} />
-						<span>{t('importTabGenerate')}</span>
-					</button>
-```
-
-Add the tab body in the `{#if importMode === 'manual'}` / `{:else if ...}` chain (after the `{:else if importMode === 'llm'}` branch):
-
-```svelte
-								{:else if importMode === 'generate'}
-								<LlmConfigPicker
-									bind:provider={importLlmProvider}
-									bind:model={importLlmModel}
-									bind:customBaseUrl={importLlmCustomBaseUrl}
-									bind:customApiKey={importLlmCustomApiKey}
-									disabled={generating}
-								/>
-
-								<label class="import-field">
-									<span>{t('generateIngredientsLabel')}</span>
-									<textarea
-										bind:value={generateIngredients}
-										placeholder={t('generateIngredientsPlaceholder')}
-										rows="6"
-										maxlength={20000}
-										disabled={generating}
-									></textarea>
-								</label>
-
-								<p class="import-info">{t('generateImagesHint')}</p>
-								<MultiImageInput
-									bind:files={generateImages}
-									disabled={generating}
-									onerror={(msg) => (generateError = msg)}
-								/>
-
-								<button type="button" class="btn btn--primary" onclick={onGenerate}
-									disabled={generating || !importLlmModel.trim() || (!generateIngredients.trim() && generateImages.length === 0)}>
-									{generating ? t('generateButtonLoading') : t('generateButton')}
-								</button>
-								{/if}
-```
-
-Add the import for `MultiImageInput` next to the `LlmConfigPicker` import.
-
-Extend the shared error paragraph condition and body (currently `{#if importError || (importMode === 'urls' && bulkError) || (importMode === 'zip' && zipError)}`) to include generate errors:
-
-```svelte
-								{#if importError || (importMode === 'urls' && bulkError) || (importMode === 'zip' && zipError) || (importMode === 'generate' && generateError)}
-									<p class="form-error" role="alert">
-										<Icon name="circle-alert" size={18} />
-										<span>{importMode === 'urls' && bulkError ? bulkError : importMode === 'zip' && zipError ? zipError : importMode === 'generate' && generateError ? generateError : importError}</span>
-									</p>
-								{/if}
-```
-
-- [ ] **Step 3: Add the top-bar link in `+layout.svelte`**
-
-In the `app-bar__actions` div, before the theme button:
-
-```svelte
-		<a href="/meals?generate=1" class="app-bar__link app-bar__generate"
-			aria-label={t('navGenerateMeal')} title={t('navGenerateMeal')}>
-			<Icon name="sparkles" size={16} />
-			<span class="app-bar__link-label">{t('navGenerateMeal')}</span>
-		</a>
-```
-
-If the anchor does not render acceptably inside `app-bar__actions` (the actions area currently holds icon-only buttons), add to `web/src/app.css` a rule mirroring the existing `.app-bar__link` look, e.g.:
-
-```css
-	.app-bar__generate {
-		display: inline-flex;
-		align-items: center;
-		gap: var(--space-2);
-		text-decoration: none;
-	}
-```
+In `web/src/routes/+layout.svelte`'s `app-bar__actions`, add a link to `/spontaneous` with `aria-label`/`title` = `t('navGenerateMeal')` and the sparkles icon (styled via the `.app-bar__link` class in `web/src/app.css`).
 
 - [ ] **Step 4: Verify**
 
@@ -1262,8 +1058,8 @@ Run: `cd web && npm test` — expected all pass.
 - [ ] **Step 5: Commit**
 
 ```bash
-git add web/src/routes/meals/+page.svelte web/src/routes/+layout.svelte web/src/app.css
-git commit -m "feat: add generate meal tab and top-bar entry"
+git add web/src/routes/spontaneous/+page.svelte web/src/routes/+layout.svelte web/src/app.css
+git commit -m "feat: add /spontaneous meal generation route with inline draft"
 ```
 
 ---
@@ -1276,15 +1072,14 @@ git commit -m "feat: add generate meal tab and top-bar entry"
 - Modify: `web/src/lib/i18n/types.ts`
 - Modify: `tests/e2e/i18n.spec.ts` (extend the German audit)
 
-**Interfaces:** Consumes the existing `t(key)` lookup and `TranslationKey` union. Produces the new keys used by Tasks 5 and 7 (`navGenerateMeal`, `importTabGenerate`, `generateIngredientsLabel`, `generateIngredientsPlaceholder`, `generateImagesHint`, `generateImagesLabel`, `generateButton`, `generateButtonLoading`, `generateTooManyImages`, `generateErrorNotImage`, `generateErrorImageTooLarge`).
+**Interfaces:** Consumes the existing `t(key)` lookup and `TranslationKey` union. Produces the new keys used by Tasks 5 and 7 (`navGenerateMeal`, `generateIngredientsLabel`, `generateIngredientsPlaceholder`, `generateImagesHint`, `generateImagesLabel`, `generateButton`, `generateButtonLoading`, `generateTooManyImages`, `generateErrorNotImage`, `generateErrorImageTooLarge`).
 
 - [ ] **Step 1: Add keys to `en.ts`**
 
 Insert alphabetically near the other LLM/import keys:
 
 ```ts
-	navGenerateMeal: 'Generate meal',
-	importTabGenerate: 'Generate',
+	navGenerateMeal: 'Spontaneous cooking',
 	generateIngredientsLabel: 'Ingredients (one per line, quantity optional)',
 	generateIngredientsPlaceholder: '3 eggs\nflour\n200 g cheese',
 	generateImagesHint: 'Photos require a vision-capable model. The AI identifies the ingredients from the photos.',
@@ -1299,8 +1094,7 @@ Insert alphabetically near the other LLM/import keys:
 - [ ] **Step 2: Add keys to `de.ts`**
 
 ```ts
-	navGenerateMeal: 'Mahlzeit generieren',
-	importTabGenerate: 'Generieren',
+	navGenerateMeal: 'Spontan kochen',
 	generateIngredientsLabel: 'Zutaten (eine pro Zeile, Menge optional)',
 	generateIngredientsPlaceholder: '3 Eier\nMehl\n200 g Käse',
 	generateImagesHint: 'Fotos benötigen ein visionfähiges Modell. Die KI erkennt die Zutaten auf den Fotos.',
@@ -1316,7 +1110,6 @@ Insert alphabetically near the other LLM/import keys:
 
 ```ts
 	| 'navGenerateMeal'
-	| 'importTabGenerate'
 	| 'generateIngredientsLabel'
 	| 'generateIngredientsPlaceholder'
 	| 'generateImagesHint'
@@ -1330,20 +1123,19 @@ Insert alphabetically near the other LLM/import keys:
 
 - [ ] **Step 4: Extend the German audit in `tests/e2e/i18n.spec.ts`**
 
-Inside the `'all UI strings translate to German'` test, append at the **end** of the test (after the existing form + validation assertions — clicking the generate tab unmounts the manual form, so the form assertions must run first):
+Inside the `'all UI strings translate to German'` test, append at the **end** of the test (after the existing form + validation assertions):
 
 ```ts
-		// Generate meal tab
-		await dialog.getByRole('button', { name: 'Generieren' }).click();
-		await expect(dialog.getByText('Zutaten (eine pro Zeile, Menge optional)')).toBeVisible();
-		await expect(dialog.getByRole('button', { name: 'Rezept generieren' })).toBeVisible();
-```
+		// Top bar: spontaneous-cooking link (opens the standalone generate page)
+		await expect(page.getByRole('link', { name: 'Spontan kochen' })).toBeVisible();
 
-Note: the top-bar link is asserted separately in Task 9's spec (it needs no modal); add here too if desired:
-
-```ts
-		// Top bar
-		await expect(page.getByRole('link', { name: 'Mahlzeit generieren' })).toBeVisible();
+		// Close the dialog, then open the standalone generate page.
+		await page.keyboard.press('Escape');
+		await expect(dialog).not.toBeVisible();
+		await page.getByRole('link', { name: 'Spontan kochen' }).click();
+		await expect(page.getByRole('heading', { name: 'Spontan kochen' })).toBeVisible();
+		await expect(page.getByText('Zutaten (eine pro Zeile, Menge optional)')).toBeVisible();
+		await expect(page.getByRole('button', { name: 'Rezept generieren' })).toBeVisible();
 ```
 
 - [ ] **Step 5: Verify**
@@ -1472,7 +1264,7 @@ Change `webServer:` to an array (keep the existing cargo entry exactly as-is; ad
 
 - [ ] **Step 3: Create the workflow spec**
 
-Create `tests/e2e/generate-meal.spec.ts`:
+Create `tests/e2e/generate-meal.spec.ts` — the spec drives the shipped `/spontaneous` route (no dialog):
 
 ```ts
 import { test, expect } from '@playwright/test';
@@ -1483,90 +1275,122 @@ const TINY_PNG = Buffer.from(
 	'base64',
 );
 
-async function configureMockProvider(page: import('@playwright/test').Page, dialog: import('@playwright/test').Locator) {
+async function configureMockProvider(page: import('@playwright/test').Page) {
 	// Provider select is the first select in the picker.
-	await dialog.locator('select').first().selectOption('custom');
-	await dialog.getByLabel('Base URL').fill('http://127.0.0.1:18999/v1/');
-	// genai 0.6.x requires auth for chat calls, so the mock gets a dummy key.
-	await dialog.getByLabel('API Key (optional)').fill('mock-key');
+	await page.locator('select').first().selectOption('custom');
+	await page.getByLabel('Base URL').fill('http://127.0.0.1:18999/v1/');
+	// genai's OpenAI adapter requires a key value even for keyless endpoints;
+	// the mock ignores the Authorization header.
+	await page.getByLabel('API Key (optional)').fill('mock-key');
 	// Model list loads from the mock after the 500 ms debounce.
-	await expect(dialog.locator('select').nth(1)).toBeVisible({ timeout: 10_000 });
-	await dialog.locator('select').nth(1).selectOption('mock-model');
+	await expect(page.locator('select').nth(1)).toBeVisible({ timeout: 10_000 });
+	await page.locator('select').nth(1).selectOption('mock-model');
 }
 
-test.describe('Generate meal', () => {
+test.describe('Generate meal page', () => {
 	test.beforeEach(async ({ request, page }) => {
 		await setLocale(page, 'en');
 		await resetMeals(request);
 	});
 
-	test('top bar button opens the generate flow', async ({ page }) => {
+	test('top bar button opens the generate page', async ({ page }) => {
 		await page.goto('/');
-		await page.getByRole('link', { name: 'Generate meal' }).click();
-		const dialog = page.getByRole('dialog');
-		await expect(dialog).toBeVisible();
-		await expect(dialog.getByRole('button', { name: /^Generate$/ })).toHaveClass(/import-tab--active/);
+		await page.getByRole('link', { name: 'Spontaneous cooking' }).click();
+		await expect(page).toHaveURL(/\/spontaneous$/);
+		await expect(page.getByRole('heading', { name: 'Spontaneous cooking' })).toBeVisible();
 		// Generation must not have persisted anything.
 		const res = await page.request.get('/api/meals');
 		expect((await res.json()) as unknown[]).toHaveLength(0);
 	});
 
 	test('generate button is disabled until model and input are provided', async ({ page }) => {
-		await page.goto('/meals?generate=1');
-		const dialog = page.getByRole('dialog');
-		await expect(dialog).toBeVisible();
-		const generateBtn = dialog.getByRole('button', { name: /^Generate recipe$/ });
+		await page.goto('/spontaneous');
+		const generateBtn = page.getByRole('button', { name: /^Generate recipe$/ });
 		await expect(generateBtn).toBeDisabled();
 		// Ingredients alone are not enough without a model.
-		await dialog.getByLabel(/ingredients/i).fill('flour\neggs');
+		await page.getByLabel(/ingredients/i).fill('flour\neggs');
 		await expect(generateBtn).toBeDisabled();
-		await configureMockProvider(page, dialog);
+		await configureMockProvider(page);
 		await expect(generateBtn).toBeEnabled();
 	});
 
 	test('generates a recipe via AI and saves it as a meal', async ({ page }) => {
-		await page.goto('/meals?generate=1');
-		const dialog = page.getByRole('dialog');
-		await expect(dialog).toBeVisible();
-		await configureMockProvider(page, dialog);
-		await dialog.getByLabel(/ingredients/i).fill('flour\neggs');
-		await dialog.getByRole('button', { name: /^Generate recipe$/ }).click();
-		// Draft fills the manual form (no persistence yet).
-		await expect(dialog.getByLabel('Name', { exact: true })).toHaveValue('Mock Pasta');
+		await page.goto('/spontaneous');
+		await configureMockProvider(page);
+		await page.getByLabel(/ingredients/i).fill('flour\neggs');
+		await page.getByRole('button', { name: /^Generate recipe$/ }).click();
+		// Draft appears in an editable form on the same page (no persistence yet).
+		await expect(page.getByLabel('Name', { exact: true })).toHaveValue('Mock Pasta');
+		await expect(page.getByText(/AI draft ready/)).toBeVisible();
 		let res = await page.request.get('/api/meals');
 		expect((await res.json()) as unknown[]).toHaveLength(0);
-		// Explicit save persists the meal.
-		await dialog.getByRole('button', { name: /^(Add|Hinzufügen)$/ }).click();
-		await expect(dialog).not.toBeVisible();
+		// Explicit save persists the meal and returns to the meals list.
+		await page.getByRole('button', { name: /^(Save|Speichern)$/ }).click();
+		await expect(page).toHaveURL(/\/meals/);
 		await expect(page.getByRole('listitem').filter({ hasText: 'Mock Pasta' })).toBeVisible();
 		res = await page.request.get('/api/meals');
 		expect((await res.json()) as unknown[]).toHaveLength(1);
 	});
 
 	test('generates from photos only', async ({ page }) => {
-		await page.goto('/meals?generate=1');
-		const dialog = page.getByRole('dialog');
-		await expect(dialog).toBeVisible();
-		await configureMockProvider(page, dialog);
-		await dialog.locator('input[type="file"]').setInputFiles([
+		await page.goto('/spontaneous');
+		await configureMockProvider(page);
+		await page.locator('input[type="file"]').setInputFiles([
 			{ name: 'a.png', mimeType: 'image/png', buffer: TINY_PNG },
 			{ name: 'b.png', mimeType: 'image/png', buffer: TINY_PNG },
 		]);
-		await dialog.getByRole('button', { name: /^Generate recipe$/ }).click();
-		await expect(dialog.getByLabel('Name', { exact: true })).toHaveValue('Mock Pasta');
+		await page.getByRole('button', { name: /^Generate recipe$/ }).click();
+		await expect(page.getByLabel('Name', { exact: true })).toHaveValue('Mock Pasta');
 	});
 
 	test('rejects more than 5 photos', async ({ page }) => {
-		await page.goto('/meals?generate=1');
-		const dialog = page.getByRole('dialog');
-		await expect(dialog).toBeVisible();
+		await page.goto('/spontaneous');
 		const files = Array.from({ length: 6 }, (_, i) => ({
 			name: `${i}.png`,
 			mimeType: 'image/png',
 			buffer: TINY_PNG,
 		}));
-		await dialog.locator('input[type="file"]').setInputFiles(files);
-		await expect(dialog.getByText(/At most 5 photos allowed/)).toBeVisible();
+		await page.locator('input[type="file"]').setInputFiles(files);
+		await expect(page.getByText(/At most 5 photos allowed/)).toBeVisible();
+	});
+
+	test('restores the provider config and collapses AI settings on revisit', async ({ page }) => {
+		await page.goto('/spontaneous');
+		await configureMockProvider(page);
+		await page.getByLabel(/ingredients/i).fill('flour\neggs');
+		await page.getByRole('button', { name: /^Generate recipe$/ }).click();
+		await expect(page.getByLabel('Name', { exact: true })).toHaveValue('Mock Pasta');
+		await page.getByRole('button', { name: /^(Save|Speichern)$/ }).click();
+		await expect(page).toHaveURL(/\/meals/);
+		await page.getByRole('link', { name: 'Spontaneous cooking' }).click();
+		await expect(page).toHaveURL(/\/spontaneous$/);
+		await expect(page.getByText(/Model: mock-model/)).toBeVisible();
+		await expect(page.locator('select').first()).toBeHidden();
+		await expect(page.getByLabel(/ingredients/i)).toBeVisible();
+		await page.getByRole('button', { name: /^Change$/ }).click();
+		await expect(page.locator('select').first()).toBeVisible();
+	});
+
+	test('cooks the edited draft without persisting it', async ({ page }) => {
+		await page.goto('/spontaneous');
+		await configureMockProvider(page);
+		await page.getByLabel(/ingredients/i).fill('flour\neggs');
+		await page.getByRole('button', { name: /^Generate recipe$/ }).click();
+		await expect(page.getByLabel('Name', { exact: true })).toHaveValue('Mock Pasta');
+		// Edits made in the form must carry over into cooking.
+		await page.getByLabel('Name', { exact: true }).fill('Cooked Draft');
+		await page.getByRole('button', { name: 'Cook now' }).click();
+		await expect(page).toHaveURL(/\/spontaneous\/cook$/);
+		await expect(page.locator('.cooking-view__name')).toHaveText('Cooked Draft');
+		await expect(page.locator('.cooking-view__ingredient-list')).toContainText('flour');
+		// Nothing was persisted.
+		let res = await page.request.get('/api/meals');
+		expect((await res.json()) as unknown[]).toHaveLength(0);
+		// Leaving the flow forgets the draft: the spontaneous page is fresh.
+		await page.goto('/spontaneous');
+		await expect(page.locator('.generate-draft')).toHaveCount(0);
+		res = await page.request.get('/api/meals');
+		expect((await res.json()) as unknown[]).toHaveLength(0);
 	});
 });
 ```
@@ -1575,7 +1399,7 @@ test.describe('Generate meal', () => {
 
 Run: `cd tests && npm test -- --grep "Generate meal"` (the suite auto-builds the binary and starts the mock; expects the release/dev binary to build first — use `cargo build` first if the 60s webServer timeout is tight).
 
-Expected: all 5 tests pass. If the mock's chat-completion response shape is rejected by `genai`'s OpenAI adapter, inspect `tests/test-results/` and adjust `mock-llm.mjs` (e.g. adding a `content` field) until the draft fills the form — do not weaken the assertions.
+Expected: all 7 tests pass. If the mock's chat-completion response shape is rejected by `genai`'s OpenAI adapter, inspect `tests/test-results/` and adjust `mock-llm.mjs` (e.g. adding a `content` field) until the draft fills the form — do not weaken the assertions.
 
 - [ ] **Step 5: Run the full workflow suite to check for regressions**
 
@@ -1604,16 +1428,16 @@ Run: `cargo test` — all tests pass (existing 269 + new backend tests).
 - [ ] **Step 2: Frontend gates**
 
 Run: `cd web && npm run check` — 0 errors.
-Run: `cd web && npm test` — all pass (existing 141 + new api/multi-image tests).
+Run: `cd web && npm test` — all pass (147 tests).
 
 - [ ] **Step 3: E2E suites**
 
 Run: `cd web && npm run test:e2e` — visual/styling suite (6 tests) still passes (requires the release binary; build with `cargo build --release` first if stale).
-Run: `cd tests && npm test` — workflow suite (31 existing + 5 new generate tests + extended German audit) passes.
+Run: `cd tests && npm test` — workflow suite (92 tests total, including the 7 new generate tests + extended German audit) passes.
 
 - [ ] **Step 4: Manual smoke (optional but recommended)**
 
-Run `cargo run`, open `http://localhost:11341`, click "Generate meal" in the top bar, configure a real provider (or point the custom provider at the mock), verify: generation fills the form, nothing is persisted before save, saving creates the meal, and the meals page shows it.
+Run `cargo run`, open `http://localhost:11341`, click "Spontaneous cooking" in the top bar, configure a real provider (or point the custom provider at the mock), verify: generation fills the form, nothing is persisted before save, saving creates the meal, and the meals page shows it.
 
 ---
 
@@ -1624,7 +1448,7 @@ Run `cargo run`, open `http://localhost:11341`, click "Generate meal" in the top
 | Spec item | Task |
 |---|---|
 | FR-001 top-bar entry point, all pages | 7 (layout link) + 9 (e2e) |
-| FR-002 ingredient text and/or ≤5 photos, ≥1 required | 2 (backend), 4/5 (frontend), 7 (tab) |
+| FR-002 ingredient text and/or ≤5 photos, ≥1 required | 2 (backend), 4/5 (frontend), 7 (route) |
 | FR-003 reuse provider/model selection + custom endpoints | 6 (LlmConfigPicker) |
 | FR-004 backend endpoint returning recipe draft | 1, 2 |
 | FR-005 prompt: base ingredients, staples only, preserve quantities | 1 (`GENERATE_SYSTEM_PROMPT`) |
@@ -1638,4 +1462,4 @@ Run `cargo run`, open `http://localhost:11341`, click "Generate meal" in the top
 
 **Placeholder scan:** all steps contain concrete code; no TODOs, no "similar to Task N", no unspecified types. The one flagged uncertainty (Task 5 radius token, Task 7 CSS) has an explicit fallback instruction.
 
-**Type consistency:** `generateMeal(model, ingredients, images, baseUrl?, apiKey?)` is defined in Task 3 and called identically in Task 7. `MultiImageInput`'s `files`/`disabled`/`onerror` props (Task 5) match Task 7's usage. `LlmConfigPicker`'s four bindable props (Task 6) match both Task 7 usages. `generate_meal_via_llm(model, ingredients, images, base_url, api_key)` (Task 1) matches Task 2's call. `validateGenerateImage` returns `string | null` (Task 4) and is consumed accordingly in Task 5. `importMode` union includes `'generate'` in Task 7 and the markup switch chain is extended in the same task.
+**Type consistency:** `generateMeal(model, ingredients, images, baseUrl?, apiKey?)` is defined in Task 3 and called identically in Task 7. `GenerateImageInput`'s `files`/`disabled`/`onerror` props (Task 5) match Task 7's usage. `LlmConfigPicker`'s four bindable props (Task 6) match Task 7's usage. `generate_meal_via_llm(model, ingredients, images, base_url, api_key)` (Task 1) matches Task 2's call. `validateGenerateImage` returns `string | null` (Task 4) and is consumed accordingly in Task 5. The `MealForm` `submitLabel`/`oncook` props consumed by Task 7's inline draft are produced by the 2026-08-13 plan's Task 1.

@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { getMeal, updateMeal, deleteMeal, mealImageUrl, polishInstructions, ApiError, listMeals } from '$lib/api';
 	import Icon from '$lib/Icon.svelte';
-	import { t, formatDate } from '$lib/i18n';
+	import { t } from '$lib/i18n';
 	import { page } from '$app/state';
 	import { goto } from '$app/navigation';
 	import type { Meal, NewIngredientLine } from '$lib/types';

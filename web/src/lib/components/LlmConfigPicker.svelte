@@ -36,10 +36,23 @@
 	// Provider whose models were already loaded this mount; ensures a fresh
 	// model load after the component remounts (collapse/expand, tab switch).
 	let modelsLoadedFor: string | null = null;
+	// Monotonic sequence for model-list requests: a slow earlier response must
+	// not overwrite the models of a newer provider switch.
+	let modelsRequestSeq = 0;
 
 	async function loadModels() {
-		if (!provider) return;
-		if (provider === 'custom' && !customBaseUrl.trim()) return;
+		const seq = ++modelsRequestSeq;
+		if (!provider) {
+			llmModelsLoading = false;
+			llmModelsError = null;
+			return;
+		}
+		if (provider === 'custom' && !customBaseUrl.trim()) {
+			llmModels = [];
+			llmModelsLoading = false;
+			llmModelsError = null;
+			return;
+		}
 		llmModelsLoading = true;
 		llmModelsError = null;
 		try {
@@ -48,21 +61,29 @@
 				provider === 'custom' ? customBaseUrl : undefined,
 				provider === 'custom' ? customApiKey || undefined : undefined,
 			);
+			if (seq !== modelsRequestSeq) return;
 			llmModels = resp.models;
 			if (model && !resp.models.includes(model)) {
 				llmModelsError = t('llmModelsLoadError');
 			}
 		} catch (err) {
+			if (seq !== modelsRequestSeq) return;
 			llmModels = [];
 			llmModelsError = err instanceof ApiError
 				? (err.code === 'REQUEST_FAILED' ? t('llmModelsLoadError') : `${t('llmModelsLoadError')} (${err.message})`)
 				: t('llmModelsLoadError');
 		} finally {
-			llmModelsLoading = false;
+			if (seq === modelsRequestSeq) {
+				llmModelsLoading = false;
+			}
 		}
 	}
 
 	function onProviderChange() {
+		// Invalidate any in-flight model-list request: a stale response must
+		// not repopulate the model select after a provider switch (incl. to
+		// 'custom', which does not trigger a new loadModels()).
+		modelsRequestSeq++;
 		model = '';
 		llmModels = [];
 		llmModelsError = null;
@@ -76,10 +97,17 @@
 		modelsLoadedFor = provider;
 	}
 
+	// Re-run the providers load after a failure: resetting llmProvidersLoaded
+	// re-triggers the load effect below (the catch keeps the loop from
+	// retrying on its own, so this is strictly user-initiated).
+	function retryLoadProviders() {
+		llmProvidersLoaded = false;
+	}
+
 	// Publish the current provider's display name (once providers load and on
 	// every provider change) so collapsed summaries can show it instead of the id.
 	$effect(() => {
-		providerName = llmProviders.find((p) => p.id === provider)?.name ?? provider;
+		providerName = llmProviders.find((p) => p.id === provider)?.name ?? providerName;
 	});
 
 	$effect(() => {
@@ -118,6 +146,7 @@
 					}
 				})
 				.catch(() => {
+					llmProvidersLoaded = true;
 					llmProvidersLoading = false;
 					providersReady = false;
 				});
@@ -134,6 +163,16 @@
 			_customDebounceTimer = setTimeout(() => {
 				loadModels();
 			}, 500);
+		} else if (provider === 'custom') {
+			// Base URL cleared: drop the stale model list instead of leaving
+			// the previously loaded models selectable. Bump the seq first so a
+			// listLlmModels response still in flight is invalidated and cannot
+			// repopulate the list (or surface a stale error) afterwards.
+			modelsRequestSeq++;
+			model = '';
+			llmModels = [];
+			llmModelsLoading = false;
+			llmModelsError = null;
 		}
 		return () => {
 			if (_customDebounceTimer) clearTimeout(_customDebounceTimer);
@@ -153,10 +192,16 @@
 
 {#if llmProviders.length === 0 && !llmProvidersLoading}
 	<p class="form-error">{t('llmNoProviders')}</p>
+	{#if llmProvidersLoaded}
+		<button type="button" class="btn btn--ghost" onclick={retryLoadProviders} disabled={disabled}>
+			{t('buttonRetry')}
+		</button>
+	{/if}
 {:else}
 	<div class="import-subsection">
 		<div class="llm-provider-row">
 			<select bind:value={provider} onchange={onProviderChange}
+				aria-label={t('llmProviderLabel')}
 				disabled={llmProvidersLoading || disabled}>
 				<option value="">{t('llmProviderPlaceholder')}</option>
 				{#each llmProviders as p}
@@ -170,9 +215,10 @@
 				{#if llmModelsLoading}
 					<span class="import-loading">{t('llmModelLoading')}</span>
 				{:else if llmModelsError}
-					<input type="text" bind:value={model} placeholder={t('importLlmModelPlaceholder')} />
+					<input type="text" bind:value={model} placeholder={t('importLlmModelPlaceholder')}
+						disabled={disabled} />
 				{:else}
-					<select bind:value={model} disabled={disabled}>
+					<select bind:value={model} aria-label={t('llmModelLabel')} disabled={disabled}>
 						<option value="">{t('llmModelPlaceholder')}</option>
 						{#each llmModels as m}
 							<option value={m}>{m}</option>
@@ -186,11 +232,13 @@
 			<p class="import-info">{t('llmCustomHint')}</p>
 			<label class="import-field">
 				<span>{t('llmCustomBaseUrlLabel')}</span>
-				<input type="url" bind:value={customBaseUrl} placeholder={t('llmCustomBaseUrlPlaceholder')} />
+				<input type="url" bind:value={customBaseUrl} placeholder={t('llmCustomBaseUrlPlaceholder')}
+					disabled={disabled} />
 			</label>
 			<label class="import-field">
 				<span>{t('llmCustomApiKeyLabel')}</span>
-				<input type="password" bind:value={customApiKey} placeholder={t('llmCustomApiKeyPlaceholder')} />
+				<input type="password" bind:value={customApiKey} placeholder={t('llmCustomApiKeyPlaceholder')}
+					disabled={disabled} />
 			</label>
 		{/if}
 

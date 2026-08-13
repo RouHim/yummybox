@@ -40,7 +40,7 @@ use crate::state::AppState;
 const DEFAULT_PORT: u16 = 11341;
 
 /// Maximum accepted request body size (50 MB).
-const MAX_BODY_BYTES: usize = 50 * 1024 * 1024;
+pub(crate) const MAX_BODY_BYTES: usize = 50 * 1024 * 1024;
 
 enum Subcommand {
     Serve,

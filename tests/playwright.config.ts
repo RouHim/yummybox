@@ -2,6 +2,11 @@ import { defineConfig, devices } from '@playwright/test';
 
 export default defineConfig({
 	testDir: './e2e',
+	// Container-gate mode (YUMMYBOX_NO_WEBSERVER=1) runs the suite against the
+	// Dockerized app; the container cannot reach the host-loopback mock LLM on
+	// 127.0.0.1:18999, so skip the mock-dependent generate-meal spec there.
+	// Full E2E coverage of the generate feature runs in the host e2e job.
+	testIgnore: process.env.YUMMYBOX_NO_WEBSERVER === '1' ? '**/generate-meal.spec.ts' : undefined,
 	fullyParallel: true,
 	forbidOnly: !!process.env.CI,
 	retries: process.env.CI ? 2 : 0,

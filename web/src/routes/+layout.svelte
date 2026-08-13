@@ -83,7 +83,7 @@
 			<span class="app-bar__link-label">{t('navPlanner')}</span>
 		</a>
 		<a href="/spontaneous" class="app-bar__link"
-			aria-current={pathname === '/spontaneous' ? 'page' : undefined}>
+			aria-current={pathname.startsWith('/spontaneous') ? 'page' : undefined}>
 			<Icon name="sparkles" size={16} />
 			<span class="app-bar__link-label">{t('navGenerateMeal')}</span>
 		</a>

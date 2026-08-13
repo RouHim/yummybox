@@ -12,16 +12,43 @@
 	}
 
 	function readDraft(): CookDraft | null {
-		const raw = sessionStorage.getItem('yummybox-cook-draft');
+		const raw = (() => {
+			try {
+				return sessionStorage.getItem('yummybox-cook-draft');
+			} catch {
+				return null;
+			}
+		})();
 		if (!raw) return null;
 		try {
-			return JSON.parse(raw) as CookDraft;
+			const parsed: unknown = JSON.parse(raw);
+			if (
+				typeof parsed !== 'object' ||
+				parsed === null ||
+				!Array.isArray((parsed as CookDraft).ingredients) ||
+				typeof (parsed as CookDraft).name !== 'string' ||
+				typeof (parsed as CookDraft).instructions !== 'string'
+			) {
+				return null;
+			}
+			return parsed as CookDraft;
 		} catch {
 			return null;
 		}
 	}
 
-	let draft = $state(readDraft());
+	// sessionStorage is browser-only: read it in an $effect (client-only) so
+	// the initial render matches the server-rendered HTML and hydration never
+	// diverges on a stored draft. `ready` gates the fallback so users don't
+	// see a flash of "No draft to cook" on refresh/deep-link with a draft.
+	let draft = $state<CookDraft | null>(null);
+	let ready = $state(false);
+
+	$effect(() => {
+		draft = readDraft();
+		ready = true;
+	});
+
 	let meal = $derived<Meal | null>(
 		draft
 			? {
@@ -40,7 +67,9 @@
 </script>
 
 <main>
-	{#if meal}
+	{#if !ready}
+		<!-- Draft is read client-side after mount; render nothing until then. -->
+	{:else if meal}
 		{#key meal.name}
 			<CookingView {meal} imageUrl={draft?.imageDataUrl ?? null} />
 		{/key}

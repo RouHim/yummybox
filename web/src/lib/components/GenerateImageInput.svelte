@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { t } from '$lib/i18n';
 	import Icon from '$lib/Icon.svelte';
-	import { MAX_GENERATE_IMAGES, validateGenerateImage } from '$lib/multi-image';
+	import { MAX_GENERATE_IMAGES, validateGenerateImage, validateGenerateImageTotal } from '$lib/multi-image';
 
 	let {
 		files = $bindable([]),
@@ -13,13 +13,16 @@
 		onerror: (error: string | null) => void;
 	} = $props();
 
-	// Object URLs are derived from the file list and revoked whenever the list
-	// changes (or the component unmounts), so thumbnails never leak blob URLs.
-	const previews = $derived(files.map((file) => ({ file, url: URL.createObjectURL(file) })));
+	// Object URLs are created in an effect over the file list and revoked
+	// whenever the list changes (or the component unmounts), so thumbnails
+	// never leak blob URLs. Creating them in a $derived would be a side
+	// effect inside a cached lazy value, so populate $state instead.
+	let previews = $state<{ file: File; url: string }[]>([]);
 	$effect(() => {
-		const urls = previews.map((p) => p.url);
+		const urls = files.map((file) => ({ file, url: URL.createObjectURL(file) }));
+		previews = urls;
 		return () => {
-			for (const url of urls) URL.revokeObjectURL(url);
+			for (const { url } of urls) URL.revokeObjectURL(url);
 		};
 	});
 
@@ -37,12 +40,18 @@
 				return;
 			}
 		}
+		const totalErr = validateGenerateImageTotal([...files, ...incoming]);
+		if (totalErr) {
+			onerror(t(totalErr));
+			return;
+		}
 		onerror(null);
 		files = [...files, ...incoming];
 	}
 
 	function removeFile(index: number) {
 		files = files.filter((_, i) => i !== index);
+		onerror(null);
 	}
 </script>
 
@@ -56,8 +65,8 @@
 					class="multi-image__remove btn btn--ghost"
 					onclick={() => removeFile(i)}
 					disabled={disabled}
-					aria-label={t('fieldIngredientRemove')}
-					title={t('fieldIngredientRemove')}
+					aria-label={t('fieldImageRemove')}
+					title={t('fieldImageRemove')}
 				>
 					<Icon name="x" size={14} />
 				</button>

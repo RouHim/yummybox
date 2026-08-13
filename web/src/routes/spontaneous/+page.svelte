@@ -38,6 +38,7 @@
 	let draftImage = $state<File | null>(null);
 	let draftToken = $state(0);
 	let saving = $state(false);
+	let cookError = $state<string | null>(null);
 
 	async function loadMeals() {
 		try {
@@ -50,6 +51,7 @@
 
 	async function onGenerate() {
 		generateError = null;
+		cookError = null;
 		generating = true;
 		try {
 			const d = await generateMeal(
@@ -75,6 +77,9 @@
 			}
 			persistLlmConfig({ provider, model, customBaseUrl, customApiKey });
 			settingsCollapsed = true;
+			// A freshly generated draft supersedes any previously stored cook draft;
+			// otherwise a direct visit to /spontaneous/cook would render stale data.
+			sessionStorage.removeItem('yummybox-cook-draft');
 			draftToken++;
 			await tick();
 			document.querySelector('.generate-draft')?.scrollIntoView({ block: 'start' });
@@ -89,6 +94,8 @@
 		draft = null;
 		draftImage = null;
 		draftToken++;
+		cookError = null;
+		sessionStorage.removeItem('yummybox-cook-draft');
 	}
 
 	async function onSave(payload: MealFormPayload) {
@@ -103,30 +110,68 @@
 				},
 				payload.image,
 			);
+			sessionStorage.removeItem('yummybox-cook-draft');
 			await goto('/meals');
 		} finally {
 			saving = false;
 		}
 	}
 
-	function fileToDataUrl(file: File): Promise<string> {
+	// Bound the draft image before storing it: generated JPEGs and user photos
+	// routinely exceed the ~5 MB sessionStorage quota as base64 data URLs, so
+	// re-encode to a downscaled JPEG that always fits.
+	const COOK_DRAFT_MAX_EDGE = 1280;
+
+	function downscaleImage(file: File): Promise<string> {
 		return new Promise((resolve, reject) => {
-			const reader = new FileReader();
-			reader.onload = () => resolve(String(reader.result));
-			reader.onerror = () => reject(reader.error);
-			reader.readAsDataURL(file);
+			const url = URL.createObjectURL(file);
+			const img = new Image();
+			img.onload = () => {
+				URL.revokeObjectURL(url);
+				const scale = Math.min(
+					1,
+					COOK_DRAFT_MAX_EDGE / Math.max(img.naturalWidth, img.naturalHeight)
+				);
+				const canvas = document.createElement('canvas');
+				canvas.width = Math.max(1, Math.round(img.naturalWidth * scale));
+				canvas.height = Math.max(1, Math.round(img.naturalHeight * scale));
+				const ctx = canvas.getContext('2d');
+				if (!ctx) {
+					reject(new Error('could not create canvas context'));
+					return;
+				}
+				// Flatten transparency onto white so JPEG re-encoding keeps a clean background.
+				ctx.fillStyle = '#fff';
+				ctx.fillRect(0, 0, canvas.width, canvas.height);
+				ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+				resolve(canvas.toDataURL('image/jpeg', 0.8));
+			};
+			img.onerror = () => {
+				URL.revokeObjectURL(url);
+				reject(new Error('could not load image'));
+			};
+			img.src = url;
 		});
 	}
 
 	async function onCook(payload: MealFormPayload) {
-		const imageDataUrl = payload.image ? await fileToDataUrl(payload.image) : null;
-		sessionStorage.setItem('yummybox-cook-draft', JSON.stringify({
-			name: payload.name,
-			ingredients: payload.ingredients,
-			instructions: payload.instructions,
-			portions: payload.portions,
-			imageDataUrl,
-		}));
+		cookError = null;
+		try {
+			const imageDataUrl = payload.image ? await downscaleImage(payload.image) : null;
+			sessionStorage.setItem(
+				'yummybox-cook-draft',
+				JSON.stringify({
+					name: payload.name,
+					ingredients: payload.ingredients,
+					instructions: payload.instructions,
+					portions: payload.portions,
+					imageDataUrl,
+				})
+			);
+		} catch {
+			cookError = t('cookDraftSaveError');
+			return;
+		}
 		await goto('/spontaneous/cook');
 	}
 </script>
@@ -209,6 +254,12 @@
 							oncook={onCook}
 						/>
 					{/key}
+					{#if cookError}
+						<p class="form-error" role="alert">
+							<Icon name="circle-alert" size={18} />
+							<span>{cookError}</span>
+						</p>
+					{/if}
 				</section>
 			{/if}
 		</div>

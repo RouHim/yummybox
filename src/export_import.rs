@@ -16,6 +16,7 @@ use zip::write::ZipWriter;
 use crate::db;
 use crate::error::AppError;
 use crate::image;
+use crate::import::map_multipart_error;
 use crate::model::{Meal, NewIngredientLine, NewMeal};
 use crate::recipe;
 use crate::state::AppState;
@@ -280,13 +281,13 @@ async fn read_zip_file_from_multipart(multipart: &mut Multipart) -> Result<Vec<u
     while let Some(field) = multipart
         .next_field()
         .await
-        .map_err(|e| AppError::BadRequest(format!("invalid multipart data: {e}")))?
+        .map_err(|e| map_multipart_error(e, "invalid multipart data"))?
     {
         if field.name() == Some("file") {
             let data = field
                 .bytes()
                 .await
-                .map_err(|e| AppError::BadRequest(format!("failed to read file: {e}")))?;
+                .map_err(|e| map_multipart_error(e, "failed to read file"))?;
             return Ok(data.to_vec());
         }
     }
@@ -471,7 +472,3 @@ pub(crate) fn extract_instructions(recipe: &serde_json::Value) -> String {
         _ => String::new(),
     }
 }
-
-// ===========================================================================
-// Tests
-// ===========================================================================

@@ -29,9 +29,9 @@ test.describe('Generate meal page', () => {
 		await page.getByRole('link', { name: 'Spontaneous cooking' }).click();
 		await expect(page).toHaveURL(/\/spontaneous$/);
 		await expect(page.getByRole('heading', { name: 'Spontaneous cooking' })).toBeVisible();
-		// Generation must not have persisted anything.
-		const res = await page.request.get('/api/meals');
-		expect((await res.json()) as unknown[]).toHaveLength(0);
+		// Generation must not have persisted anything: the meals list is still empty.
+		await page.goto('/meals');
+		await expect(page.getByText('No meals yet. Add your first one.')).toBeVisible();
 	});
 
 	test('generate button is disabled until model and input are provided', async ({ page }) => {
@@ -53,14 +53,17 @@ test.describe('Generate meal page', () => {
 		// Draft appears in an editable form on the same page (no persistence yet).
 		await expect(page.getByLabel('Name', { exact: true })).toHaveValue('Mock Pasta');
 		await expect(page.getByText(/AI draft ready/)).toBeVisible();
-		let res = await page.request.get('/api/meals');
-		expect((await res.json()) as unknown[]).toHaveLength(0);
+		// The draft lives only in the form: no meal with its name is persisted yet.
+		const res = await page.request.get('/api/meals?search=Mock Pasta');
+		const meals = (await res.json()) as Array<{ name: string }>;
+		expect(meals.some((m) => m.name === 'Mock Pasta')).toBe(false);
 		// Explicit save persists the meal and returns to the meals list.
 		await page.getByRole('button', { name: /^(Save|Speichern)$/ }).click();
 		await expect(page).toHaveURL(/\/meals/);
-		await expect(page.getByRole('listitem').filter({ hasText: 'Mock Pasta' })).toBeVisible();
-		res = await page.request.get('/api/meals');
-		expect((await res.json()) as unknown[]).toHaveLength(1);
+		const saved = page.getByRole('listitem').filter({ hasText: 'Mock Pasta' });
+		await expect(saved).toBeVisible();
+		// The saved meal shows its ingredient preview in the list.
+		await expect(saved).toContainText('flour');
 	});
 
 	test('generates from photos only', async ({ page }) => {
@@ -92,6 +95,8 @@ test.describe('Generate meal page', () => {
 		await page.getByRole('button', { name: /^Generate recipe$/ }).click();
 		await expect(page.getByLabel('Name', { exact: true })).toHaveValue('Mock Pasta');
 		await page.getByRole('button', { name: /^(Save|Speichern)$/ }).click();
+		await expect(page).toHaveURL(/\/meals/);
+		await expect(page.getByRole('listitem').filter({ hasText: 'Mock Pasta' })).toBeVisible();
 		await page.getByRole('link', { name: 'Spontaneous cooking' }).click();
 		// Revisit: the stored config restores and the settings block collapses,
 		// leaving the ingredients input as the focus of the page.
@@ -117,13 +122,16 @@ test.describe('Generate meal page', () => {
 		await expect(page).toHaveURL(/\/spontaneous\/cook$/);
 		await expect(page.locator('.cooking-view__name')).toHaveText('Cooked Draft');
 		await expect(page.locator('.cooking-view__ingredient-list')).toContainText('flour');
-		// Nothing was persisted.
-		let res = await page.request.get('/api/meals');
-		expect((await res.json()) as unknown[]).toHaveLength(0);
+		// Nothing was persisted: the edited draft name never reaches the meals list.
+		let res = await page.request.get('/api/meals?search=Cooked Draft');
+		let meals = (await res.json()) as Array<{ name: string }>;
+		expect(meals.some((m) => m.name === 'Cooked Draft')).toBe(false);
 		// Leaving the flow forgets the draft: the spontaneous page is fresh.
 		await page.goto('/spontaneous');
 		await expect(page.locator('.generate-draft')).toHaveCount(0);
-		res = await page.request.get('/api/meals');
-		expect((await res.json()) as unknown[]).toHaveLength(0);
+		// Still nothing persisted after leaving the flow.
+		res = await page.request.get('/api/meals?search=Cooked Draft');
+		meals = (await res.json()) as Array<{ name: string }>;
+		expect(meals.some((m) => m.name === 'Cooked Draft')).toBe(false);
 	});
 });
