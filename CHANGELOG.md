@@ -1,3 +1,10 @@
+# [1.17.0](https://github.com/RouHim/yummybox/compare/v1.16.0...v1.17.0) (2026-08-13)
+
+
+### Features
+
+* spontaneous cooking - on-the-fly AI meal generation ([#2](https://github.com/RouHim/yummybox/issues/2)) ([c4f3986](https://github.com/RouHim/yummybox/commit/c4f3986e855a1367518add2e4501708a4d94e94a))
+
 # [1.16.0](https://github.com/RouHim/yummybox/compare/v1.15.0...v1.16.0) (2026-08-09)
 
 
