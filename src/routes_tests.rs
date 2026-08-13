@@ -43,6 +43,7 @@ async fn setup() -> TestCtx {
         .route("/import/url", post(crate::import::import_from_url))
         .route("/import/paste", post(crate::import::import_from_paste))
         .route("/import/llm", post(crate::import::import_from_llm))
+        .route("/import/generate", post(crate::import::generate_meal))
         .route("/import/bulk", post(crate::import::import_bulk))
         .route("/llm/providers", get(crate::import::llm_providers))
         .route("/llm/models", get(crate::import::llm_models))
@@ -1532,6 +1533,165 @@ async fn given_two_images_when_import_llm_then_sent_in_order_and_draft_returned(
     );
 }
 
+#[tokio::test]
+async fn given_no_fields_when_generate_meal_then_400_missing_model() {
+    let ctx = setup().await;
+    let (body, content_type) = build_generate_multipart(None, None, &[]);
+    let response = ctx
+        .app
+        .oneshot(
+            Request::builder()
+                .method(Method::POST)
+                .uri("/import/generate")
+                .header("content-type", content_type)
+                .body(axum::body::Body::from(body))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+    let bytes = to_bytes(response.into_body(), 4096).await.unwrap();
+    let json: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
+    assert!(json["error"].as_str().unwrap().contains("model"));
+}
+fn build_generate_multipart(
+    model: Option<&str>,
+    ingredients: Option<&str>,
+    images: &[&[u8]],
+) -> (Vec<u8>, String) {
+    let boundary = "testboundaryGEN";
+    let mut body = Vec::new();
+
+    if let Some(m) = model {
+        body.extend_from_slice(b"--");
+        body.extend_from_slice(boundary.as_bytes());
+        body.extend_from_slice(b"\r\n");
+        body.extend_from_slice(b"Content-Disposition: form-data; name=\"model\"\r\n\r\n");
+        body.extend_from_slice(m.as_bytes());
+        body.extend_from_slice(b"\r\n");
+    }
+    if let Some(ing) = ingredients {
+        body.extend_from_slice(b"--");
+        body.extend_from_slice(boundary.as_bytes());
+        body.extend_from_slice(b"\r\n");
+        body.extend_from_slice(b"Content-Disposition: form-data; name=\"ingredients\"\r\n\r\n");
+        body.extend_from_slice(ing.as_bytes());
+        body.extend_from_slice(b"\r\n");
+    }
+    for img in images {
+        body.extend_from_slice(b"--");
+        body.extend_from_slice(boundary.as_bytes());
+        body.extend_from_slice(b"\r\n");
+        body.extend_from_slice(
+            b"Content-Disposition: form-data; name=\"image\"; filename=\"photo.jpg\"\r\n",
+        );
+        body.extend_from_slice(b"Content-Type: image/jpeg\r\n\r\n");
+        body.extend_from_slice(img);
+        body.extend_from_slice(b"\r\n");
+    }
+
+    body.extend_from_slice(b"--");
+    body.extend_from_slice(boundary.as_bytes());
+    body.extend_from_slice(b"--\r\n");
+
+    let content_type = format!("multipart/form-data; boundary={boundary}");
+    (body, content_type)
+}
+
+#[tokio::test]
+async fn given_model_without_input_when_generate_meal_then_400() {
+    let ctx = setup().await;
+    let (body, content_type) = build_generate_multipart(Some("mock-model"), None, &[]);
+    let response = ctx
+        .app
+        .oneshot(
+            Request::builder()
+                .method(Method::POST)
+                .uri("/import/generate")
+                .header("content-type", content_type)
+                .body(axum::body::Body::from(body))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+    let bytes = to_bytes(response.into_body(), 4096).await.unwrap();
+    let json: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
+    assert!(
+        json["error"]
+            .as_str()
+            .unwrap()
+            .contains("at least one of ingredients or an image")
+    );
+}
+
+#[tokio::test]
+async fn given_six_images_when_generate_meal_then_400() {
+    let ctx = setup().await;
+    let imgs: Vec<Vec<u8>> = (0..6).map(|i| vec![i as u8; 16]).collect();
+    let refs: Vec<&[u8]> = imgs.iter().map(|v| v.as_slice()).collect();
+    let (body, content_type) = build_generate_multipart(Some("mock-model"), Some("flour"), &refs);
+    let response = ctx
+        .app
+        .oneshot(
+            Request::builder()
+                .method(Method::POST)
+                .uri("/import/generate")
+                .header("content-type", content_type)
+                .body(axum::body::Body::from(body))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+    let bytes = to_bytes(response.into_body(), 4096).await.unwrap();
+    let json: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
+    assert!(json["error"].as_str().unwrap().contains("5 images"));
+}
+
+#[tokio::test]
+async fn given_oversized_image_when_generate_meal_then_413() {
+    let ctx = setup().await;
+    let oversized = vec![0u8; 21_000_001];
+    let (body, content_type) =
+        build_generate_multipart(Some("mock-model"), Some("flour"), &[&oversized]);
+    let response = ctx
+        .app
+        .oneshot(
+            Request::builder()
+                .method(Method::POST)
+                .uri("/import/generate")
+                .header("content-type", content_type)
+                .body(axum::body::Body::from(body))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::PAYLOAD_TOO_LARGE);
+}
+
+#[tokio::test]
+async fn given_long_ingredients_when_generate_meal_then_400() {
+    let ctx = setup().await;
+    let long = "x".repeat(20001);
+    let (body, content_type) = build_generate_multipart(Some("mock-model"), Some(&long), &[]);
+    let response = ctx
+        .app
+        .oneshot(
+            Request::builder()
+                .method(Method::POST)
+                .uri("/import/generate")
+                .header("content-type", content_type)
+                .body(axum::body::Body::from(body))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+    let bytes = to_bytes(response.into_body(), 4096).await.unwrap();
+    let json: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
+    assert!(json["error"].as_str().unwrap().contains("20000"));
+}
 // ---------------------------------------------------------------
 // LLM providers & models route tests
 // ---------------------------------------------------------------
@@ -2143,7 +2303,6 @@ async fn given_body_over_50mb_when_polish_instructions_then_413() {
             .contains("request body exceeds 50 MB limit")
     );
 }
-
 #[test]
 fn given_other_error_when_classify_fetch_then_includes_detail() {
     let err = AppError::Internal("timeout".into());

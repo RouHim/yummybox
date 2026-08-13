@@ -272,6 +272,55 @@ pub async fn import_via_llm(
 }
 
 // ---------------------------------------------------------------------------
+// Generate meal (on-the-fly from ingredients / photos)
+// ---------------------------------------------------------------------------
+
+const GENERATE_SYSTEM_PROMPT: &str = "You are a creative cooking assistant. Create a recipe from the user's available ingredients (a text list, photos, or both). The recipe must primarily use the provided ingredients; you may add only staple seasonings such as salt, pepper, oil, herbs, and spices. Preserve the exact quantities the user specified; assign plausible quantities to ingredients that have none. If an ingredient appears in both the text list and the photos, list it once, using the quantity from the text list. Respond in the same language as the user's input. Call the extract_recipe tool with the result. Always call the tool.";
+
+/// Generate a complete recipe draft from an ingredient list and/or photos.
+/// Same plumbing as `import_via_llm` (tool call, 60s timeout, error mapping);
+/// `has_user_image` is derived from `!images.is_empty()` so the draft does not
+/// try to download a dish photo when the user already uploaded photos.
+pub async fn generate_meal_via_llm(
+    model: &str,
+    ingredients: Option<&str>,
+    images: Vec<LlmImage>,
+    base_url: Option<&str>,
+    api_key: Option<&str>,
+) -> Result<recipe::ImportDraft, AppError> {
+    let client = genai::Client::default();
+    let user_content = build_user_content(ingredients, &images);
+
+    let chat_req = genai::chat::ChatRequest::new(vec![
+        genai::chat::ChatMessage::system(GENERATE_SYSTEM_PROMPT),
+        genai::chat::ChatMessage::user(user_content),
+    ])
+    .with_tools(vec![recipe_tool()]);
+    let model_spec = build_model_spec(model, base_url, api_key);
+    let chat_fut = client.exec_chat(model_spec, chat_req, None);
+
+    let chat_res = match tokio::time::timeout(std::time::Duration::from_secs(60), chat_fut).await {
+        Ok(r) => r,
+        Err(_) => {
+            return Err(AppError::Llm(
+                "LLM request timed out after 60 seconds".into(),
+                "llm_timeout",
+            ));
+        }
+    };
+    let chat_res = chat_res.map_err(map_genai_error)?;
+
+    let tool_calls = chat_res.into_tool_calls();
+    let first = tool_calls.first().ok_or_else(|| {
+        AppError::Llm(
+            "could not parse a recipe from input".into(),
+            "llm_parse_failed",
+        )
+    })?;
+    build_draft_from_tool_args(&first.fn_arguments, !images.is_empty()).await
+}
+
+// ---------------------------------------------------------------------------
 // Polish instructions
 // ---------------------------------------------------------------------------
 
@@ -812,5 +861,43 @@ mod tests {
             draft.image_base64.is_none(),
             "user image should take precedence, no download"
         );
+    }
+
+    #[test]
+    fn given_text_and_two_images_when_build_user_content_then_all_parts_present() {
+        let img1 = LlmImage {
+            bytes: b"aaa".to_vec(),
+            content_type: "image/jpeg".to_string(),
+        };
+        let img2 = LlmImage {
+            bytes: b"bbb".to_vec(),
+            content_type: "image/png".to_string(),
+        };
+        let content = build_user_content(Some("tomatoes, cheese"), &[img1, img2]);
+        let debug = format!("{:?}", content);
+        assert!(debug.contains("tomatoes, cheese"));
+        assert!(debug.contains("YWFh"), "base64 of first image missing"); // b64("aaa")
+        assert!(debug.contains("YmJi"), "base64 of second image missing"); // b64("bbb")
+        assert!(debug.contains("image/png"));
+    }
+
+    #[test]
+    fn given_no_images_when_build_user_content_then_text_only() {
+        let content = build_user_content(Some("eggs"), &[]);
+        let debug = format!("{:?}", content);
+        assert!(debug.contains("eggs"));
+        assert!(!debug.contains("image"));
+    }
+
+    #[test]
+    fn given_blank_hint_when_build_user_content_then_ignored() {
+        let img = LlmImage {
+            bytes: b"ccc".to_vec(),
+            content_type: "image/jpeg".to_string(),
+        };
+        let content = build_user_content(Some("   "), &[img]);
+        let debug = format!("{:?}", content);
+        assert!(!debug.contains("eggs"));
+        assert!(debug.contains("Y2Nj")); // b64("ccc")
     }
 }

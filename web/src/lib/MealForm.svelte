@@ -2,7 +2,7 @@
 	import { validateMeal } from '$lib/validation';
 	import { t } from '$lib/i18n';
 	import Icon from '$lib/Icon.svelte';
-	import type { Meal, NewIngredientLine } from '$lib/types';
+	import type { Meal, MealFormPayload, NewIngredientLine } from '$lib/types';
 	import ImageInput from '$lib/components/ImageInput.svelte';
 	import { ApiError } from '$lib/api';
 
@@ -18,6 +18,8 @@
 		onsubmit,
 		existingNames = new Set<string>(),
 		oncancel,
+		submitLabel,
+		oncook,
 	}: {
 		initialName?: string;
 		initialIngredients?: NewIngredientLine[];
@@ -37,6 +39,8 @@
 			removeImage: boolean;
 		}) => void | Promise<void>;
 		oncancel?: () => void;
+		submitLabel?: string;
+		oncook?: (payload: MealFormPayload) => void | Promise<void>;
 	} = $props();
 
 	let formName = $state(initialName);
@@ -84,27 +88,33 @@
 	function removeIngredientRow(idx: number) {
 		formIngredients = formIngredients.filter((_, i) => i !== idx);
 	}
-	async function onSubmit() {
+	function buildPayload(): MealFormPayload | null {
 		formError = null;
 		const valid = validIngredientLines();
 		const result = validateMeal(formName, valid, formInstructions, formPortions);
 		if (!result.ok) {
 			formError = t(result.messageKey);
-			return;
+			return null;
 		}
 		if (imageError) {
 			formError = imageError;
-			return;
+			return null;
 		}
+		return {
+			name: formName.trim(),
+			ingredients: valid,
+			instructions: formInstructions.trim(),
+			portions: formPortions,
+			image: formImage,
+			removeImage,
+		};
+	}
+
+	async function onSubmit() {
+		const payload = buildPayload();
+		if (!payload) return;
 		try {
-			await onsubmit({
-				name: formName.trim(),
-				ingredients: valid,
-				instructions: formInstructions.trim(),
-				portions: formPortions,
-				image: formImage,
-				removeImage,
-			});
+			await onsubmit(payload);
 		} catch (err) {
 			if (err instanceof ApiError && err.status === 409) {
 				formError = t('errorDuplicateMeal');
@@ -113,6 +123,16 @@
 					? t('errorSaveFailed')
 					: err instanceof Error ? err.message : String(err ?? '');
 			}
+		}
+	}
+
+	async function onCookClick() {
+		const payload = buildPayload();
+		if (!payload || !oncook) return;
+		try {
+			await oncook(payload);
+		} catch (err) {
+			formError = err instanceof Error ? err.message : String(err ?? '');
 		}
 	}
 </script>
@@ -219,13 +239,19 @@
 			</p>
 		{/if}
 		<div class="form-card__actions">
+			{#if oncook}
+				<button type="button" class="btn btn--ghost" onclick={onCookClick} disabled={submitting}>
+					<Icon name="utensils" size={16} />
+					{t('cookNowButton')}
+				</button>
+			{/if}
 			<button type="submit" class="btn btn--primary" disabled={submitting || isDuplicate}>
 				{#if editMode}
 					<Icon name="check" size={16} />
 					{t('buttonSave')}
 				{:else}
 					<Icon name="plus" size={16} />
-					{t('buttonAdd')}
+					{submitLabel ?? t('buttonAdd')}
 				{/if}
 			</button>
 			{#if editMode}
