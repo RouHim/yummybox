@@ -1,3 +1,10 @@
+# [1.18.0](https://github.com/RouHim/yummybox/compare/v1.17.0...v1.18.0) (2026-08-19)
+
+
+### Features
+
+* move spontaneous cooking link to left side of top bar ([#3](https://github.com/RouHim/yummybox/issues/3)) ([5d8554f](https://github.com/RouHim/yummybox/commit/5d8554ffb06c8251f468102cd6a6533bda347dd8))
+
 # [1.17.0](https://github.com/RouHim/yummybox/compare/v1.16.0...v1.17.0) (2026-08-13)
 
 
