@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { listMeals, getMeal, createMeal, updateMeal, deleteMeal, mealImageUrl, listPlansForYear, getPlan, createPlan, updatePlan, deletePlan, importFromUrl, importFromPaste, importFromLlm, generateMeal, importBulk, listLlmProviders, listLlmModels, polishInstructions, getVersion, ApiError } from './api';
-import type { Meal, MealPayload, NewIngredientLine, Plan, PlanSummaryItem, NewPlanRequest, PlanPatch } from './types';
+import type { Meal, MealPayload, NewIngredientLine, Plan, NewPlanRequest, PlanPatch } from './types';
 
 const mockFetch = vi.fn();
 globalThis.fetch = mockFetch;
