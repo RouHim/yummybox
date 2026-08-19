@@ -146,6 +146,9 @@ pub async fn list_models(
 
 const TOOL_NAME: &str = "extract_recipe";
 
+/// Timeout for LLM chat requests (import, generate, polish).
+const LLM_CHAT_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(60);
+
 const SYSTEM_PROMPT: &str = "You are a recipe extraction assistant. Extract the recipe from the user's input (one or more images of a meal, a text description, a recipe URL, or any combination) and call the extract_recipe tool with the result. When the input contains multiple images — for example the front and back of a recipe card, or several pages of a recipe — treat all of them as parts of ONE recipe and merge their content into a single complete recipe: take the dish name and any dish photo from whichever image shows them, and combine ingredients and instructions from all images without duplicating entries. Always call the tool. If you can identify a photo URL of the finished dish from the recipe context (page text or your own knowledge for description-only inputs), provide it in the imageUrl field; otherwise omit it. When candidate dish image URLs are listed in the input, pick the most relevant one for imageUrl. Never invent a URL you are not confident exists.";
 
 fn recipe_tool() -> genai::chat::Tool {
@@ -250,7 +253,7 @@ pub async fn import_via_llm(
     let model_spec = build_model_spec(model, base_url, api_key);
     let chat_fut = client.exec_chat(model_spec, chat_req, None);
 
-    let chat_res = match tokio::time::timeout(std::time::Duration::from_secs(60), chat_fut).await {
+    let chat_res = match tokio::time::timeout(LLM_CHAT_TIMEOUT, chat_fut).await {
         Ok(r) => r,
         Err(_) => {
             return Err(AppError::Llm(
@@ -300,7 +303,7 @@ pub async fn generate_meal_via_llm(
     let model_spec = build_model_spec(model, base_url, api_key);
     let chat_fut = client.exec_chat(model_spec, chat_req, None);
 
-    let chat_res = match tokio::time::timeout(std::time::Duration::from_secs(60), chat_fut).await {
+    let chat_res = match tokio::time::timeout(LLM_CHAT_TIMEOUT, chat_fut).await {
         Ok(r) => r,
         Err(_) => {
             return Err(AppError::Llm(
@@ -356,7 +359,7 @@ pub async fn polish_instructions(
     let model_spec = build_model_spec(model, base_url, api_key);
     let chat_fut = client.exec_chat(model_spec, chat_req, None);
 
-    let chat_res = match tokio::time::timeout(std::time::Duration::from_secs(60), chat_fut).await {
+    let chat_res = match tokio::time::timeout(LLM_CHAT_TIMEOUT, chat_fut).await {
         Ok(r) => r,
         Err(_) => {
             return Err(AppError::Llm(
