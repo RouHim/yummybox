@@ -1,5 +1,5 @@
 <script lang="ts">
-    import { listMeals, updateMeal, deleteMeal, mealImageUrl, createMeal, importFromLlm, importBulk, importZip, exportMealsUrl, listLlmProviders, listLlmModels, ApiError, loadImageFromUrl } from '$lib/api';
+    import { listMeals, updateMeal, deleteMeal, mealImageUrl, createMeal, importFromLlm, importBulk, importZip, exportMealsUrl, listLlmProviders, listLlmModels, ApiError } from '$lib/api';
 	import type { Meal, NewIngredientLine } from '$lib/types';
 import { readStoredLlmConfig, persistLlmConfig } from '$lib/llm-config.svelte';
 	import { t, formatDate } from '$lib/i18n';
