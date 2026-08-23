@@ -23,7 +23,7 @@ async function request<T>(url: string, options?: RequestInit, timeoutMs: number 
 			response = await fetch(url, { ...options, signal: controller.signal });
 		} catch {
 			clearTimeout(timer);
-			if (retryable && attempt < MAX_RETRIES) {
+			if (retryable && !controller.signal.aborted && attempt < MAX_RETRIES) {
 				await new Promise((resolve) => setTimeout(resolve, 250 * (attempt + 1)));
 				continue;
 			}
@@ -195,7 +195,7 @@ export async function generateMeal(
     for (const img of images) form.append('image', img);
     if (baseUrl) form.set('base_url', baseUrl);
     if (apiKey) form.set('api_key', apiKey);
-    return request<ImportDraft>('/api/import/generate', { method: 'POST', body: form });
+    return request<ImportDraft>('/api/import/generate', { method: 'POST', body: form }, 90_000);
 }
 
 export async function listLlmProviders(): Promise<LlmProviderInfo[]> {

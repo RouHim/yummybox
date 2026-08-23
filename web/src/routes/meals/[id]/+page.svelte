@@ -57,7 +57,7 @@ import { focusTrap } from '$lib/focusTrap';
 	});
 
 	function openDelete() { deleteOpen = true; deleteError = null; }
-	function closeDelete() { deleteOpen = false; }
+	function closeDelete() { deleteOpen = false; deleteError = null; }
 
 	async function confirmDelete() {
 		if (!meal) return;
@@ -226,11 +226,21 @@ import { focusTrap } from '$lib/focusTrap';
 		oncancel={closeDelete}
 	/>
 	{#if deleteError}
-		<p class="form-error" role="alert">
+		<p class="form-error delete-error" role="alert">
 			<Icon name="circle-alert" size={18} />
 			<span>{deleteError}</span>
 		</p>
 	{/if}
 </main>
 
-
+<style>
+	.delete-error {
+		position: fixed;
+		top: var(--space-4);
+		left: 50%;
+		transform: translateX(-50%);
+		z-index: 1002;
+		max-width: min(28rem, calc(100vw - 2 * var(--space-4)));
+		width: max-content;
+	}
+</style>

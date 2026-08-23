@@ -63,7 +63,7 @@ export const en: Record<TranslationKey, string> = {
 	plannerRemove: 'Remove',
 	plannerAddMeal: 'Add to plan',
 	plannerDeletePlan: 'Delete meal plan',
-	plannerError: 'Could not reach the server — check your connection and try again.',
+	plannerError: 'Could not reach the server. Check your connection and try again.',
 	fieldImageChoose: 'Choose image\u2026',
 	fieldImageReplace: 'Replace image',
 	fieldImageRemove: 'Remove image',

@@ -258,6 +258,26 @@ describe('network failures and retries', () => {
             vi.useRealTimers();
         }
     });
+
+    it('does not retry a timed-out GET request', async () => {
+        vi.useFakeTimers();
+        try {
+            mockFetch.mockImplementation((_url: unknown, init?: RequestInit) => {
+                const { promise, reject } = Promise.withResolvers<Response>();
+                init?.signal?.addEventListener('abort', () =>
+                    reject(new DOMException('The operation was aborted.', 'AbortError'))
+                );
+                return promise;
+            });
+            const promise = listMeals();
+            const rejection = expect(promise).rejects.toMatchObject({ code: 'REQUEST_FAILED' });
+            await vi.advanceTimersByTimeAsync(30_000);
+            await rejection;
+            expect(mockFetch).toHaveBeenCalledTimes(1);
+        } finally {
+            vi.useRealTimers();
+        }
+    });
 });
 
 // ---------------------------------------------------------------------------
