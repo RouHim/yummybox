@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { listMeals, getMeal, createMeal, updateMeal, deleteMeal, mealImageUrl, listPlansForYear, getPlan, createPlan, updatePlan, deletePlan, importFromUrl, importFromPaste, importFromLlm, importBulk, listLlmProviders, listLlmModels, polishInstructions, getVersion, ApiError } from './api';
-import type { Meal, MealPayload, NewIngredientLine, Plan, PlanSummaryItem, NewPlanRequest, PlanPatch } from './types';
+import { listMeals, getMeal, createMeal, updateMeal, deleteMeal, mealImageUrl, listPlansForYear, getPlan, createPlan, updatePlan, deletePlan, importFromUrl, importFromPaste, importFromLlm, generateMeal, importBulk, listLlmProviders, listLlmModels, polishInstructions, getVersion, ApiError } from './api';
+import type { Meal, MealPayload, NewIngredientLine, Plan, NewPlanRequest, PlanPatch } from './types';
 
 const mockFetch = vi.fn();
 globalThis.fetch = mockFetch;
@@ -589,5 +589,35 @@ describe('getVersion', () => {
 		const result = await getVersion();
 		expect(mockFetch).toHaveBeenCalledWith('/api/version', expect.objectContaining({ signal: expect.any(AbortSignal) }));
 		expect(result.version).toBe('0.1.0');
+	});
+});
+
+describe('generateMeal', () => {
+	it('sends model, ingredients and multiple images in multipart form', async () => {
+		const draft = { name: 'Pasta', ingredients: [], instructions: '', imageBase64: null, portions: null };
+		mockResponse(200, draft);
+		const img1 = new File([new Uint8Array([1])], 'a.jpg', { type: 'image/jpeg' });
+		const img2 = new File([new Uint8Array([2])], 'b.png', { type: 'image/png' });
+		await generateMeal('mock-model', 'flour\neggs', [img1, img2]);
+		expect(mockFetch).toHaveBeenCalledTimes(1);
+		const [url, opts] = mockFetch.mock.calls[0];
+		expect(url).toBe('/api/import/generate');
+		expect(opts.method).toBe('POST');
+		const fd = opts.body as FormData;
+		expect(fd.get('model')).toBe('mock-model');
+		expect(fd.get('ingredients')).toBe('flour\neggs');
+		const images = fd.getAll('image');
+		expect(images).toHaveLength(2);
+		expect(images[0]).toBe(img1);
+		expect(images[1]).toBe(img2);
+	});
+
+	it('omits empty ingredients and includes custom endpoint fields', async () => {
+		mockResponse(200, { name: '', ingredients: [], instructions: '', imageBase64: null, portions: null });
+		await generateMeal('m', '   ', [], 'http://localhost:8080/v1/', 'sk-123');
+		const fd = mockFetch.mock.calls[0][1].body as FormData;
+		expect(fd.get('ingredients')).toBeNull();
+		expect(fd.get('base_url')).toBe('http://localhost:8080/v1/');
+		expect(fd.get('api_key')).toBe('sk-123');
 	});
 });

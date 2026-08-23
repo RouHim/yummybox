@@ -1,5 +1,5 @@
 <script lang="ts">
-    import { listMeals, updateMeal, deleteMeal, mealImageUrl, createMeal, importFromLlm, importBulk, importZip, exportMealsUrl, listLlmProviders, listLlmModels, ApiError, loadImageFromUrl } from '$lib/api';
+    import { listMeals, updateMeal, deleteMeal, mealImageUrl, createMeal, importFromLlm, importBulk, importZip, exportMealsUrl, listLlmProviders, listLlmModels, ApiError } from '$lib/api';
 	import type { Meal, NewIngredientLine } from '$lib/types';
 import { readStoredLlmConfig, persistLlmConfig } from '$lib/llm-config.svelte';
 	import { t, formatDate } from '$lib/i18n';
@@ -762,7 +762,7 @@ import { focusTrap } from '$lib/focusTrap';
 									</button>
 								{/if}
 								{/if}
-								{#if importError || (importMode === 'urls' && bulkError) || (importMode === 'zip' && zipError)}
+								{#if (importMode === 'llm' && importError) || (importMode === 'urls' && bulkError) || (importMode === 'zip' && zipError)}
 									<p class="form-error" role="alert">
 										<Icon name="circle-alert" size={18} />
 										<span>{importMode === 'urls' && bulkError ? bulkError : importMode === 'zip' && zipError ? zipError : importError}</span>

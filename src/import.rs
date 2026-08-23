@@ -101,9 +101,15 @@ pub(crate) async fn load_image_from_url(
 /// Map a multipart error to an `AppError`. Body-size-limit violations are
 /// reported as 413 (they can surface from `next_field()`, `field.bytes()`, or
 /// `field.text()` alike); everything else is a 400 with the given context.
-fn map_multipart_error(e: axum::extract::multipart::MultipartError, what: &str) -> AppError {
+pub(crate) fn map_multipart_error(
+    e: axum::extract::multipart::MultipartError,
+    what: &str,
+) -> AppError {
     if e.status() == StatusCode::PAYLOAD_TOO_LARGE {
-        AppError::PayloadTooLarge("request body exceeds 50 MB limit".into())
+        AppError::PayloadTooLarge(format!(
+            "request body exceeds {} MB limit",
+            crate::MAX_BODY_BYTES / (1024 * 1024)
+        ))
     } else {
         AppError::BadRequest(format!("{what}: {e}"))
     }
@@ -146,6 +152,13 @@ pub(crate) async fn import_from_llm(
                     .bytes()
                     .await
                     .map_err(|e| map_multipart_error(e, "failed to read image field"))?;
+                // A 0-byte file (e.g. picked in the AI-import dialog) is
+                // tolerated and skipped, as in the pre-multipart code; the
+                // all-empty case is rejected by the llm_images/hint check
+                // below. generate_meal rejects empty images hard.
+                if data.is_empty() {
+                    continue;
+                }
                 images.push((data.to_vec(), content_type));
             }
             Some("base_url") => {
@@ -178,19 +191,18 @@ pub(crate) async fn import_from_llm(
         .map(|s| s.trim().to_string())
         .filter(|s| !s.is_empty());
 
-    const MAX_IMAGES: usize = 5;
-    if images.len() > MAX_IMAGES {
+    // Only non-empty images count toward the cap — empty picker entries were
+    // skipped during collection, so this runs on the post-filter list.
+    if images.len() > MAX_GENERATE_IMAGES {
         return Err(AppError::BadRequest(format!(
-            "maximum {MAX_IMAGES} images allowed"
+            "maximum {MAX_GENERATE_IMAGES} images allowed"
         )));
     }
 
-    const MAX_IMAGE_BYTES: usize = 20 * 1024 * 1024;
     let mut llm_images: Vec<crate::llm_import::LlmImage> = Vec::with_capacity(images.len());
     for (bytes, content_type) in images {
-        if bytes.is_empty() {
-            return Err(AppError::BadRequest("image field is empty".into()));
-        }
+        // bytes are guaranteed non-empty here — empties were skipped in the
+        // image arm during collection.
         if bytes.len() > MAX_IMAGE_BYTES {
             return Err(AppError::PayloadTooLarge(
                 "image exceeds 20 MB limit".into(),
@@ -207,43 +219,17 @@ pub(crate) async fn import_from_llm(
         ));
     }
 
-    const MAX_HINT_CHARS: usize = 20000;
     if let Some(h) = &hint {
-        if h.chars().count() > MAX_HINT_CHARS {
+        if h.chars().count() > MAX_INGREDIENTS_CHARS {
             return Err(AppError::BadRequest(
                 "hint must be at most 20000 characters".into(),
             ));
         }
     }
 
-    // If the hint is a bare URL, fetch the page server-side and expand to
-    // readable text so the LLM can extract a recipe from it.
-    let hint = if let Some(h) = hint.as_deref() {
-        if recipe::is_bare_url(h) {
-            let html = recipe::fetch_page_html(h).await?;
-            let text = recipe::extract_readable_text(&html);
-            if text.trim().is_empty() {
-                return Err(AppError::BadRequest(
-                    "URL returned no extractable text".into(),
-                ));
-            }
-            let mut prompt = format!("Recipe from {h}:\n{text}");
-            let image_urls = recipe::extract_image_urls_from_html(&html, h);
-            if !image_urls.is_empty() {
-                prompt.push_str(&format!(
-                    "\n\nCandidate dish image URLs found on the page:\n{}",
-                    image_urls.join("\n")
-                ));
-            }
-            Some(prompt)
-        } else {
-            hint
-        }
-    } else {
-        hint
-    };
+    let hint = expand_hint_if_bare_url(hint).await?;
 
-    let has_user_image = !llm_images.is_empty();
+    let skip_image_download = !llm_images.is_empty();
 
     let draft = crate::llm_import::import_via_llm(
         &model,
@@ -251,10 +237,179 @@ pub(crate) async fn import_from_llm(
         llm_images,
         base_url.as_deref(),
         api_key.as_deref(),
-        has_user_image,
+        skip_image_download,
     )
     .await?;
     Ok(Json(draft))
+}
+
+/// Maximum size of a single uploaded image (20 MB).
+const MAX_IMAGE_BYTES: usize = 20 * 1024 * 1024;
+
+/// Maximum number of ingredient photos accepted in one generation request,
+/// for both the /import/generate route and the AI-import route (/import/llm).
+const MAX_GENERATE_IMAGES: usize = 5;
+
+/// Maximum length of the ingredients text field.
+const MAX_INGREDIENTS_CHARS: usize = 20000;
+
+/// Generate a recipe on the fly from an ingredient list and/or photos.
+/// The LLM result is returned as a draft; nothing is persisted here.
+#[instrument(skip(_state))]
+pub(crate) async fn generate_meal(
+    State(_state): State<Arc<AppState>>,
+    mut multipart: Multipart,
+) -> Result<Json<recipe::ImportDraft>, AppError> {
+    let mut model: Option<String> = None;
+    let mut ingredients: Option<String> = None;
+    let mut images: Vec<crate::llm_import::LlmImage> = Vec::new();
+    let mut base_url: Option<String> = None;
+    let mut api_key: Option<String> = None;
+
+    while let Some(field) = multipart
+        .next_field()
+        .await
+        .map_err(|e| map_multipart_error(e, "invalid multipart data"))?
+    {
+        match field.name() {
+            Some("model") => {
+                let text = field
+                    .text()
+                    .await
+                    .map_err(|e| map_multipart_error(e, "failed to read model field"))?;
+                model = Some(text);
+            }
+            Some("ingredients") => {
+                let text = field
+                    .text()
+                    .await
+                    .map_err(|e| map_multipart_error(e, "failed to read ingredients field"))?;
+                ingredients = Some(text);
+            }
+            Some("image") => {
+                let content_type = field.content_type().map(String::from);
+                let data = field
+                    .bytes()
+                    .await
+                    .map_err(|e| map_multipart_error(e, "failed to read image field"))?;
+                if data.is_empty() {
+                    return Err(AppError::BadRequest("image field is empty".into()));
+                }
+                let content_type = match content_type {
+                    Some(ct) => ct,
+                    None => {
+                        return Err(AppError::BadRequest(
+                            "unsupported image content type: missing Content-Type header".into(),
+                        ));
+                    }
+                };
+                if !matches!(
+                    content_type.as_str(),
+                    "image/jpeg" | "image/png" | "image/webp" | "image/gif"
+                ) {
+                    return Err(AppError::BadRequest(format!(
+                        "unsupported image content type: {content_type}"
+                    )));
+                }
+                images.push(crate::llm_import::LlmImage {
+                    bytes: data.to_vec(),
+                    content_type,
+                });
+            }
+            Some("base_url") => {
+                let text = field
+                    .text()
+                    .await
+                    .map_err(|e| map_multipart_error(e, "failed to read base_url field"))?;
+                base_url = Some(text);
+            }
+            Some("api_key") => {
+                let text = field
+                    .text()
+                    .await
+                    .map_err(|e| map_multipart_error(e, "failed to read api_key field"))?;
+                api_key = Some(text);
+            }
+            _ => {}
+        }
+    }
+
+    let model = model
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty())
+        .ok_or_else(|| AppError::BadRequest("missing 'model' field".into()))?;
+    let ingredients = ingredients
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty());
+    let base_url = base_url
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty());
+    let api_key = api_key
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty());
+
+    if ingredients.is_none() && images.is_empty() {
+        return Err(AppError::BadRequest(
+            "at least one of ingredients or an image is required".into(),
+        ));
+    }
+
+    if let Some(ing) = &ingredients {
+        if ing.chars().count() > MAX_INGREDIENTS_CHARS {
+            return Err(AppError::BadRequest(
+                "ingredients must be at most 20000 characters".into(),
+            ));
+        }
+    }
+
+    if images.len() > MAX_GENERATE_IMAGES {
+        return Err(AppError::BadRequest(format!(
+            "at most {MAX_GENERATE_IMAGES} images may be uploaded"
+        )));
+    }
+    for img in &images {
+        if img.bytes.len() > MAX_IMAGE_BYTES {
+            return Err(AppError::PayloadTooLarge(
+                "image exceeds 20 MB limit".into(),
+            ));
+        }
+    }
+
+    let draft = crate::llm_import::generate_meal_via_llm(
+        &model,
+        ingredients.as_deref(),
+        images,
+        base_url.as_deref(),
+        api_key.as_deref(),
+    )
+    .await?;
+    Ok(Json(draft))
+}
+/// If the hint is a bare URL, fetch the page server-side and expand to
+/// readable text so the LLM can extract a recipe from it.
+async fn expand_hint_if_bare_url(hint: Option<String>) -> Result<Option<String>, AppError> {
+    let Some(h) = hint else {
+        return Ok(None);
+    };
+    if !recipe::is_bare_url(&h) {
+        return Ok(Some(h));
+    }
+    let html = recipe::fetch_page_html(&h).await?;
+    let text = recipe::extract_readable_text(&html);
+    if text.trim().is_empty() {
+        return Err(AppError::BadRequest(
+            "URL returned no extractable text".into(),
+        ));
+    }
+    let mut prompt = format!("Recipe from {h}:\n{text}");
+    let image_urls = recipe::extract_image_urls_from_html(&html, &h);
+    if !image_urls.is_empty() {
+        prompt.push_str(&format!(
+            "\n\nCandidate dish image URLs found on the page:\n{}",
+            image_urls.join("\n")
+        ));
+    }
+    Ok(Some(prompt))
 }
 // ---------------------------------------------------------------------------
 // Polish instructions handler

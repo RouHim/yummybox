@@ -1,8 +1,12 @@
 mod bring;
 mod data_dir;
 mod db;
+#[cfg(test)]
+mod db_tests;
 mod error;
 mod export_import;
+#[cfg(test)]
+mod export_import_tests;
 mod image;
 mod import;
 mod jsonld;
@@ -11,7 +15,11 @@ mod plan;
 
 mod model;
 mod recipe;
+#[cfg(test)]
+mod recipe_tests;
 mod routes;
+#[cfg(test)]
+mod routes_tests;
 mod seed;
 mod state;
 mod static_assets;
@@ -28,6 +36,12 @@ use tracing_subscriber::EnvFilter;
 
 use crate::error::AppError;
 use crate::state::AppState;
+
+/// Default port for the HTTP server (override with `YUMMYBOX_PORT`).
+const DEFAULT_PORT: u16 = 11341;
+
+/// Maximum accepted request body size (50 MB).
+pub(crate) const MAX_BODY_BYTES: usize = 50 * 1024 * 1024;
 
 enum Subcommand {
     Serve,
@@ -99,6 +113,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .route("/meals/{id}/image", get(routes::get_meal_image))
         .route("/import/url", post(import::import_from_url))
         .route("/import/llm", post(import::import_from_llm))
+        .route("/import/generate", post(import::generate_meal))
         .route("/llm/providers", get(import::llm_providers))
         .route("/llm/models", get(import::llm_models))
         .route("/llm/polish", post(import::polish_instructions))
@@ -115,7 +130,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .route("/bring/items", post(routes::add_bring_item))
         .route("/bring/status", get(routes::get_bring_status))
         .route("/version", get(routes::get_version))
-        .layer(DefaultBodyLimit::max(50 * 1024 * 1024))
+        .layer(DefaultBodyLimit::max(MAX_BODY_BYTES))
         .with_state(state);
 
     let app = Router::new()
@@ -125,7 +140,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let port: u16 = std::env::var("YUMMYBOX_PORT")
         .ok()
         .and_then(|v| v.parse().ok())
-        .unwrap_or(11341);
+        .unwrap_or(DEFAULT_PORT);
     let addr = format!("0.0.0.0:{port}");
     let listener = tokio::net::TcpListener::bind(&addr).await?;
     info!("listening on http://{addr}");

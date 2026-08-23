@@ -72,6 +72,11 @@
 		<Icon name="soup" size={24} />
 	</a>
 	<nav class="app-bar__nav" aria-label={t('appTitle')}>
+		<a href="/spontaneous" class="app-bar__link"
+			aria-current={pathname.startsWith('/spontaneous') ? 'page' : undefined}>
+			<Icon name="sparkles" size={16} />
+			<span class="app-bar__link-label">{t('navGenerateMeal')}</span>
+		</a>
 		<a href="/meals" class="app-bar__link"
 			aria-current={pathname.startsWith('/meals') ? 'page' : undefined}>
 			<Icon name="utensils" size={16} />

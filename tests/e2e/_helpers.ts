@@ -11,11 +11,6 @@ export async function setLocale(page: Page, locale: 'en' | 'de'): Promise<void> 
 	}, locale);
 }
 
-export async function gotoEnglish(page: Page): Promise<void> {
-	await setLocale(page, 'en');
-	await page.goto('/meals');
-}
-
 export async function resetMeals(request: APIRequestContext): Promise<void> {
 	const res = await request.get('/api/meals');
 	if (!res.ok()) return;

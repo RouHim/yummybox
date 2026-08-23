@@ -3,6 +3,8 @@
 	import Icon from '$lib/Icon.svelte';
 	import { fade } from 'svelte/transition';
 	import { loadImageFromUrl, ApiError } from '$lib/api';
+	import { tierDuration } from '$lib/motion';
+	import { MAX_GENERATE_IMAGES, MAX_GENERATE_IMAGE_BYTES, validateGenerateImageTotal } from '$lib/multi-image';
 
 	let {
 		onchange,
@@ -11,8 +13,6 @@
 		onchange: (files: File[]) => void;
 		onerror: (error: string | null) => void;
 	} = $props();
-
-	const MAX_PHOTOS = 5;
 
 	let files = $state<File[]>([]);
 	let thumbUrls = $state<string[]>([]);
@@ -53,20 +53,38 @@
 	// non-image file, is rejected entirely — no partial staging.
 	function addFiles(incoming: File[]) {
 		if (incoming.length === 0) return;
+		// Any photo-add attempt dismisses a stale URL-load error, even when
+		// the add itself is rejected below.
+		imageUrlError = null;
 		for (const file of incoming) {
 			if (!looksLikeImage(file)) {
 				error = t('imageErrorNotImage');
 				onerror(error);
 				return;
 			}
+			// Backend /api/import/llm rejects images over 20 MiB with 413;
+			// reject them up front (also covers pasted images, which stage
+			// through this same path).
+			if (file.size > MAX_GENERATE_IMAGE_BYTES) {
+				error = t('importLlmImageMaxSize');
+				onerror(error);
+				return;
+			}
 		}
-		if (files.length + incoming.length > MAX_PHOTOS) {
+		if (files.length + incoming.length > MAX_GENERATE_IMAGES) {
 			error = t('importLlmImageMax');
+			onerror(error);
+			return;
+		}
+		const totalErr = validateGenerateImageTotal([...files, ...incoming]);
+		if (totalErr) {
+			error = t(totalErr);
 			onerror(error);
 			return;
 		}
 		files = [...files, ...incoming];
 		error = null;
+		imageUrlError = null;
 		onerror(null);
 		onchange(files);
 	}
@@ -74,6 +92,7 @@
 	function removePhoto(i: number) {
 		files = files.filter((_, idx) => idx !== i);
 		error = null;
+		imageUrlError = null;
 		onerror(null);
 		onchange(files);
 	}
@@ -90,7 +109,10 @@
 		// both in real browsers and in synthetic test DataTransfer objects.
 		const types = Array.from(dt.types);
 		if (types.includes('Files')) return true;
-		return types.includes('text/uri-list') || types.includes('text/plain');
+		// text/plain is deliberately excluded: dragging arbitrary selected text
+		// exposes text/plain and would otherwise trigger a spurious image-URL
+		// POST (readDraggedUrl only accepts http(s) plain-text payloads).
+		return types.includes('text/uri-list');
 	}
 
 	function onDragEnter(e: DragEvent) {
@@ -126,9 +148,11 @@
 			const firstLine = mozUrl.split(/\r?\n/)[0]?.trim();
 			if (firstLine) return firstLine;
 		}
-		// Fallback: plain text (some drags only populate this).
+		// Fallback: plain text (some drags only populate this). Accept it only
+		// when it actually looks like an http(s) URL, so plain-text drags
+		// (selected text, etc.) are ignored instead of POSTed as URLs.
 		const plain = dt.getData('text/plain').trim();
-		if (plain) return plain;
+		if (/^https?:\/\//i.test(plain)) return plain;
 		return null;
 	}
 
@@ -178,6 +202,17 @@
 	// --- Paste tile ---
 
 	function onPaste(e: ClipboardEvent) {
+		// Never hijack pastes into text fields: the dialog has editable
+		// controls (hint textarea, URL input), and a clipboard carrying both
+		// text and an image must still paste natively into them.
+		const target = e.target;
+		if (
+			target instanceof HTMLInputElement ||
+			target instanceof HTMLTextAreaElement ||
+			(target instanceof HTMLElement && target.isContentEditable)
+		) {
+			return;
+		}
 		const cd = e.clipboardData;
 		if (!cd) return;
 
@@ -311,6 +346,7 @@
 
 	function toggleUrlRow() {
 		urlRowOpen = !urlRowOpen;
+		imageUrlError = null;
 	}
 </script>
 
@@ -323,7 +359,7 @@
 	ondrop={onDrop}
 >
 	{#if isDragging}
-		<div class="image-input__drop-zone" aria-hidden="true" transition:fade={{ duration: 150 }}>
+		<div class="image-input__drop-zone" aria-hidden="true" transition:fade={{ duration: tierDuration(150) }}>
 			<div class="image-input__drop-zone-inner">
 				<Icon name="image-down" size={40} />
 				<span>{t('imageImportDragDrop')}</span>
