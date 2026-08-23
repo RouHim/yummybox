@@ -26,6 +26,7 @@ mod static_assets;
 
 use std::path::PathBuf;
 use std::sync::Arc;
+use std::time::Duration;
 
 use axum::Router;
 use axum::extract::DefaultBodyLimit;
@@ -144,9 +145,50 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let listener = tokio::net::TcpListener::bind(&addr).await?;
     info!("listening on http://{addr}");
 
-    axum::serve(listener, app).await?;
+    let (signal_tx, mut signal_rx) = tokio::sync::watch::channel(false);
+    let serve = axum::serve(listener, app).with_graceful_shutdown(async move {
+        shutdown_signal().await;
+        let _ = signal_tx.send(true);
+    });
+    // Hard cap on the drain only: the 15s clock starts when the shutdown
+    // signal arrives, not when the server starts. Without a signal the
+    // server runs indefinitely.
+    let drain_cap = async {
+        if signal_rx.changed().await.is_err() {
+            return;
+        }
+        tokio::time::sleep(Duration::from_secs(15)).await;
+        tracing::warn!("graceful shutdown timed out after 15s, forcing exit");
+    };
+    tokio::select! {
+        result = serve => match result {
+            Ok(()) => Ok(()),
+            Err(e) => Err(e.into()),
+        },
+        _ = drain_cap => Ok(()),
+    }
+}
 
-    Ok(())
+async fn shutdown_signal() {
+    let ctrl_c = async {
+        tokio::signal::ctrl_c()
+            .await
+            .expect("failed to install Ctrl+C handler");
+    };
+    #[cfg(unix)]
+    let terminate = async {
+        tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate())
+            .expect("failed to install SIGTERM handler")
+            .recv()
+            .await;
+    };
+    #[cfg(not(unix))]
+    let terminate = std::future::pending::<()>();
+    tokio::select! {
+        _ = ctrl_c => {},
+        _ = terminate => {},
+    }
+    tracing::info!("shutdown signal received, draining in-flight requests");
 }
 
 async fn run_seed() -> Result<(), Box<dyn std::error::Error>> {

@@ -57,7 +57,7 @@ pub async fn init_db(path: &Path) -> Result<SqlitePool, AppError> {
                 .filename(path)
                 .create_if_missing(true)
                 .journal_mode(sqlx::sqlite::SqliteJournalMode::Wal)
-                .synchronous(sqlx::sqlite::SqliteSynchronous::Normal),
+                .synchronous(sqlx::sqlite::SqliteSynchronous::Full),
         )
         .await?;
     sqlx::migrate!("./migrations")

@@ -17,6 +17,28 @@ async fn setup_db() -> (SqlitePool, tempfile::TempDir) {
     (pool, dir)
 }
 
+// -----------------------------------------------------------------------
+// init_db: WAL + synchronous=Full
+// -----------------------------------------------------------------------
+
+#[tokio::test]
+async fn given_init_db_when_connect_then_uses_wal_and_full_synchronous() {
+    let (pool, _dir) = setup_db().await;
+    let mode: String = sqlx::query_scalar("PRAGMA journal_mode")
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+    let sync: i64 = sqlx::query_scalar("PRAGMA synchronous")
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+    assert_eq!(mode, "wal");
+    assert_eq!(
+        sync, 2,
+        "synchronous must be FULL (2) so committed writes survive power loss"
+    );
+}
+
 async fn insert_test_meal(
     pool: &SqlitePool,
     name: &str,

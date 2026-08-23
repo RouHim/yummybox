@@ -7,28 +7,50 @@ export class ApiError extends Error {
         this.name = 'ApiError';
     }
 }
-async function request<T>(url: string, options?: RequestInit): Promise<T> {
-    const response = await fetch(url, options);
-    if (!response.ok) {
-        let message = 'Request failed';
-        let code: string | null = null;
-        try {
-            const body = await response.json();
-            if (body && typeof body.error === 'string') {
-                message = body.error;
-            }
-            if (body && typeof body.code === 'string') {
-                code = body.code;
-            }
-        } catch {
-            // Response was not JSON; fall back to status text
-        }
-        throw new ApiError(message, code, response.status);
-    }
-    if (response.status === 204) {
-        return undefined as T;
-    }
-    return response.json() as Promise<T>;
+const DEFAULT_TIMEOUT_MS = 30_000;
+const MAX_RETRIES = 2;
+const RETRYABLE_METHODS = new Set(['GET', 'HEAD']);
+
+async function request<T>(url: string, options?: RequestInit, timeoutMs: number = DEFAULT_TIMEOUT_MS): Promise<T> {
+	const method = (options?.method ?? 'GET').toUpperCase();
+	const retryable = RETRYABLE_METHODS.has(method);
+	const attempts = retryable ? MAX_RETRIES + 1 : 1;
+	for (let attempt = 0; ; attempt++) {
+		const controller = new AbortController();
+		const timer = setTimeout(() => controller.abort(), timeoutMs);
+		let response: Response;
+		try {
+			response = await fetch(url, { ...options, signal: controller.signal });
+		} catch {
+			clearTimeout(timer);
+			if (retryable && !controller.signal.aborted && attempt < MAX_RETRIES) {
+				await new Promise((resolve) => setTimeout(resolve, 250 * (attempt + 1)));
+				continue;
+			}
+			throw new ApiError(
+				'Network error — please check your connection and try again.',
+				'REQUEST_FAILED',
+				0,
+			);
+		}
+		clearTimeout(timer);
+		if (!response.ok) {
+			let message = 'Request failed';
+			let code: string | null = null;
+			try {
+				const body = await response.json();
+				if (body && typeof body.error === 'string') message = body.error;
+				if (body && typeof body.code === 'string') code = body.code;
+			} catch {
+				// Response was not JSON; fall back to status text
+			}
+			throw new ApiError(message, code, response.status);
+		}
+		if (response.status === 204) {
+			return undefined as T;
+		}
+		return response.json() as Promise<T>;
+	}
 }
 
 export async function listMeals(search?: string): Promise<Meal[]> {
@@ -95,24 +117,14 @@ export async function listPlansForYear(year: number): Promise<PlanSummaryItem[]>
 }
 
 export async function getPlan(year: number, week: number): Promise<Plan | null> {
-	const response = await fetch(`/api/plans?year=${year}&week=${week}`);
-	if (response.status === 404) return null;
-	if (!response.ok) {
-		let message = 'Request failed';
-		let code: string | null = null;
-		try {
-			const body = await response.json();
-			if (body && typeof body.error === 'string') message = body.error;
-			if (body && typeof body.code === 'string') code = body.code;
-		} catch {
-			// response was not JSON
-		}
-		throw new ApiError(message, code, response.status);
+	try {
+		const raw = await request<unknown>(`/api/plans?year=${year}&week=${week}`);
+		if (Array.isArray(raw)) throw new Error('expected plan, got array');
+		return raw as Plan;
+	} catch (err) {
+		if (err instanceof ApiError && err.status === 404) return null;
+		throw err;
 	}
-	if (response.status === 204) return null;
-	const raw = (await response.json()) as unknown;
-	if (Array.isArray(raw)) throw new Error('expected plan, got array');
-	return raw as Plan;
 }
 
 export async function createPlan(payload: NewPlanRequest): Promise<Plan> {
@@ -144,7 +156,7 @@ export async function importFromUrl(url: string, imageUrl?: string): Promise<Imp
 		method: 'POST',
 		headers: { 'Content-Type': 'application/json' },
 		body: JSON.stringify({ url, ...(imageUrl ? { imageUrl } : {}) }),
-	});
+	}, 40_000);
 }
 
 export async function importFromPaste(content: string, imageUrl?: string): Promise<ImportDraft> {
@@ -152,7 +164,7 @@ export async function importFromPaste(content: string, imageUrl?: string): Promi
 		method: 'POST',
 		headers: { 'Content-Type': 'application/json' },
 		body: JSON.stringify({ content, ...(imageUrl ? { imageUrl } : {}) }),
-	});
+	}, 40_000);
 }
 export async function importFromLlm(
     model: string,
@@ -167,7 +179,7 @@ export async function importFromLlm(
     for (const img of images) form.append('image', img);
     if (baseUrl) form.set('base_url', baseUrl);
     if (apiKey) form.set('api_key', apiKey);
-    return request<ImportDraft>('/api/import/llm', { method: 'POST', body: form });
+    return request<ImportDraft>('/api/import/llm', { method: 'POST', body: form }, 90_000);
 }
 
 export async function generateMeal(
@@ -183,7 +195,7 @@ export async function generateMeal(
     for (const img of images) form.append('image', img);
     if (baseUrl) form.set('base_url', baseUrl);
     if (apiKey) form.set('api_key', apiKey);
-    return request<ImportDraft>('/api/import/generate', { method: 'POST', body: form });
+    return request<ImportDraft>('/api/import/generate', { method: 'POST', body: form }, 90_000);
 }
 
 export async function listLlmProviders(): Promise<LlmProviderInfo[]> {
@@ -195,7 +207,7 @@ export async function listLlmModels(provider: string, baseUrl?: string, apiKey?:
     const params = new URLSearchParams({ provider });
     if (baseUrl) params.set('base_url', baseUrl);
     if (apiKey) params.set('api_key', apiKey);
-    return request<LlmModelsResponse>(`/api/llm/models?${params}`);
+    return request<LlmModelsResponse>(`/api/llm/models?${params}`, undefined, 20_000);
 }
 
 export async function polishInstructions(
@@ -213,7 +225,7 @@ export async function polishInstructions(
     form.set('instructions', instructions);
     if (baseUrl) form.set('base_url', baseUrl);
     if (apiKey) form.set('api_key', apiKey);
-    const data = await request<{ instructions: string }>('/api/llm/polish', { method: 'POST', body: form });
+    const data = await request<{ instructions: string }>('/api/llm/polish', { method: 'POST', body: form }, 90_000);
     return data.instructions;
 }
 
