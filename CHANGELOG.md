@@ -1,3 +1,10 @@
+# [1.19.0](https://github.com/RouHim/yummybox/compare/v1.18.0...v1.19.0) (2026-08-23)
+
+
+### Features
+
+* reliability hardening ([#5](https://github.com/RouHim/yummybox/issues/5)) ([93a50e0](https://github.com/RouHim/yummybox/commit/93a50e06f269e441da0b6d4b9d51862ec1cad2d2))
+
 # [1.18.0](https://github.com/RouHim/yummybox/compare/v1.17.0...v1.18.0) (2026-08-19)
 
 
