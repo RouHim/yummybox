@@ -33,8 +33,7 @@ COPY build.rs ./
 COPY migrations ./migrations
 
 # Build release binary — YUMMYBOX_VERSION from CI tag or build.rs git fallback
-RUN RUST_TARGET=$(cat /tmp/rust-target) && YUMMYBOX_VERSION=$YUMMYBOX_VERSION cargo build --release --target ${RUST_TARGET}
-
+RUN RUST_TARGET=$(cat /tmp/rust-target) && YUMMYBOX_VERSION="$YUMMYBOX_VERSION" cargo build --release --target ${RUST_TARGET}
 
 FROM docker.io/alpine:latest AS certs
 RUN apk add --no-cache ca-certificates

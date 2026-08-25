@@ -10,7 +10,7 @@ COPY web ./web
 COPY build.rs ./
 COPY migrations ./migrations
 
-RUN YUMMYBOX_VERSION=$YUMMYBOX_VERSION cargo build --release --target x86_64-unknown-linux-musl
+RUN YUMMYBOX_VERSION="$YUMMYBOX_VERSION" cargo build --release --target x86_64-unknown-linux-musl
 
 FROM docker.io/debian:bookworm-slim
 

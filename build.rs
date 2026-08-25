@@ -10,11 +10,17 @@ fn main() {
     println!("cargo:rerun-if-env-changed=YUMMYBOX_VERSION");
     println!("cargo:rerun-if-changed=.git/HEAD");
     println!("cargo:rerun-if-changed=.git/refs/tags/");
-    if let Ok(v) = std::env::var("YUMMYBOX_VERSION") {
-        let v = v.trim().trim_start_matches('v').to_owned();
-        if !v.is_empty() {
-            println!("cargo:rustc-env=YUMMYBOX_VERSION={v}");
+    println!("cargo:rerun-if-changed=.git/packed-refs");
+    let sanitized_env_version = std::env::var("YUMMYBOX_VERSION").ok().and_then(|v| {
+        let sanitized = v.trim().trim_start_matches('v').trim().to_owned();
+        if sanitized.is_empty() {
+            None
+        } else {
+            Some(sanitized)
         }
+    });
+    if let Some(v) = sanitized_env_version {
+        println!("cargo:rustc-env=YUMMYBOX_VERSION={v}");
     } else if let Some(v) = git_describe_version() {
         println!("cargo:rustc-env=YUMMYBOX_VERSION={v}");
     }
