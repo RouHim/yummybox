@@ -55,6 +55,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
       - uses: actions/setup-node@v4
@@ -67,7 +69,13 @@ jobs:
       - name: cargo test
         run: cargo test
       - name: cargo build --release
-        run: cargo build --release
+        run: |
+          TAG=$(git tag --list 'v*' --sort=-version:refname | head -n1)
+          if [ -z "$TAG" ]; then TAG=$(git describe --tags --abbrev=0 2>/dev/null || echo "v0.1.0"); fi
+          if [ -z "$TAG" ]; then TAG="v0.1.0"; fi
+          VERSION=${TAG#v}
+          echo "Building release with YUMMYBOX_VERSION=$VERSION from $TAG"
+          YUMMYBOX_VERSION=$VERSION cargo build --release
       - uses: actions/upload-artifact@v4
         with:
           name: yummybox-release
@@ -207,6 +215,15 @@ jobs:
           test -d build
       - name: Configure git safe directory (host)
         run: git config --global --add safe.directory "$GITHUB_WORKSPACE"
+      - name: Derive version from git tag
+        id: version
+        run: |
+          TAG=$(git tag --list 'v*' --sort=-version:refname | head -n1)
+          if [ -z "$TAG" ]; then TAG=$(git describe --tags --abbrev=0 2>/dev/null || echo "v0.1.0"); fi
+          if [ -z "$TAG" ]; then TAG="v0.1.0"; fi
+          VERSION=${TAG#v}
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "Derived YUMMYBOX_VERSION=$VERSION from $TAG"
       - uses: Swatinem/rust-cache@v2
         with:
           key: ${{ matrix.target }}
@@ -217,7 +234,7 @@ jobs:
           options: -v ${{ github.workspace }}:/work -w /work
           run: |
             git config --global --add safe.directory /work
-            cargo build --release --target ${{ matrix.target }}
+            YUMMYBOX_VERSION=${{ steps.version.outputs.version }} cargo build --release --target ${{ matrix.target }}
             cp target/${{ matrix.target }}/release/yummybox ${{ matrix.name }}
       - name: Verify static linking
         run: |
@@ -258,6 +275,18 @@ jobs:
             platform: linux/arm64
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Derive version from git tag
+        id: version
+        run: |
+          TAG=$(git tag --list 'v*' --sort=-version:refname | head -n1)
+          if [ -z "$TAG" ]; then TAG=$(git describe --tags --abbrev=0 2>/dev/null || echo "v0.1.0"); fi
+          if [ -z "$TAG" ]; then TAG="v0.1.0"; fi
+          VERSION=${TAG#v}
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "Derived YUMMYBOX_VERSION=$VERSION from $TAG"
 
       - name: Log in to GitHub Container Registry
         run: echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u ${{ github.actor }} --password-stdin
@@ -280,6 +309,7 @@ jobs:
           docker build \
             --platform ${{ matrix.platform }} \
             --build-arg TARGETARCH=${{ matrix.arch }} \
+            --build-arg YUMMYBOX_VERSION=${{ steps.version.outputs.version }} \
             --tag yummybox-${{ matrix.arch }}:latest \
             -f Containerfile.pipeline .
 

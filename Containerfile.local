@@ -1,6 +1,8 @@
+ARG YUMMYBOX_VERSION
 FROM ghcr.io/rust-cross/rust-musl-cross:x86_64-musl AS builder
 
 WORKDIR /app
+ARG YUMMYBOX_VERSION
 
 COPY Cargo.toml Cargo.lock ./
 COPY src ./src
@@ -8,7 +10,7 @@ COPY web ./web
 COPY build.rs ./
 COPY migrations ./migrations
 
-RUN cargo build --release --target x86_64-unknown-linux-musl
+RUN YUMMYBOX_VERSION="$YUMMYBOX_VERSION" cargo build --release --target x86_64-unknown-linux-musl
 
 FROM docker.io/debian:bookworm-slim
 

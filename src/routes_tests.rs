@@ -2696,5 +2696,6 @@ async fn given_running_app_when_get_version_then_returns_cargo_pkg_version() {
     assert_eq!(response.status(), StatusCode::OK);
     let body = to_bytes(response.into_body(), usize::MAX).await.unwrap();
     let v: serde_json::Value = serde_json::from_slice(&body).unwrap();
-    assert_eq!(v["version"], env!("CARGO_PKG_VERSION"));
+    let expected = option_env!("YUMMYBOX_VERSION").unwrap_or(env!("CARGO_PKG_VERSION"));
+    assert_eq!(v["version"], expected);
 }
