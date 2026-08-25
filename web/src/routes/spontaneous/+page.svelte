@@ -82,7 +82,8 @@
 			sessionStorage.removeItem('yummybox-cook-draft');
 			draftToken++;
 			await tick();
-			document.querySelector('.generate-draft')?.scrollIntoView({ block: 'start' });
+			const prefersReduced = typeof window !== 'undefined' && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+			document.querySelector('.spontan-draft')?.scrollIntoView({ block: 'start', behavior: prefersReduced ? 'auto' : 'smooth' });
 		} catch (err) {
 			generateError = llmErrorMessage(err);
 		} finally {
@@ -174,271 +175,576 @@
 		}
 		await goto('/spontaneous/cook');
 	}
+
+	let hasInput = $derived(ingredients.trim().length > 0 || images.length > 0);
+	let canGenerate = $derived(!!model.trim() && hasInput && !generating);
+	let ingredientCount = $derived(ingredients.split('\n').filter((l: string) => l.trim().length > 0).length);
 </script>
 
-<main>
-	<h1 class="spontan-heading glass">{t('generatePageTitle')}</h1>
+<main class="spontan-page">
+	<header class="spontan-hero glass">
+		<div class="spontan-hero__text">
+			<h1 class="spontan-hero__title">{t('generatePageTitle')}</h1>
+			<p class="spontan-hero__sub">{t('generateIntro')}</p>
+		</div>
+	</header>
 
-	<div class="spontan-grid">
-		<div class="spontan-main">
-			<section class="generate-card">
-				<p class="generate-intro">
-					<span class="generate-intro__icon"><Icon name="sparkles" size={14} /></span>
-					<span>{t('generateIntro')}</span>
-				</p>
-
-				{#if providersReady}
-					<label class="import-field">
-						<span>{t('generateIngredientsLabel')}</span>
-						<textarea
-							bind:value={ingredients}
-							placeholder={t('generateIngredientsPlaceholder')}
-							rows="8"
-							maxlength={20000}
-							disabled={generating}
-						></textarea>
-					</label>
-
-					<div class="generate-photos">
-						<p class="import-info">{t('generateImagesHint')}</p>
-						<GenerateImageInput
-							bind:files={images}
-							disabled={generating}
-							onerror={(msg) => (generateError = msg)}
-						/>
-					</div>
-
-					<div class="generate-actions">
-						<button type="button" class="btn btn--primary" onclick={onGenerate} aria-busy={generating}
-							disabled={generating || !model.trim() || (!ingredients.trim() && images.length === 0)}>
-							{#if generating}<Icon name="loader-circle" size={16} spin />{/if}
-							{generating ? t('generateButtonLoading') : t('generateButton')}
-						</button>
-						{#if generating}
-							<p class="generate-thinking">{t('generateThinking')}</p>
-						{/if}
-					</div>
+	<section class="spontan-config glass" class:spontan-config--collapsed={settingsCollapsed && !!provider}>
+		<div class="spontan-config__bar">
+			<div class="spontan-config__label">
+				<span class="spontan-config__icon" aria-hidden="true"><Icon name="layers" size={13} /></span>
+				{#if provider && settingsCollapsed}
+					<span class="spontan-config__summary">
+						{t('llmProviderLabel')}: {providerName}, {t('llmModelLabel')}: {model}
+					</span>
+					<span class="spontan-config__ready" title={t('generateReady')} aria-label={t('generateReady')} role="status"></span>
+				{:else}
+					<span class="spontan-config__text">{t('generateSettingsLabel')}</span>
 				{/if}
-
-				{#if generateError}
-					<p class="form-error" role="alert">
-						<Icon name="circle-alert" size={18} />
-						<span>{generateError}</span>
-					</p>
-				{/if}
-			</section>
-
-			{#if draft}
-				<section class="generate-draft">
-					<div class="generate-draft__header">
-						<p class="generate-draft-notice">
-							<span class="generate-draft-notice__icon"><Icon name="check" size={14} /></span>
-							{t('generateDraftNotice')}
-						</p>
-						<button type="button" class="btn btn--ghost" onclick={discardDraft} disabled={saving}>
-							{t('generateStartOver')}
-						</button>
-					</div>
-					{#key draftToken}
-						<MealForm
-							editMode={false}
-							initialName={draft.name}
-							initialIngredients={draft.ingredients}
-							initialInstructions={draft.instructions}
-							initialPortions={draft.portions}
-							initialImage={draftImage}
-							submitting={saving}
-							existingNames={existingMealNames}
-							onsubmit={onSave}
-							submitLabel={t('buttonSave')}
-							oncook={onCook}
-						/>
-					{/key}
-					{#if cookError}
-						<p class="form-error" role="alert">
-							<Icon name="circle-alert" size={18} />
-							<span>{cookError}</span>
-						</p>
-					{/if}
-				</section>
+			</div>
+			{#if provider}
+				<button
+					type="button"
+					class="btn btn--ghost spontan-config__toggle"
+					onclick={() => (settingsCollapsed = !settingsCollapsed)}
+					disabled={generating}
+					aria-expanded={!settingsCollapsed}
+				>
+					{settingsCollapsed ? t('llmSettingsChange') : t('llmSettingsHide')}
+				</button>
 			{/if}
 		</div>
 
-		<aside class="spontan-settings">
-			{#if provider}
-				<div class="generate-settings-toggle">
-					{#if settingsCollapsed}
-						<span class="generate-settings-summary">
-							{t('llmProviderLabel')}: {providerName}, {t('llmModelLabel')}: {model}
-						</span>
-					{:else}
-						<span class="generate-settings-summary">{t('generateSettingsLabel')}</span>
-					{/if}
-					<button type="button" class="btn btn--ghost" onclick={() => (settingsCollapsed = !settingsCollapsed)} disabled={generating}>
-						{settingsCollapsed ? t('llmSettingsChange') : t('llmSettingsHide')}
-					</button>
+		{#if !provider}
+			<p class="spontan-config__hint">{t('generateSettingsLabel')}</p>
+		{/if}
+
+		<div
+			class="spontan-config__picker"
+			class:spontan-config__picker--hidden={settingsCollapsed && !!provider}
+		>
+			<LlmConfigPicker
+				bind:provider
+				bind:providerName
+				bind:model
+				bind:customBaseUrl
+				bind:customApiKey
+				bind:providersReady
+				disabled={generating}
+				onrestored={() => {
+					if (provider && model) settingsCollapsed = true;
+				}}
+			/>
+		</div>
+	</section>
+
+	<section class="spontan-create">
+		<div class="create-card">
+			<div class="create-card__header">
+				<div class="create-card__heading">
+					<span class="create-card__icon" aria-hidden="true"><Icon name="utensils" size={15} /></span>
+					<h2 class="create-card__title">{t('generateWhatTitle')}</h2>
 				</div>
-			{:else}
-				<p class="generate-settings-summary">{t('generateSettingsLabel')}</p>
-			{/if}
-			<div class="generate-picker-host" class:generate-picker-hidden={settingsCollapsed && provider}>
-				<LlmConfigPicker
-					bind:provider
-					bind:providerName
-					bind:model
-					bind:customBaseUrl
-					bind:customApiKey
-					bind:providersReady
-					disabled={generating}
-					onrestored={() => {
-						if (provider && model) settingsCollapsed = true;
-					}}
-				/>
+				<p class="create-card__hint">{t('generateWhatHint')}</p>
 			</div>
-		</aside>
-	</div>
+
+			{#if providersReady}
+				<label class="field create-card__field">
+					<span class="field__label">{t('generateIngredientsLabel')}</span>
+					<textarea
+						bind:value={ingredients}
+						placeholder={t('generateIngredientsPlaceholder')}
+						rows="6"
+						maxlength={20000}
+						disabled={generating}
+						class="create-card__textarea"
+					></textarea>
+					{#if ingredientCount > 0}
+						<span class="field__helper create-card__helper">
+							{ingredientCount === 1 ? t('ingredientCountOne') : t('ingredientCount', { count: String(ingredientCount) })}
+						</span>
+					{/if}
+				</label>
+
+				<div class="create-card__photos">
+					<p class="create-card__photos-caption">{t('generateImagesHint')}</p>
+					<GenerateImageInput
+						bind:files={images}
+						disabled={generating}
+						onerror={(msg: string | null) => (generateError = msg)}
+					/>
+				</div>
+
+				<div class="create-card__actions">
+					<button
+						type="button"
+						class="btn btn--primary create-card__cta"
+						onclick={onGenerate}
+						aria-busy={generating}
+						disabled={!canGenerate}
+					>
+						{#if generating}<Icon name="loader-circle" size={16} spin />{/if}
+						{generating ? t('generateButtonLoading') : t('generateButton')}
+					</button>
+					<span class="create-card__or">{t('generateOrDropPhotos')}</span>
+				</div>
+
+				{#if generating}
+					<p class="create-card__thinking" role="status" aria-live="polite">
+						<span class="create-card__thinking-dot"></span>
+						{t('generateThinking')}
+					</p>
+				{/if}
+			{:else}
+				<p class="create-card__empty">{t('generateConfigureProvider')}</p>
+			{/if}
+
+			{#if generateError}
+				<p class="form-error create-card__error" role="alert">
+					<Icon name="circle-alert" size={16} />
+					<span>{generateError}</span>
+				</p>
+			{/if}
+		</div>
+	</section>
+
+	{#if draft}
+		<section class="spontan-draft generate-draft">
+			<div class="spontan-draft__head glass">
+				<div class="spontan-draft__badge">
+					<span class="spontan-draft__dot" aria-hidden="true"></span>
+					<span class="spontan-draft__badge-text">{t('generateDraftNotice')}</span>
+				</div>
+				<button type="button" class="btn btn--ghost spontan-draft__discard" onclick={discardDraft} disabled={saving}>
+					<Icon name="x" size={14} />
+					<span>{t('generateStartOver')}</span>
+				</button>
+			</div>
+			<div class="spontan-draft__form">
+				{#key draftToken}
+					<MealForm
+						editMode={false}
+						initialName={draft.name}
+						initialIngredients={draft.ingredients}
+						initialInstructions={draft.instructions}
+						initialPortions={draft.portions}
+						initialImage={draftImage}
+						submitting={saving}
+						existingNames={existingMealNames}
+						onsubmit={onSave}
+						submitLabel={t('buttonSave')}
+						oncook={onCook}
+					/>
+				{/key}
+			</div>
+			{#if cookError}
+				<p class="form-error spontan-draft__error" role="alert">
+					<Icon name="circle-alert" size={16} />
+					<span>{cookError}</span>
+				</p>
+			{/if}
+		</section>
+	{/if}
 </main>
 
 <style>
-	main {
-		max-width: 960px;
-	}
-
-	.spontan-grid {
+	.spontan-page {
+		max-width: 880px;
+		margin: 0 auto;
 		display: flex;
 		flex-direction: column;
 		gap: var(--space-6);
-		align-items: stretch;
 	}
 
-	/* Mobile: AI settings come first, they are the prerequisite for generating. */
-	.spontan-settings {
-		order: -1;
-	}
-
-	.spontan-main {
+	/* Hero: glass panel like other views so text is readable on ambient */
+	.spontan-hero {
 		display: flex;
 		flex-direction: column;
-		gap: var(--space-6);
-		min-width: 0;
-	}
-	main {
-		max-width: 960px;
+		gap: var(--space-2);
+		padding: var(--space-5) var(--space-6);
+		border-radius: var(--radius-lg);
 	}
 
-	.spontan-heading {
-		display: inline-block;
-		padding: var(--space-2) var(--space-4);
-		border-radius: var(--radius-lg);
-		margin-bottom: var(--space-4);
+	.spontan-hero__title {
+		margin: 0;
+		font-family: var(--font-display);
+		font-size: clamp(1.9rem, 4vw, 2.5rem);
+		line-height: 1.05;
+		letter-spacing: -0.02em;
+		color: var(--color-text);
 	}
-	.generate-card {
+
+	.spontan-hero__sub {
+		margin: var(--space-1) 0 0;
+		max-width: 42ch;
+		font-size: var(--text-base);
+		line-height: 1.6;
+		color: var(--color-text-secondary);
+	}
+
+	/* Recessive AI config bar */
+	.spontan-config {
+		border-radius: var(--radius-lg);
+		border: 1px solid var(--glass-border);
+		padding: var(--space-3) var(--space-4);
 		display: flex;
 		flex-direction: column;
-		gap: var(--space-4);
-		background: var(--color-surface-2);
-		border: 1px solid var(--color-border);
-		border-radius: var(--radius-lg);
-		padding: var(--space-5);
+		gap: var(--space-3);
 	}
 
-	.generate-intro {
+	.spontan-config--collapsed {
+		padding-block: var(--space-2);
+	}
+
+	.spontan-config__bar {
 		display: flex;
 		align-items: center;
+		justify-content: space-between;
+		gap: var(--space-3);
+		min-height: 28px;
+	}
+
+	.spontan-config__label {
+		display: inline-flex;
+		align-items: center;
 		gap: var(--space-2);
-		margin: 0;
+		min-width: 0;
 		font-size: var(--text-sm);
 		color: var(--color-text-secondary);
 	}
-	.generate-intro__icon {
+
+	.spontan-config__icon {
+		display: inline-flex;
+		align-items: center;
+		justify-content: center;
+		width: 22px;
+		height: 22px;
+		border-radius: var(--radius-full);
+		background: var(--color-surface-2);
+		border: 1px solid var(--color-border);
+		color: var(--color-text-muted);
 		flex-shrink: 0;
-		display: flex;
-		color: var(--color-primary);
 	}
 
-	.generate-photos {
-		display: flex;
-		flex-direction: column;
+	.spontan-config__summary {
+		display: inline-flex;
+		align-items: center;
 		gap: var(--space-2);
+		min-width: 0;
+		flex-wrap: wrap;
+		font-size: var(--text-sm);
+		color: var(--color-text);
+		font-weight: var(--weight-medium);
 	}
 
-	.generate-actions {
-		display: flex;
-		flex-direction: column;
-		align-items: flex-start;
-		gap: var(--space-2);
+	.spontan-config__ready {
+		width: 7px;
+		height: 7px;
+		border-radius: var(--radius-full);
+		background: var(--color-success);
+		box-shadow: 0 0 0 3px var(--color-success-bg);
+		flex-shrink: 0;
 	}
-	.generate-thinking {
+
+	.spontan-config__text {
+		font-weight: var(--weight-medium);
+		color: var(--color-text);
+	}
+
+	.spontan-config__hint {
 		margin: 0;
 		font-size: var(--text-sm);
 		color: var(--color-text-muted);
 	}
 
-	.generate-draft {
-		scroll-margin-top: calc(var(--app-bar-h) + var(--space-4));
+	.spontan-config__toggle {
+		flex-shrink: 0;
+		padding: 6px 12px;
+		font-size: var(--text-sm);
+		border-radius: var(--radius-full);
 	}
-	.generate-draft__header {
+
+	.spontan-config__picker--hidden {
+		display: none;
+	}
+
+	/* Primary create card: ingredients-first */
+	.spontan-create {
 		display: flex;
-		align-items: center;
-		justify-content: space-between;
-		gap: var(--space-3);
-		margin-bottom: var(--space-4);
-		flex-wrap: wrap;
+		flex-direction: column;
+	}
+
+	.create-card {
 		background: var(--color-surface);
 		border: 1px solid var(--color-border);
-		border-radius: var(--radius-md);
-		padding: var(--space-2) var(--space-3);
-	}
-	.generate-draft-notice {
+		border-top: 2px solid rgb(124 45 18 / 0.14);
+		border-radius: var(--radius-lg);
+		box-shadow: var(--shadow-sm);
+		padding: var(--space-6);
 		display: flex;
+		flex-direction: column;
+		gap: var(--space-5);
+	}
+
+	:root[data-theme='dark'] .create-card {
+		border-top-color: rgb(217 119 87 / 0.18);
+	}
+
+	@media (prefers-color-scheme: dark) {
+		:root:not([data-theme]) .create-card {
+			border-top-color: rgb(217 119 87 / 0.18);
+		}
+	}
+
+	.create-card__header {
+		display: flex;
+		flex-direction: column;
+		gap: var(--space-2);
+		padding-bottom: var(--space-4);
+		border-bottom: 1px solid var(--color-border-light);
+	}
+
+	.create-card__heading {
+		display: inline-flex;
+		align-items: center;
+		gap: var(--space-3);
+	}
+
+	.create-card__icon {
+		display: inline-flex;
+		align-items: center;
+		justify-content: center;
+		width: 28px;
+		height: 28px;
+		border-radius: var(--radius-full);
+		background: var(--color-primary);
+		color: var(--color-on-primary);
+		flex-shrink: 0;
+	}
+
+	.create-card__title {
+		margin: 0;
+		font-family: var(--font-display);
+		font-size: var(--text-lg);
+		font-weight: var(--weight-semibold);
+		letter-spacing: -0.01em;
+		color: var(--color-text);
+		line-height: 1.2;
+	}
+
+	.create-card__hint {
+		margin: 0;
+		font-size: var(--text-sm);
+		color: var(--color-text-muted);
+		line-height: 1.5;
+	}
+
+	.create-card__field :global(textarea) {
+		min-height: 148px;
+		resize: vertical;
+		line-height: 1.55;
+		padding-top: var(--space-3);
+	}
+
+	.create-card__textarea {
+		font-size: var(--text-base);
+	}
+
+	.create-card__helper {
+		display: block;
+		margin-top: var(--space-2);
+		font-size: var(--text-xs);
+		color: var(--color-text-muted);
+	}
+
+	.create-card__photos {
+		display: flex;
+		flex-direction: column;
+		gap: var(--space-3);
+		padding: var(--space-4);
+		border-radius: var(--radius-md);
+		background: var(--color-surface-2);
+		border: 1px solid var(--color-border-light);
+	}
+
+	.create-card__photos-caption {
+		margin: 0;
+		font-size: var(--text-sm);
+		color: var(--color-text-secondary);
+		line-height: 1.5;
+	}
+
+	.create-card__actions {
+		display: flex;
+		align-items: center;
+		gap: var(--space-3);
+		flex-wrap: wrap;
+	}
+
+	.create-card__cta {
+		min-height: 44px;
+		padding: 0 22px;
+		border-radius: var(--radius-full);
+		font-weight: var(--weight-semibold);
+		font-size: var(--text-base);
+		gap: var(--space-2);
+		box-shadow: 0 4px 14px rgb(124 45 18 / 0.14);
+	}
+
+	:root[data-theme='dark'] .create-card__cta {
+		box-shadow: 0 4px 14px rgb(0 0 0 / 0.22);
+	}
+
+	.create-card__or {
+		font-size: var(--text-sm);
+		color: var(--color-text-muted);
+	}
+
+	.create-card__thinking {
+		display: inline-flex;
 		align-items: center;
 		gap: var(--space-2);
 		margin: 0;
 		font-size: var(--text-sm);
-		color: var(--color-success);
-	}
-	.generate-draft-notice__icon {
-		flex-shrink: 0;
-		display: flex;
+		color: var(--color-text-muted);
 	}
 
-	.spontan-settings {
-		background: var(--color-surface);
-		border: 1px solid var(--color-border);
-		border-radius: var(--radius-lg);
-		padding: var(--space-4);
+	.create-card__thinking-dot {
+		width: 8px;
+		height: 8px;
+		border-radius: var(--radius-full);
+		background: var(--color-primary);
+		opacity: 0.9;
+		animation: pulse-dot 1.4s ease-in-out infinite;
+	}
+
+	@keyframes pulse-dot {
+		0%,
+		100% {
+			transform: scale(1);
+			opacity: 0.9;
+		}
+		50% {
+			transform: scale(0.85);
+			opacity: 0.6;
+		}
+	}
+
+	.create-card__error {
+		margin: 0;
+		display: flex;
+		align-items: flex-start;
+		gap: var(--space-2);
+	}
+
+	.create-card__empty {
+		margin: 0;
+		font-size: var(--text-sm);
+		color: var(--color-text-muted);
+		padding: var(--space-3) 0;
+	}
+
+	/* Draft sheet */
+	.spontan-draft {
 		display: flex;
 		flex-direction: column;
-		gap: var(--space-3);
+		gap: var(--space-4);
+		scroll-margin-top: calc(var(--app-bar-h) + var(--space-4));
+		animation: draft-in 280ms ease-out;
 	}
 
-	.generate-settings-toggle {
+	@keyframes draft-in {
+		from {
+			opacity: 0;
+			transform: translateY(8px);
+		}
+		to {
+			opacity: 1;
+			transform: translateY(0);
+		}
+	}
+
+	.spontan-draft__head {
 		display: flex;
 		align-items: center;
 		justify-content: space-between;
 		gap: var(--space-3);
 		flex-wrap: wrap;
-	}
-	.generate-settings-summary {
-		margin: 0;
-		color: var(--color-text-secondary);
-		font-size: var(--text-sm);
-		text-wrap: pretty;
-	}
-	.generate-picker-host.generate-picker-hidden {
-		display: none;
+		padding: var(--space-3) var(--space-4);
+		border-radius: var(--radius-lg);
+		border: 1px solid var(--color-border);
 	}
 
-	@media (min-width: 768px) {
-		.spontan-grid {
-			display: grid;
-			grid-template-columns: minmax(0, 1fr) 300px;
-			align-items: start;
+	.spontan-draft__badge {
+		display: inline-flex;
+		align-items: center;
+		gap: var(--space-2);
+		font-size: var(--text-sm);
+		font-weight: var(--weight-medium);
+		color: var(--color-success);
+	}
+
+	.spontan-draft__dot {
+		width: 8px;
+		height: 8px;
+		border-radius: var(--radius-full);
+		background: var(--color-success);
+		box-shadow: 0 0 0 4px var(--color-success-bg);
+		flex-shrink: 0;
+	}
+
+	.spontan-draft__badge-text {
+		line-height: 1.3;
+	}
+
+	.spontan-draft__discard {
+		display: inline-flex;
+		align-items: center;
+		gap: var(--space-2);
+		border-radius: var(--radius-full);
+		padding: 6px 12px;
+		font-size: var(--text-sm);
+	}
+
+	.spontan-draft__form :global(.form-card) {
+		margin: 0;
+	}
+
+	.spontan-draft__error {
+		margin: 0;
+		display: flex;
+		align-items: flex-start;
+		gap: var(--space-2);
+	}
+
+	@media (prefers-reduced-motion: reduce) {
+		.spontan-draft {
+			animation: none;
 		}
-		.spontan-settings {
-			order: 0;
-			position: sticky;
-			top: calc(var(--app-bar-h) + var(--space-4));
+		.create-card__thinking-dot {
+			animation: none;
+		}
+	}
+
+	@media (max-width: 759px) {
+		.spontan-page {
+			gap: var(--space-5);
+		}
+		.create-card {
+			padding: var(--space-5);
+		}
+		.create-card__photos {
+			padding: var(--space-3);
+		}
+		.spontan-config {
+			padding: var(--space-3);
+		}
+		.create-card__actions {
+			align-items: flex-start;
+			flex-direction: column;
+		}
+		.create-card__or {
+			display: none;
 		}
 	}
 </style>
