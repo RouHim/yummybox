@@ -1,4 +1,5 @@
 ARG TARGETARCH
+ARG YUMMYBOX_VERSION
 
 # Map Docker TARGETARCH (amd64/arm64) to Rust cross images
 FROM docker.io/messense/rust-musl-cross:x86_64-musl AS builder-amd64
@@ -13,6 +14,7 @@ COPY Cargo.toml Cargo.lock ./
 
 # Determine Rust target triple from Docker architecture
 ARG TARGETARCH
+ARG YUMMYBOX_VERSION
 RUN if [ "$TARGETARCH" = "arm64" ]; then \
         echo "aarch64-unknown-linux-musl" > /tmp/rust-target; \
     else \
@@ -30,8 +32,8 @@ COPY web ./web
 COPY build.rs ./
 COPY migrations ./migrations
 
-# Build release binary
-RUN RUST_TARGET=$(cat /tmp/rust-target) && cargo build --release --target ${RUST_TARGET}
+# Build release binary — YUMMYBOX_VERSION from CI tag or build.rs git fallback
+RUN RUST_TARGET=$(cat /tmp/rust-target) && YUMMYBOX_VERSION=$YUMMYBOX_VERSION cargo build --release --target ${RUST_TARGET}
 
 
 FROM docker.io/alpine:latest AS certs

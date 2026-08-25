@@ -396,11 +396,12 @@ pub async fn get_bring_status(
     )))
 }
 
-/// Returns the compile-time Cargo package version.
+/// Returns the deployed version for the footer (`/api/version`).
+/// Precedence: compile-time `YUMMYBOX_VERSION` (set by CI/Docker/build.rs from `git describe`) → `CARGO_PKG_VERSION` fallback.
 /// Stateless — never acquires the DB lock.
 #[instrument(skip(_state))]
 pub async fn get_version(State(_state): State<Arc<AppState>>) -> Json<crate::model::AppVersion> {
     Json(crate::model::AppVersion {
-        version: env!("CARGO_PKG_VERSION"),
+        version: option_env!("YUMMYBOX_VERSION").unwrap_or(env!("CARGO_PKG_VERSION")),
     })
 }
