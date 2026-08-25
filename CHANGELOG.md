@@ -1,3 +1,10 @@
+## [1.19.1](https://github.com/RouHim/yummybox/compare/v1.19.0...v1.19.1) (2026-08-25)
+
+
+### Bug Fixes
+
+* show deployed git tag in footer version instead of 0.1.0 ([#6](https://github.com/RouHim/yummybox/issues/6)) ([ed3bd47](https://github.com/RouHim/yummybox/commit/ed3bd471d683e620fab08bdc066a0f4120390088))
+
 # [1.19.0](https://github.com/RouHim/yummybox/compare/v1.18.0...v1.19.0) (2026-08-23)
 
 
