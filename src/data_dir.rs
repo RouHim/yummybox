@@ -29,13 +29,13 @@ pub fn ensure_data_dir(path: &Path) -> Result<(), AppError> {
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => std::fs::create_dir_all(path)
             .map_err(|e| {
                 AppError::Internal(format!(
-                    "failed to create data directory {}: {}",
+                    "failed to create data directory {}: {} (hint: check that the parent is writable by UID 1000 — on TrueNAS SCALE the dataset defaults to UID 568, run chown -R 1000:1000 /path/to/data or run with --user 568:568 — see README Troubleshooting)",
                     path.display(),
                     e
                 ))
             }),
         Err(e) => Err(AppError::Internal(format!(
-            "failed to access data directory {}: {}",
+            "failed to access data directory {}: {} (hint: check that it is writable by UID 1000 — on TrueNAS SCALE the dataset defaults to UID 568, run chown -R 1000:1000 /path/to/data or run with --user 568:568 — see README Troubleshooting)",
             path.display(),
             e
         ))),

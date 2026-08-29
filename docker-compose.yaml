@@ -4,7 +4,7 @@ services:
     build:
       dockerfile: Containerfile.local
       context: .
-    user: "1000:1000"
+    user: "1000:1000" # image runs as 1000:1000; on TrueNAS SCALE host mounts owned by 568:568 use user: "568:568" or chown -R 1000:1000 ./data — see README Troubleshooting
     volumes:
       - ./data:/data
     ports:

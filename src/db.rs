@@ -59,7 +59,18 @@ pub async fn init_db(path: &Path) -> Result<SqlitePool, AppError> {
                 .journal_mode(sqlx::sqlite::SqliteJournalMode::Wal)
                 .synchronous(sqlx::sqlite::SqliteSynchronous::Full),
         )
-        .await?;
+        .await
+        .map_err(|e| {
+            let msg = e.to_string();
+            if msg.contains("unable to open database file") {
+                AppError::Internal(format!(
+                    "database error: {msg} (hint: check that {} is writable by UID 1000 — on TrueNAS SCALE the dataset defaults to UID 568, run chown -R 1000:1000 /path/to/data or run with --user 568:568 — see README Troubleshooting)",
+                    path.display()
+                ))
+            } else {
+                AppError::Database(e)
+            }
+        })?;
     sqlx::migrate!("./migrations")
         .run(&pool)
         .await

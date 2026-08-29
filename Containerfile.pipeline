@@ -54,5 +54,7 @@ WORKDIR /data
 COPY --from=builder --chown=1000:1000 /app/target/*/release/yummybox /yummybox
 
 EXPOSE 11341
+# Runs as 1000:1000 — on TrueNAS SCALE host mounts default to 568:568,
+# override at runtime with --user 568:568 or chown -R 1000:1000 /host/data (see README Troubleshooting)
 USER 1000:1000
 ENTRYPOINT ["/yummybox"]

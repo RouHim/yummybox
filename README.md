@@ -86,7 +86,36 @@ YummyBox is published as a multi-arch container image (`linux/amd64` + `linux/ar
 docker run -d -p 11341:11341 -v ./data:/data ghcr.io/rouhim/yummybox:latest
 ```
 
-Then open **http://localhost:11341** in your browser. The database is stored in `./data/yummybox.db` on your host and persists across container restarts. The container runs as a non-root user (UID 1000).
+Then open **http://localhost:11341** in your browser. The database is stored in `./data/yummybox.db` on your host and persists across container restarts. The container runs as a non-root user (UID `1000` / GID `1000`).
+
+#### Troubleshooting: `unable to open database file` (permission denied)
+
+If the container logs show:
+
+```
+failed to initialize database: database error: error returned from database: (code: 14) unable to open database file
+```
+
+it means `/data` inside the container is not writable by UID `1000`. This happens on TrueNAS SCALE (and any host mount) where the dataset is owned by a different user — TrueNAS SCALE defaults to `apps` (UID `568`) or `root` with `755` permissions.
+
+Fix with one of:
+
+**Option A — give the dataset to the container user (recommended, keeps the published image unchanged):**
+
+```bash
+sudo chown -R 1000:1000 /path/to/host/data
+# TrueNAS UI: Datasets → select dataset → Edit Permissions → User: 1000, Group: 1000 → Apply Recursively
+```
+
+**Option B — run the container as the dataset owner:**
+
+```bash
+docker run -d -p 11341:11341 -v /path/to/data:/data --user 568:568 ghcr.io/rouhim/yummybox:latest
+```
+
+In TrueNAS SCALE Apps set `Workload Configuration → Run As User: 568`, `Run As Group: 568` (or whatever `stat /path/to/data` shows on your host). In `docker-compose.yaml` set `user: "568:568"`.
+
+Verify with `ls -ld /path/to/host/data` and `docker logs yummybox` — the `using database at /data/yummybox.db` line should no longer be followed by `code: 14`.
 
 **Build locally with docker compose:**
 
