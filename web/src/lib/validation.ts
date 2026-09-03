@@ -1,9 +1,9 @@
 import type { TranslationKey } from './i18n/types';
 import type { NewIngredientLine } from './types';
 
-type ValidationResult = { ok: true } | { ok: false; field: 'name' | 'ingredients' | 'instructions' | 'portions'; messageKey: TranslationKey };
+type ValidationResult = { ok: true } | { ok: false; field: 'name' | 'ingredients' | 'instructions' | 'portions' | 'source_url'; messageKey: TranslationKey };
 
-export function validateMeal(name: string, ingredients: NewIngredientLine[], instructions: string, portions: number | null = null): ValidationResult {
+export function validateMeal(name: string, ingredients: NewIngredientLine[], instructions: string, portions: number | null = null, sourceUrl: string | null = null): ValidationResult {
 	const nameTrim = name.trim();
 	if (nameTrim.length === 0) {
 		return { ok: false, field: 'name', messageKey: 'validationNameRequired' };
@@ -38,6 +38,18 @@ export function validateMeal(name: string, ingredients: NewIngredientLine[], ins
 	}
 	if (portions != null && (portions <= 0 || portions > 10000)) {
 		return { ok: false, field: 'portions', messageKey: 'validationPortionsInvalid' };
+	}
+	if (sourceUrl != null && sourceUrl.trim().length > 0) {
+		const trimmed = sourceUrl.trim();
+		if (trimmed.length > 2048) {
+			return { ok: false, field: 'source_url', messageKey: 'validationSourceUrlTooLong' };
+		}
+		if (!(trimmed.startsWith('http://') || trimmed.startsWith('https://'))) {
+			return { ok: false, field: 'source_url', messageKey: 'validationSourceUrlInvalid' };
+		}
+		if (/\s/.test(trimmed)) {
+			return { ok: false, field: 'source_url', messageKey: 'validationSourceUrlInvalid' };
+		}
 	}
 	return { ok: true };
 }

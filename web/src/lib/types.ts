@@ -13,6 +13,7 @@ export interface Meal {
 	updated_at: string; // ISO 8601
 	has_image: boolean;
 	portions: number | null;
+	source_url: string | null;
 }
 
 export interface NewIngredientLine {
@@ -24,6 +25,7 @@ export interface MealPayload {
 	ingredients: NewIngredientLine[];
 	instructions: string;
 	portions?: number | null;
+	source_url?: string | null;
 }
 
 export interface MealFormPayload {
@@ -31,6 +33,7 @@ export interface MealFormPayload {
 	ingredients: NewIngredientLine[];
 	instructions: string;
 	portions: number | null;
+	source_url: string | null;
 	image: File | null;
 	removeImage: boolean;
 }
@@ -77,6 +80,7 @@ export interface ImportDraft {
 	instructions: string;
 	imageBase64: string | null;
 	portions: number | null;
+	sourceUrl: string | null;
 }
 
 export interface ImportFromUrlRequest {

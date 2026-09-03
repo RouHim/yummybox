@@ -20,6 +20,8 @@ pub struct ImportDraft {
     pub image_base64: Option<String>,
     #[serde(default)]
     pub portions: Option<i32>,
+    #[serde(default)]
+    pub source_url: Option<String>,
 }
 
 /// Parse a recipe from raw HTML or JSON-LD text. No network fetch.
@@ -32,6 +34,7 @@ pub fn parse_recipe(text: &str) -> Result<ImportDraft, AppError> {
         instructions: draft.instructions,
         image_base64: None,
         portions: draft.portions,
+        source_url: None,
     })
 }
 
@@ -189,6 +192,7 @@ fn parse_recipe_with_image_url(text: &str) -> Result<(ImportDraft, Option<String
                     instructions,
                     image_base64: None,
                     portions,
+                    source_url: None,
                 },
                 image_url,
             ));

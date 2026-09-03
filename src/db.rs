@@ -21,6 +21,7 @@ pub(crate) struct MealRow {
     pub(crate) updated_at: DateTime<Utc>,
     pub(crate) has_image: bool,
     pub(crate) portions: Option<i32>,
+    pub(crate) source_url: Option<String>,
 }
 
 /// Convert a [`MealRow`] into a [`Meal`] (without ingredients — those are
@@ -36,6 +37,7 @@ pub(crate) fn map_meal_row(row: MealRow) -> Meal {
         updated_at: row.updated_at,
         has_image: row.has_image,
         portions: row.portions,
+        source_url: row.source_url,
     }
 }
 
@@ -105,6 +107,7 @@ pub fn validate_meal(
     ingredients: &[NewIngredientLine],
     instructions: &str,
     portions: Option<i32>,
+    source_url: Option<&str>,
 ) -> Result<(), AppError> {
     let name = name.trim();
     if name.is_empty() {
@@ -152,7 +155,7 @@ pub fn validate_meal(
                 norm.len()
             )));
         }
-        if let Some(ref qty) = line.quantity {
+        if let Some(qty) = &line.quantity {
             if qty.len() > 50 {
                 return Err(AppError::Validation(format!(
                     "ingredient quantity must be at most 50 characters, got {}",
@@ -162,7 +165,41 @@ pub fn validate_meal(
         }
     }
     validate_portions(portions)?;
+    validate_source_url(source_url)?;
     Ok(())
+}
+
+pub fn validate_source_url(source_url: Option<&str>) -> Result<(), AppError> {
+    let Some(url) = source_url else {
+        return Ok(());
+    };
+    let trimmed = url.trim();
+    if trimmed.is_empty() {
+        return Ok(());
+    }
+    if trimmed.len() > 2048 {
+        return Err(AppError::Validation(format!(
+            "source_url must be at most 2048 characters, got {}",
+            trimmed.len()
+        )));
+    }
+    if !(trimmed.starts_with("http://") || trimmed.starts_with("https://")) {
+        return Err(AppError::Validation(
+            "source_url must start with http:// or https://".into(),
+        ));
+    }
+    if trimmed.contains(char::is_whitespace) {
+        return Err(AppError::Validation(
+            "source_url must not contain whitespace".into(),
+        ));
+    }
+    Ok(())
+}
+
+pub fn normalize_source_url(source_url: Option<&str>) -> Option<String> {
+    source_url
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty())
 }
 
 fn validate_portions(portions: Option<i32>) -> Result<(), AppError> {
@@ -318,7 +355,7 @@ pub async fn list_meals(pool: &SqlitePool, search: Option<&str>) -> Result<Vec<M
         Some(term) => {
             let pattern = format!("%{}%", term.to_lowercase());
             sqlx::query_as::<_, MealRow>(
-                "SELECT DISTINCT m.id, m.name, m.instructions, m.last_planned_at, m.created_at, m.updated_at, (m.image IS NOT NULL) AS has_image, m.portions
+                "SELECT DISTINCT m.id, m.name, m.instructions, m.last_planned_at, m.created_at, m.updated_at, (m.image IS NOT NULL) AS has_image, m.portions, m.source_url
                  FROM meals m
                  LEFT JOIN meal_ingredients mi ON mi.meal_id = m.id
                  LEFT JOIN ingredients i ON i.id = mi.ingredient_id
@@ -331,7 +368,7 @@ pub async fn list_meals(pool: &SqlitePool, search: Option<&str>) -> Result<Vec<M
         }
         None => {
             sqlx::query_as::<_, MealRow>(
-                "SELECT m.id, m.name, m.instructions, m.last_planned_at, m.created_at, m.updated_at, (m.image IS NOT NULL) AS has_image, m.portions
+                "SELECT m.id, m.name, m.instructions, m.last_planned_at, m.created_at, m.updated_at, (m.image IS NOT NULL) AS has_image, m.portions, m.source_url
                  FROM meals m
                  ORDER BY m.updated_at DESC, m.id DESC",
             )
@@ -348,7 +385,7 @@ pub async fn list_meals(pool: &SqlitePool, search: Option<&str>) -> Result<Vec<M
 
 pub async fn find_meal(pool: &SqlitePool, id: i64) -> Result<Meal, AppError> {
     let row = sqlx::query_as::<_, MealRow>(
-        "SELECT m.id, m.name, m.instructions, m.last_planned_at, m.created_at, m.updated_at, (m.image IS NOT NULL) AS has_image, m.portions
+        "SELECT m.id, m.name, m.instructions, m.last_planned_at, m.created_at, m.updated_at, (m.image IS NOT NULL) AS has_image, m.portions, m.source_url
          FROM meals m WHERE m.id = ?1",
     )
     .bind(id)
@@ -367,17 +404,25 @@ pub async fn insert_meal(
     new: NewMeal,
     image: ImageChange<'_>,
 ) -> Result<Meal, AppError> {
-    validate_meal(&new.name, &new.ingredients, &new.instructions, new.portions)?;
+    validate_meal(
+        &new.name,
+        &new.ingredients,
+        &new.instructions,
+        new.portions,
+        new.source_url.as_deref(),
+    )?;
     let now = Utc::now();
 
     let mut tx = pool.begin().await?;
     let trimmed_name = new.name.trim();
+    let normalized_source = normalize_source_url(new.source_url.as_deref());
     let id: (i64,) = sqlx::query_as::<_, (i64,)>(
-        "INSERT INTO meals (name, instructions, portions, last_planned_at, created_at, updated_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6) RETURNING id",
+        "INSERT INTO meals (name, instructions, portions, source_url, last_planned_at, created_at, updated_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7) RETURNING id",
     )
     .bind(trimmed_name)
     .bind(&new.instructions)
     .bind(new.portions)
+    .bind(&normalized_source)
     .bind(None::<String>)
     .bind(now)
     .bind(now)
@@ -404,16 +449,19 @@ pub async fn update_meal(
         &patch.ingredients,
         &patch.instructions,
         patch.portions,
+        patch.source_url.as_deref(),
     )?;
     let now = Utc::now();
 
     let mut tx = pool.begin().await?;
     let trimmed_name = patch.name.trim();
+    let normalized_source = normalize_source_url(patch.source_url.as_deref());
     let affected =
-        sqlx::query("UPDATE meals SET name = ?1, instructions = ?2, portions = ?3, updated_at = ?4 WHERE id = ?5")
+        sqlx::query("UPDATE meals SET name = ?1, instructions = ?2, portions = ?3, source_url = ?4, updated_at = ?5 WHERE id = ?6")
             .bind(trimmed_name)
             .bind(&patch.instructions)
             .bind(patch.portions)
+            .bind(&normalized_source)
             .bind(now)
             .bind(id)
             .execute(&mut *tx)

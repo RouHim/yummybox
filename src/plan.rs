@@ -79,7 +79,7 @@ pub(crate) async fn select_meals_weighted(
     count: usize,
 ) -> Result<Vec<Meal>, AppError> {
     let meal_rows = sqlx::query_as::<_, MealRow>(
-        "SELECT m.id, m.name, m.instructions, m.last_planned_at, m.created_at, m.updated_at, (m.image IS NOT NULL) AS has_image, m.portions
+        "SELECT m.id, m.name, m.instructions, m.last_planned_at, m.created_at, m.updated_at, (m.image IS NOT NULL) AS has_image, m.portions, m.source_url
          FROM meals m
          ORDER BY m.updated_at DESC, m.id DESC",
     )
@@ -222,7 +222,7 @@ pub(crate) async fn aggregate_plan_ingredients(
 
 pub(crate) async fn get_plan_meals(pool: &SqlitePool, plan_id: i64) -> Result<Vec<Meal>, AppError> {
     let meal_rows = sqlx::query_as::<_, MealRow>(
-        "SELECT m.id, m.name, m.instructions, m.last_planned_at, m.created_at, m.updated_at, (m.image IS NOT NULL) AS has_image, m.portions
+        "SELECT m.id, m.name, m.instructions, m.last_planned_at, m.created_at, m.updated_at, (m.image IS NOT NULL) AS has_image, m.portions, m.source_url
          FROM plan_meals pm
          JOIN meals m ON m.id = pm.meal_id
          WHERE pm.plan_id = ?1

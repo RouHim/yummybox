@@ -11,6 +11,7 @@
 		initialIngredients = [{ name: '', quantity: null }],
 		initialInstructions = '',
 		initialPortions = null,
+		initialSourceUrl = null,
 		initialImage = null,
 		editMode = false,
 		editingMeal = null,
@@ -25,6 +26,7 @@
 		initialIngredients?: NewIngredientLine[];
 		initialInstructions?: string;
 		initialPortions?: number | null;
+		initialSourceUrl?: string | null;
 		initialImage?: File | null;
 		editMode?: boolean;
 		editingMeal?: Meal | null;
@@ -35,6 +37,7 @@
 			ingredients: NewIngredientLine[];
 			instructions: string;
 			portions: number | null;
+			source_url: string | null;
 			image: File | null;
 			removeImage: boolean;
 		}) => void | Promise<void>;
@@ -51,7 +54,7 @@
 	);
 	let formInstructions = $state(initialInstructions);
 	let formPortions = $state<number | null>(initialPortions);
-
+	let formSourceUrl = $state<string | null>(initialSourceUrl);
 	let formImage = $state<File | null>(initialImage);
 	let removeImage = $state(false);
 	let imageError = $state<string | null>(null);
@@ -92,7 +95,7 @@
 	function buildPayload(): MealFormPayload | null {
 		formError = null;
 		const valid = validIngredientLines();
-		const result = validateMeal(formName, valid, formInstructions, formPortions);
+		const result = validateMeal(formName, valid, formInstructions, formPortions, formSourceUrl);
 		if (!result.ok) {
 			formError = t(result.messageKey);
 			return null;
@@ -106,6 +109,7 @@
 			ingredients: valid,
 			instructions: formInstructions.trim(),
 			portions: formPortions,
+			source_url: formSourceUrl?.trim() ? formSourceUrl.trim() : null,
 			image: formImage,
 			removeImage,
 		};
@@ -221,6 +225,16 @@
 				maxlength={20000}
 				rows="6"
 			></textarea>
+		</label>
+
+		<label class="field">
+			<span class="field__label">{t('fieldSourceUrlLabel')}</span>
+			<input
+				type="url"
+				bind:value={formSourceUrl}
+				placeholder={t('fieldSourceUrlPlaceholder')}
+				maxlength={2048}
+			/>
 		</label>
 
 		<ImageInput

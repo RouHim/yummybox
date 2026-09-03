@@ -61,6 +61,7 @@
 					updated_at: '',
 					has_image: !!draft.imageDataUrl,
 					portions: draft.portions,
+					source_url: null,
 				}
 			: null
 	);

@@ -151,6 +151,13 @@ pub(crate) fn build_recipe_json(meal: &Meal, images: &[(i64, Vec<u8>)]) -> serde
         obj.insert("recipeYield".into(), Value::String(p.to_string()));
     }
 
+    if let Some(url) = &meal.source_url {
+        let trimmed = url.trim();
+        if !trimmed.is_empty() {
+            obj.insert("url".into(), Value::String(trimmed.to_string()));
+        }
+    }
+
     // Relative image path (omitted when meal has no image)
     if images.iter().any(|(id, _)| *id == meal.id) {
         obj.insert(
@@ -384,7 +391,6 @@ async fn import_single_recipe(
 
     let instructions = extract_instructions(recipe);
 
-    // --- portions -----------------------------------------------------------
     let portions = recipe
         .get("recipeYield")
         .or_else(|| recipe.get("yield"))
@@ -402,8 +408,23 @@ async fn import_single_recipe(
             num_str.parse::<i32>().ok()
         });
 
+    // --- source URL (optional, e.g. original recipe link) --------------------
+    let source_url = recipe
+        .get("url")
+        .or_else(|| recipe.get("mainEntityOfPage"))
+        .or_else(|| recipe.get("isBasedOnUrl"))
+        .and_then(|v| v.as_str())
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty());
+
     // --- validate -----------------------------------------------------------
-    if let Err(e) = db::validate_meal(trimmed_name, &ingredients, &instructions, portions) {
+    if let Err(e) = db::validate_meal(
+        trimmed_name,
+        &ingredients,
+        &instructions,
+        portions,
+        source_url.as_deref(),
+    ) {
         let msg = e.to_string();
         return Err(format!("validation failed: {msg}"));
     }
@@ -426,8 +447,8 @@ async fn import_single_recipe(
         ingredients,
         instructions,
         portions,
+        source_url,
     };
-
     let meal = db::insert_meal(&state.pool, new_meal, image_change)
         .await
         .map_err(|e| format!("database error: {e}"))?;

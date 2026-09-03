@@ -53,15 +53,16 @@ struct ParsedMealForm {
     ingredients_json: String,
     instructions: String,
     portions: Option<i32>,
+    source_url: Option<String>,
     image_data: Option<Vec<u8>>,
     image_action: Option<String>,
 }
-
 async fn parse_meal_multipart(mut multipart: Multipart) -> Result<ParsedMealForm, AppError> {
     let mut name: Option<String> = None;
     let mut ingredients_raw: Option<String> = None;
     let mut instructions: Option<String> = None;
     let mut portions: Option<i32> = None;
+    let mut source_url: Option<String> = None;
     let mut image_data: Option<Vec<u8>> = None;
     let mut image_action: Option<String> = None;
 
@@ -90,6 +91,15 @@ async fn parse_meal_multipart(mut multipart: Multipart) -> Result<ParsedMealForm
                         })?);
                 }
             }
+            Some("source_url") | Some("sourceUrl") => {
+                let text = read_text_field(field, "source_url").await?;
+                let trimmed = text.trim().to_string();
+                if !trimmed.is_empty() {
+                    source_url = Some(trimmed);
+                } else {
+                    source_url = Some(String::new());
+                }
+            }
             Some("image") => {
                 if image_data.is_some() {
                     return Err(AppError::BadRequest(
@@ -116,6 +126,7 @@ async fn parse_meal_multipart(mut multipart: Multipart) -> Result<ParsedMealForm
         ingredients_json,
         instructions,
         portions,
+        source_url,
         image_data,
         image_action,
     })
@@ -200,6 +211,7 @@ pub async fn create_meal(
         ingredients,
         instructions: parsed.instructions,
         portions: parsed.portions,
+        source_url: parsed.source_url,
     };
     if db::meal_name_exists(&state.pool, &new.name, None).await? {
         return Err(AppError::DuplicateName);
@@ -242,6 +254,7 @@ pub async fn update_meal(
         ingredients,
         instructions: parsed.instructions,
         portions: parsed.portions,
+        source_url: parsed.source_url,
     };
     if db::meal_name_exists(&state.pool, &patch.name, Some(id)).await? {
         return Err(AppError::DuplicateName);

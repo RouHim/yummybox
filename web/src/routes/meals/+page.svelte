@@ -32,6 +32,7 @@ import { focusTrap } from '$lib/focusTrap';
 	let formIngredients = $state<NewIngredientLine[]>([{ name: '', quantity: null }]);
 	let formInstructions = $state('');
 	let formPortions = $state<number | null>(null);
+	let formSourceUrl = $state<string | null>(null);
 	let formImage = $state<File | null>(null);
 	let removeImage = $state(false);
 	let submitting = $state(false);
@@ -79,6 +80,7 @@ import { focusTrap } from '$lib/focusTrap';
                 : [{ name: '', quantity: null }];
             formInstructions = draft.instructions;
             formPortions = draft.portions;
+            formSourceUrl = draft.sourceUrl ?? null;
             if (draft.imageBase64) {
                 const bytes = Uint8Array.from(atob(draft.imageBase64), c => c.charCodeAt(0));
                 formImage = new File([bytes], 'imported.jpg', { type: 'image/jpeg' });
@@ -292,12 +294,12 @@ import { focusTrap } from '$lib/focusTrap';
 
 	async function onSubmitAdd(payload: {
 		name: string; ingredients: NewIngredientLine[]; instructions: string;
-		portions: number | null; image: File | null; removeImage: boolean;
+		portions: number | null; source_url: string | null; image: File | null; removeImage: boolean;
 	}) {
 		submitting = true;
 		try {
 			await createMeal(
-				{ name: payload.name, ingredients: payload.ingredients, instructions: payload.instructions, portions: payload.portions },
+				{ name: payload.name, ingredients: payload.ingredients, instructions: payload.instructions, portions: payload.portions, source_url: payload.source_url },
 				payload.image
 			);
 			await loadMeals();
@@ -309,7 +311,7 @@ import { focusTrap } from '$lib/focusTrap';
 
     function openAdd() {
         formName = ''; formIngredients = [{ name: '', quantity: null }]; formInstructions = '';
-        formPortions = null; formImage = null; removeImage = false; submitting = false; llmConfigRestored = false;
+        formPortions = null; formSourceUrl = null; formImage = null; removeImage = false; submitting = false; llmConfigRestored = false;
         importMode = 'manual';
         importLlmProvider = ''; importLlmModel = ''; importLlmHint = '';
         importLlmImages = [];
@@ -374,13 +376,13 @@ import { focusTrap } from '$lib/focusTrap';
 
 	async function onSubmitEdit(payload: {
 		name: string; ingredients: NewIngredientLine[]; instructions: string;
-		portions: number | null; image: File | null; removeImage: boolean;
+		portions: number | null; source_url: string | null; image: File | null; removeImage: boolean;
 	}) {
 		// editTarget is non-null while the modal is open
 		const id = editTarget!.id;
 		editSubmitting = true;
 		try {
-			await updateMeal(id, { name: payload.name, ingredients: payload.ingredients, instructions: payload.instructions, portions: payload.portions }, {
+			await updateMeal(id, { name: payload.name, ingredients: payload.ingredients, instructions: payload.instructions, portions: payload.portions, source_url: payload.source_url }, {
 				image: payload.image,
 				removeImage: payload.removeImage,
 			});
@@ -565,6 +567,7 @@ import { focusTrap } from '$lib/focusTrap';
 					initialIngredients={editTarget.ingredients.length > 0 ? editTarget.ingredients.map(i => ({ name: i.name, quantity: i.quantity })) : [{ name: '', quantity: null }]}
 					initialInstructions={editTarget.instructions}
 					initialPortions={editTarget.portions ?? null}
+					initialSourceUrl={editTarget.source_url ?? null}
 					submitting={editSubmitting}
 					existingNames={existingMealNames}
 					onsubmit={onSubmitEdit}
@@ -779,6 +782,7 @@ import { focusTrap } from '$lib/focusTrap';
 									initialIngredients={formIngredients}
 									initialInstructions={formInstructions}
 									initialPortions={formPortions}
+									initialSourceUrl={formSourceUrl}
 									initialImage={formImage}
 									submitting={submitting}
 									existingNames={existingMealNames}

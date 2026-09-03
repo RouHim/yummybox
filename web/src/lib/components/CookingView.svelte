@@ -121,6 +121,24 @@
 				<div class="cooking-view__instructions-text">{@html meal.instructions}</div>
 			</section>
 		{/if}
+
+		{#if meal.source_url}
+			<section class="cooking-view__source">
+				<h2 class="cooking-view__section-title">{t('cookingViewSourceLabel')}</h2>
+				<div class="cooking-view__source-box">
+					<Icon name="link" size={16} />
+					<a href={meal.source_url} target="_blank" rel="noopener noreferrer" class="cooking-view__source-link">{meal.source_url}</a>
+				</div>
+				<input
+					class="cooking-view__source-input"
+					type="text"
+					value={meal.source_url}
+					readonly
+					onclick={(e) => (e.target as HTMLInputElement).select()}
+					aria-label={t('cookingViewSourceLabel')}
+				/>
+			</section>
+		{/if}
 	</div>
 </article>
 
@@ -241,5 +259,43 @@
 	.cooking-view__qty--scaled {
 		color: var(--color-primary);
 		font-weight: var(--weight-medium);
+	}
+
+	.cooking-view__source {
+		margin-top: var(--space-6);
+		padding-top: var(--space-4);
+		border-top: 1px solid var(--color-border);
+		display: flex;
+		flex-direction: column;
+		gap: var(--space-2);
+	}
+
+	.cooking-view__source-box {
+		display: flex;
+		align-items: center;
+		gap: var(--space-2);
+		color: var(--color-text-secondary);
+	}
+
+	.cooking-view__source-link {
+		color: var(--color-primary);
+		word-break: break-all;
+		text-decoration: none;
+		border-bottom: 1px dashed var(--color-primary);
+	}
+
+	.cooking-view__source-link:hover {
+		border-bottom-style: solid;
+	}
+
+	.cooking-view__source-input {
+		width: 100%;
+		padding: var(--space-2) var(--space-3);
+		border: 1px solid var(--color-border);
+		border-radius: var(--radius-md);
+		background: var(--color-surface);
+		color: var(--color-text);
+		font-size: var(--text-sm);
+		font-family: var(--font-mono, monospace);
 	}
 </style>

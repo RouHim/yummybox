@@ -34,6 +34,7 @@
 		ingredients: NewIngredientLine[];
 		instructions: string;
 		portions: number | null;
+		sourceUrl: string | null;
 	} | null>(null);
 	let draftImage = $state<File | null>(null);
 	let draftToken = $state(0);
@@ -68,6 +69,7 @@
 					: [{ name: '', quantity: null }],
 				instructions: d.instructions,
 				portions: d.portions,
+				sourceUrl: d.sourceUrl ?? null,
 			};
 			if (d.imageBase64) {
 				const bytes = Uint8Array.from(atob(d.imageBase64), (c) => c.charCodeAt(0));
@@ -108,6 +110,7 @@
 					ingredients: payload.ingredients,
 					instructions: payload.instructions,
 					portions: payload.portions,
+					source_url: payload.source_url,
 				},
 				payload.image,
 			);
@@ -328,6 +331,7 @@
 						initialIngredients={draft.ingredients}
 						initialInstructions={draft.instructions}
 						initialPortions={draft.portions}
+						initialSourceUrl={draft.sourceUrl ?? null}
 						initialImage={draftImage}
 						submitting={saving}
 						existingNames={existingMealNames}

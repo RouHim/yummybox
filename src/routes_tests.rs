@@ -147,7 +147,6 @@ async fn create_meal_helper(
     let body = to_bytes(response.into_body(), 4096).await.unwrap();
     serde_json::from_slice(&body).unwrap()
 }
-
 // -----------------------------------------------------------------------
 // Meal route tests (updated for structured ingredients)
 // -----------------------------------------------------------------------
