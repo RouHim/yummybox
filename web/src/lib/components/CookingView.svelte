@@ -25,6 +25,14 @@
 		desiredPortions = meal.portions ?? null;
 	});
 
+	let safeSourceUrl = $derived.by(() => {
+		const raw = meal.source_url;
+		if (!raw) return null;
+		const trimmed = raw.trim();
+		if (!(trimmed.startsWith('http://') || trimmed.startsWith('https://'))) return null;
+		return trimmed;
+	});
+
 	function scaleQuantity(quantity: string | null, base: number, desired: number): string | null {
 		if (!quantity || desired <= 0 || desired === base) return null;
 		const match = quantity.match(/^(\d+\.?\d*)/);
@@ -125,18 +133,25 @@
 		{#if meal.source_url}
 			<section class="cooking-view__source">
 				<h2 class="cooking-view__section-title">{t('cookingViewSourceLabel')}</h2>
-				<div class="cooking-view__source-box">
-					<Icon name="link" size={16} />
-					<a href={meal.source_url} target="_blank" rel="noopener noreferrer" class="cooking-view__source-link">{meal.source_url}</a>
-				</div>
-				<input
-					class="cooking-view__source-input"
-					type="text"
-					value={meal.source_url}
-					readonly
-					onclick={(e) => (e.target as HTMLInputElement).select()}
-					aria-label={t('cookingViewSourceLabel')}
-				/>
+				{#if safeSourceUrl}
+					<div class="cooking-view__source-box">
+						<Icon name="link" size={16} />
+						<a href={safeSourceUrl} target="_blank" rel="noopener noreferrer" class="cooking-view__source-link">{safeSourceUrl}</a>
+					</div>
+					<input
+						class="cooking-view__source-input"
+						type="text"
+						value={safeSourceUrl}
+						readonly
+						onclick={(e) => (e.target as HTMLInputElement).select()}
+						aria-label={t('cookingViewSourceLabel')}
+					/>
+				{:else}
+					<div class="cooking-view__source-box">
+						<Icon name="link" size={16} />
+						<span class="cooking-view__source-link">{meal.source_url}</span>
+					</div>
+				{/if}
 			</section>
 		{/if}
 	</div>

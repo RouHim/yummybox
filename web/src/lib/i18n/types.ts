@@ -195,7 +195,6 @@ export type TranslationKey =
 	| 'fieldSourceUrlLabel'
 	| 'fieldSourceUrlPlaceholder'
 	| 'cookingViewSourceLabel'
-	| 'cookingViewSourceLink'
 	| 'validationSourceUrlTooLong'
 	| 'validationSourceUrlInvalid'
 	| 'cookingViewServes'

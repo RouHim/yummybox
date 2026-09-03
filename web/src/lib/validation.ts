@@ -41,13 +41,24 @@ export function validateMeal(name: string, ingredients: NewIngredientLine[], ins
 	}
 	if (sourceUrl != null && sourceUrl.trim().length > 0) {
 		const trimmed = sourceUrl.trim();
-		if (trimmed.length > 2048) {
+		if ([...trimmed].length > 2048) {
 			return { ok: false, field: 'source_url', messageKey: 'validationSourceUrlTooLong' };
 		}
 		if (!(trimmed.startsWith('http://') || trimmed.startsWith('https://'))) {
 			return { ok: false, field: 'source_url', messageKey: 'validationSourceUrlInvalid' };
 		}
 		if (/\s/.test(trimmed)) {
+			return { ok: false, field: 'source_url', messageKey: 'validationSourceUrlInvalid' };
+		}
+		if (/["'<>`]/.test(trimmed) || /[\x00-\x1F\x7F]/.test(trimmed)) {
+			return { ok: false, field: 'source_url', messageKey: 'validationSourceUrlInvalid' };
+		}
+		const afterScheme = trimmed.startsWith('https://') ? trimmed.slice(8) : trimmed.slice(7);
+		if (!afterScheme) {
+			return { ok: false, field: 'source_url', messageKey: 'validationSourceUrlInvalid' };
+		}
+		const hostPart = afterScheme.split(/[\/?#]/)[0];
+		if (!hostPart) {
 			return { ok: false, field: 'source_url', messageKey: 'validationSourceUrlInvalid' };
 		}
 	}

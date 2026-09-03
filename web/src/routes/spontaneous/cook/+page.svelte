@@ -9,6 +9,8 @@
 		instructions: string;
 		portions: number | null;
 		imageDataUrl: string | null;
+		sourceUrl?: string | null;
+		source_url?: string | null;
 	}
 
 	function readDraft(): CookDraft | null {
@@ -61,7 +63,7 @@
 					updated_at: '',
 					has_image: !!draft.imageDataUrl,
 					portions: draft.portions,
-					source_url: null,
+					source_url: draft.source_url ?? draft.sourceUrl ?? null,
 				}
 			: null
 	);

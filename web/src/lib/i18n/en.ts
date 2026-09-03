@@ -193,7 +193,6 @@ export const en: Record<TranslationKey, string> = {
 	fieldSourceUrlLabel: 'Source URL',
 	fieldSourceUrlPlaceholder: 'https://example.com/recipe',
 	cookingViewSourceLabel: 'Source',
-	cookingViewSourceLink: 'View original recipe',
 	validationSourceUrlTooLong: 'Source URL must be at most 2048 characters',
 	validationSourceUrlInvalid: 'Source URL must start with http:// or https://',
 	cookingViewServes: 'Serves {count}',

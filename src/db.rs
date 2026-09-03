@@ -177,10 +177,10 @@ pub fn validate_source_url(source_url: Option<&str>) -> Result<(), AppError> {
     if trimmed.is_empty() {
         return Ok(());
     }
-    if trimmed.len() > 2048 {
+    if trimmed.chars().count() > 2048 {
         return Err(AppError::Validation(format!(
             "source_url must be at most 2048 characters, got {}",
-            trimmed.len()
+            trimmed.chars().count()
         )));
     }
     if !(trimmed.starts_with("http://") || trimmed.starts_with("https://")) {
@@ -191,6 +191,26 @@ pub fn validate_source_url(source_url: Option<&str>) -> Result<(), AppError> {
     if trimmed.contains(char::is_whitespace) {
         return Err(AppError::Validation(
             "source_url must not contain whitespace".into(),
+        ));
+    }
+    if trimmed.contains(['"', '\'', '<', '>', '`']) || trimmed.chars().any(|c| c.is_control()) {
+        return Err(AppError::Validation(
+            "source_url must be a valid URL".into(),
+        ));
+    }
+    let after_scheme = trimmed
+        .strip_prefix("https://")
+        .or_else(|| trimmed.strip_prefix("http://"))
+        .unwrap_or("");
+    if after_scheme.is_empty() {
+        return Err(AppError::Validation(
+            "source_url must be a valid URL".into(),
+        ));
+    }
+    let host_part = after_scheme.split(['/', '?', '#']).next().unwrap_or("");
+    if host_part.is_empty() {
+        return Err(AppError::Validation(
+            "source_url must be a valid URL".into(),
         ));
     }
     Ok(())

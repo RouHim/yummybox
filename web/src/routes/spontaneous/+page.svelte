@@ -162,6 +162,7 @@
 		cookError = null;
 		try {
 			const imageDataUrl = payload.image ? await downscaleImage(payload.image) : null;
+			const sourceVal = payload.source_url?.trim() ? payload.source_url.trim() : null;
 			sessionStorage.setItem(
 				'yummybox-cook-draft',
 				JSON.stringify({
@@ -170,6 +171,8 @@
 					instructions: payload.instructions,
 					portions: payload.portions,
 					imageDataUrl,
+					sourceUrl: sourceVal,
+					source_url: sourceVal,
 				})
 			);
 		} catch {

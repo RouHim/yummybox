@@ -249,12 +249,23 @@ pub async fn update_meal(
         _ => db::ImageChange::Keep,
     };
 
+    // Preserve existing source_url when field omitted (None), allow explicit
+    // empty (Some("")) to clear, and Some(url) to set.
+    let source_url = match parsed.source_url {
+        Some(v) => Some(v),
+        None => {
+            // Field omitted — keep existing value.
+            let existing = db::find_meal(&state.pool, id).await?;
+            existing.source_url
+        }
+    };
+
     let patch = MealPatch {
         name: parsed.name,
         ingredients,
         instructions: parsed.instructions,
         portions: parsed.portions,
-        source_url: parsed.source_url,
+        source_url,
     };
     if db::meal_name_exists(&state.pool, &patch.name, Some(id)).await? {
         return Err(AppError::DuplicateName);

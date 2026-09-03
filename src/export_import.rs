@@ -409,14 +409,44 @@ async fn import_single_recipe(
         });
 
     // --- source URL (optional, e.g. original recipe link) --------------------
+    fn extract_url_string(v: &serde_json::Value) -> Option<String> {
+        match v {
+            serde_json::Value::String(s) => {
+                let t = s.trim();
+                if t.is_empty() {
+                    None
+                } else {
+                    Some(t.to_string())
+                }
+            }
+            serde_json::Value::Object(map) => {
+                for key in ["@id", "url", "href"] {
+                    if let Some(serde_json::Value::String(s)) = map.get(key) {
+                        let t = s.trim();
+                        if !t.is_empty() {
+                            return Some(t.to_string());
+                        }
+                    }
+                }
+                None
+            }
+            serde_json::Value::Array(arr) => {
+                for elem in arr {
+                    if let Some(s) = extract_url_string(elem) {
+                        return Some(s);
+                    }
+                }
+                None
+            }
+            _ => None,
+        }
+    }
     let source_url = recipe
         .get("url")
         .or_else(|| recipe.get("mainEntityOfPage"))
         .or_else(|| recipe.get("isBasedOnUrl"))
-        .and_then(|v| v.as_str())
-        .map(|s| s.trim().to_string())
+        .and_then(extract_url_string)
         .filter(|s| !s.is_empty());
-
     // --- validate -----------------------------------------------------------
     if let Err(e) = db::validate_meal(
         trimmed_name,

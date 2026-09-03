@@ -31,9 +31,14 @@ pub(crate) async fn import_from_url(
     State(_state): State<Arc<AppState>>,
     Json(req): Json<ImportFromUrlRequest>,
 ) -> Result<Json<recipe::ImportDraft>, AppError> {
-    let mut draft = recipe::fetch_and_parse(&req.url).await?;
-    // Preserve the originate URL so the frontend can store/display it.
-    draft.source_url = Some(req.url.clone());
+    let trimmed_url = req.url.trim().to_string();
+    if trimmed_url.is_empty() {
+        return Err(AppError::BadRequest("url must not be empty".into()));
+    }
+    db::validate_source_url(Some(&trimmed_url))?;
+    let mut draft = recipe::fetch_and_parse(&trimmed_url).await?;
+    // Preserve the originate URL so the frontend can store/display it (normalized).
+    draft.source_url = Some(trimmed_url);
     // User-supplied image URL takes precedence over the recipe's own image.
     // Best-effort: failure falls back to whatever fetch_and_parse returned.
     if let Some(image_url) = &req.image_url {

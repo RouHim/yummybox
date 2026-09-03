@@ -230,8 +230,10 @@
 		<label class="field">
 			<span class="field__label">{t('fieldSourceUrlLabel')}</span>
 			<input
-				type="url"
-				bind:value={formSourceUrl}
+				type="text"
+				inputmode="url"
+				value={formSourceUrl ?? ''}
+				oninput={(e) => (formSourceUrl = (e.target as HTMLInputElement).value || null)}
 				placeholder={t('fieldSourceUrlPlaceholder')}
 				maxlength={2048}
 			/>
