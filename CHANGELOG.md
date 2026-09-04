@@ -1,3 +1,10 @@
+# [1.21.0](https://github.com/RouHim/yummybox/compare/v1.20.0...v1.21.0) (2026-09-04)
+
+
+### Features
+
+* display origin import URL in recipe ([#8](https://github.com/RouHim/yummybox/issues/8)) ([f089d81](https://github.com/RouHim/yummybox/commit/f089d81a725d60a5362eaf154bc5933db1a4f1a9)), closes [#7](https://github.com/RouHim/yummybox/issues/7)
+
 # [1.20.0](https://github.com/RouHim/yummybox/compare/v1.19.1...v1.20.0) (2026-08-25)
 
 
