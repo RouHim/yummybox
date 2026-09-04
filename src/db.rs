@@ -183,7 +183,8 @@ pub fn validate_source_url(source_url: Option<&str>) -> Result<(), AppError> {
             trimmed.chars().count()
         )));
     }
-    if !(trimmed.starts_with("http://") || trimmed.starts_with("https://")) {
+    let lower = trimmed.to_ascii_lowercase();
+    if !(lower.starts_with("http://") || lower.starts_with("https://")) {
         return Err(AppError::Validation(
             "source_url must start with http:// or https://".into(),
         ));
@@ -198,9 +199,9 @@ pub fn validate_source_url(source_url: Option<&str>) -> Result<(), AppError> {
             "source_url must be a valid URL".into(),
         ));
     }
-    let after_scheme = trimmed
+    let after_scheme = lower
         .strip_prefix("https://")
-        .or_else(|| trimmed.strip_prefix("http://"))
+        .or_else(|| lower.strip_prefix("http://"))
         .unwrap_or("");
     if after_scheme.is_empty() {
         return Err(AppError::Validation(
@@ -472,22 +473,35 @@ pub async fn update_meal(
         patch.source_url.as_deref(),
     )?;
     let now = Utc::now();
-
     let mut tx = pool.begin().await?;
     let trimmed_name = patch.name.trim();
-    let normalized_source = normalize_source_url(patch.source_url.as_deref());
-    let affected =
-        sqlx::query("UPDATE meals SET name = ?1, instructions = ?2, portions = ?3, source_url = ?4, updated_at = ?5 WHERE id = ?6")
+    // None (field omitted) preserves the existing value in a single UPDATE —
+    // no separate read, so concurrent PUTs cannot clobber each other's
+    // source_url. Some("") clears (normalizes to NULL), Some(url) sets.
+    let affected = match patch.source_url.as_deref() {
+        None => sqlx::query("UPDATE meals SET name = ?1, instructions = ?2, portions = ?3, updated_at = ?4 WHERE id = ?5")
             .bind(trimmed_name)
             .bind(&patch.instructions)
             .bind(patch.portions)
-            .bind(&normalized_source)
             .bind(now)
             .bind(id)
             .execute(&mut *tx)
             .await?
-            .rows_affected();
-
+            .rows_affected(),
+        Some(_) => {
+            let normalized_source = normalize_source_url(patch.source_url.as_deref());
+            sqlx::query("UPDATE meals SET name = ?1, instructions = ?2, portions = ?3, source_url = ?4, updated_at = ?5 WHERE id = ?6")
+                .bind(trimmed_name)
+                .bind(&patch.instructions)
+                .bind(patch.portions)
+                .bind(&normalized_source)
+                .bind(now)
+                .bind(id)
+                .execute(&mut *tx)
+                .await?
+                .rows_affected()
+        }
+    };
     if affected == 0 {
         return Err(AppError::NotFound);
     }

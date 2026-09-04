@@ -409,36 +409,27 @@ async fn import_single_recipe(
         });
 
     // --- source URL (optional, e.g. original recipe link) --------------------
-    fn extract_url_string(v: &serde_json::Value) -> Option<String> {
+    fn collect_url_strings(v: &serde_json::Value, out: &mut Vec<String>) {
         match v {
             serde_json::Value::String(s) => {
                 let t = s.trim();
-                if t.is_empty() {
-                    None
-                } else {
-                    Some(t.to_string())
+                if !t.is_empty() {
+                    out.push(t.to_string());
                 }
             }
             serde_json::Value::Object(map) => {
                 for key in ["@id", "url", "href"] {
-                    if let Some(serde_json::Value::String(s)) = map.get(key) {
-                        let t = s.trim();
-                        if !t.is_empty() {
-                            return Some(t.to_string());
-                        }
+                    if let Some(sub) = map.get(key) {
+                        collect_url_strings(sub, out);
                     }
                 }
-                None
             }
             serde_json::Value::Array(arr) => {
                 for elem in arr {
-                    if let Some(s) = extract_url_string(elem) {
-                        return Some(s);
-                    }
+                    collect_url_strings(elem, out);
                 }
-                None
             }
-            _ => None,
+            _ => {}
         }
     }
     // Optional link is best-effort: keep the first candidate that passes
@@ -446,7 +437,13 @@ async fn import_single_recipe(
     // `mainEntityOfPage` fallback (consistent with portions/image handling).
     let source_url = ["url", "mainEntityOfPage", "isBasedOnUrl"]
         .iter()
-        .filter_map(|key| recipe.get(*key).and_then(extract_url_string))
+        .flat_map(|key| {
+            recipe.get(*key).map(|v| {
+                let mut out = Vec::new();
+                collect_url_strings(v, &mut out);
+                out
+            }).unwrap_or_default()
+        })
         .filter(|s| !s.is_empty())
         .find(|s| db::validate_source_url(Some(s)).is_ok());
     // --- validate -----------------------------------------------------------

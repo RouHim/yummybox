@@ -47,18 +47,25 @@
 		} catch {
 			ok = false;
 		}
-		if (!ok) {
-			try {
-				const area = document.createElement('textarea');
-				area.value = url;
-				document.body.appendChild(area);
-				area.select();
-				ok = document.execCommand('copy');
-				area.remove();
-			} catch {
-				ok = false;
-			}
+	if (!ok) {
+		let area: HTMLTextAreaElement | null = null;
+		try {
+			area = document.createElement('textarea');
+			area.value = url;
+			area.setAttribute('readonly', '');
+			area.style.position = 'fixed';
+			area.style.top = '-9999px';
+			area.style.left = '-9999px';
+			area.style.opacity = '0';
+			document.body.appendChild(area);
+			area.select();
+			ok = document.execCommand('copy');
+		} catch {
+			ok = false;
+		} finally {
+			area?.remove();
 		}
+	}
 		copied = ok;
 		if (ok) {
 			if (copyTimer) clearTimeout(copyTimer);
