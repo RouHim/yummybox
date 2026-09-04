@@ -31,7 +31,14 @@ pub(crate) async fn import_from_url(
     State(_state): State<Arc<AppState>>,
     Json(req): Json<ImportFromUrlRequest>,
 ) -> Result<Json<recipe::ImportDraft>, AppError> {
-    let mut draft = recipe::fetch_and_parse(&req.url).await?;
+    let trimmed_url = req.url.trim().to_string();
+    if trimmed_url.is_empty() {
+        return Err(AppError::BadRequest("url must not be empty".into()));
+    }
+    db::validate_source_url(Some(&trimmed_url))?;
+    let mut draft = recipe::fetch_and_parse(&trimmed_url).await?;
+    // Preserve the originate URL so the frontend can store/display it (normalized).
+    draft.source_url = Some(trimmed_url);
     // User-supplied image URL takes precedence over the recipe's own image.
     // Best-effort: failure falls back to whatever fetch_and_parse returned.
     if let Some(image_url) = &req.image_url {
@@ -227,11 +234,19 @@ pub(crate) async fn import_from_llm(
         }
     }
 
+    // Preserve bare-URL hint as source_url for later display/edit.
+    // (hint was trimmed above; trim again here so detection, fetch, and
+    // store all see the same whitespace-free value.)
+    let hint_original_for_source = hint
+        .as_deref()
+        .map(|h| h.trim().to_string())
+        .filter(|s| recipe::is_bare_url(s));
+
     let hint = expand_hint_if_bare_url(hint).await?;
 
     let skip_image_download = !llm_images.is_empty();
 
-    let draft = crate::llm_import::import_via_llm(
+    let mut draft = crate::llm_import::import_via_llm(
         &model,
         hint.as_deref(),
         llm_images,
@@ -240,6 +255,13 @@ pub(crate) async fn import_from_llm(
         skip_image_download,
     )
     .await?;
+    if let Some(url) = hint_original_for_source {
+        // Best-effort: only preserve hints that pass source_url validation,
+        // so overlong/malformed URLs don't fail later at save time.
+        if db::validate_source_url(Some(&url)).is_ok() {
+            draft.source_url = Some(url);
+        }
+    }
     Ok(Json(draft))
 }
 
@@ -567,11 +589,19 @@ async fn process_single_url(pool: &sqlx::SqlitePool, url: &str) -> Result<Meal, 
         classify_fetch_error(&e)
     })?;
 
+    // Best-effort metadata: downgrade an invalid source_url to None instead
+    // of failing the bulk item (consistent with the ZIP importer).
+    let source_url = if db::validate_source_url(Some(url)).is_ok() {
+        Some(url.to_string())
+    } else {
+        None
+    };
     let new_meal = NewMeal {
         name: draft.name,
         ingredients: draft.ingredients,
         instructions: draft.instructions,
         portions: draft.portions,
+        source_url,
     };
 
     if db::meal_name_exists(pool, &new_meal.name, None)

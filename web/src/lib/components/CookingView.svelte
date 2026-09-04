@@ -25,6 +25,54 @@
 		desiredPortions = meal.portions ?? null;
 	});
 
+	let safeSourceUrl = $derived.by(() => {
+		const raw = meal.source_url;
+		if (!raw) return null;
+		const trimmed = raw.trim();
+		if (!(trimmed.startsWith('http://') || trimmed.startsWith('https://'))) return null;
+		return trimmed;
+	});
+
+	let copied = $state(false);
+	let copyTimer: ReturnType<typeof setTimeout> | null = null;
+
+	async function copySourceUrl(url: string | null): Promise<void> {
+		if (!url) return;
+		let ok = false;
+		try {
+			if (navigator.clipboard?.writeText) {
+				await navigator.clipboard.writeText(url);
+				ok = true;
+			}
+		} catch {
+			ok = false;
+		}
+	if (!ok) {
+		let area: HTMLTextAreaElement | null = null;
+		try {
+			area = document.createElement('textarea');
+			area.value = url;
+			area.setAttribute('readonly', '');
+			area.style.position = 'fixed';
+			area.style.top = '-9999px';
+			area.style.left = '-9999px';
+			area.style.opacity = '0';
+			document.body.appendChild(area);
+			area.select();
+			ok = document.execCommand('copy');
+		} catch {
+			ok = false;
+		} finally {
+			area?.remove();
+		}
+	}
+		copied = ok;
+		if (ok) {
+			if (copyTimer) clearTimeout(copyTimer);
+			copyTimer = setTimeout(() => (copied = false), 2000);
+		}
+	}
+
 	function scaleQuantity(quantity: string | null, base: number, desired: number): string | null {
 		if (!quantity || desired <= 0 || desired === base) return null;
 		const match = quantity.match(/^(\d+\.?\d*)/);
@@ -119,6 +167,35 @@
 			<section class="cooking-view__instructions">
 				<h2 class="cooking-view__section-title">{t('fieldInstructionsLabel')}</h2>
 				<div class="cooking-view__instructions-text">{@html meal.instructions}</div>
+			</section>
+		{/if}
+
+		{#if meal.source_url}
+			<section class="cooking-view__source">
+				<h2 class="cooking-view__section-title">{t('cookingViewSourceLabel')}</h2>
+				{#if safeSourceUrl}
+					<div class="cooking-view__source-box">
+						<span class="cooking-view__source-icon"><Icon name="link" size={16} /></span>
+						<a href={safeSourceUrl} target="_blank" rel="noopener noreferrer" class="cooking-view__source-link" title={safeSourceUrl}>{safeSourceUrl}</a>
+						<button
+							type="button"
+							class="btn btn--ghost cooking-view__copy-btn"
+							onclick={() => copySourceUrl(safeSourceUrl)}
+							aria-label={t(copied ? 'cookingViewCopied' : 'cookingViewCopyLink')}
+							title={t(copied ? 'cookingViewCopied' : 'cookingViewCopyLink')}
+						>
+							<Icon name={copied ? 'check' : 'clipboard'} size={16} />
+						</button>
+					</div>
+					{#if copied}
+						<p class="cooking-view__copied" aria-live="polite">{t('cookingViewCopied')}</p>
+					{/if}
+				{:else}
+					<div class="cooking-view__source-box">
+						<span class="cooking-view__source-icon"><Icon name="link" size={16} /></span>
+						<span class="cooking-view__source-link">{meal.source_url}</span>
+					</div>
+				{/if}
 			</section>
 		{/if}
 	</div>
@@ -241,5 +318,58 @@
 	.cooking-view__qty--scaled {
 		color: var(--color-primary);
 		font-weight: var(--weight-medium);
+	}
+
+	.cooking-view__source {
+		margin-top: var(--space-6);
+		padding-top: var(--space-4);
+		border-top: 1px solid var(--color-border);
+		display: flex;
+		flex-direction: column;
+		gap: var(--space-2);
+	}
+
+	.cooking-view__source-box {
+		display: flex;
+		align-items: center;
+		gap: var(--space-2);
+		color: var(--color-text-secondary);
+	}
+
+	.cooking-view__source-icon {
+		display: inline-flex;
+		flex-shrink: 0;
+	}
+
+	.cooking-view__source-link {
+		color: var(--color-primary);
+		flex: 1 1 auto;
+		min-width: 0;
+		white-space: nowrap;
+		overflow: hidden;
+		text-overflow: ellipsis;
+		text-decoration: none;
+		border-bottom: 1px dashed var(--color-primary);
+	}
+
+	.cooking-view__source-link:hover {
+		border-bottom-style: solid;
+	}
+
+	.cooking-view__copy-btn {
+		padding: var(--space-1);
+		min-width: 36px;
+		min-height: 36px;
+		display: inline-flex;
+		align-items: center;
+		justify-content: center;
+		border-radius: var(--radius-md);
+		flex-shrink: 0;
+	}
+
+	.cooking-view__copied {
+		margin: 0;
+		font-size: var(--text-sm);
+		color: var(--color-text-secondary);
 	}
 </style>

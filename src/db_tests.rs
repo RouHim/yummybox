@@ -57,6 +57,7 @@ async fn insert_test_meal(
                 .collect(),
             instructions: "test".into(),
             portions: None,
+            source_url: None,
         },
         ImageChange::Keep,
     )
@@ -200,7 +201,7 @@ async fn given_exclude_id_when_check_own_name_then_returns_false() {
 
 #[test]
 fn given_no_ingredient_lines_when_insert_meal_then_validation_error() {
-    let result = validate_meal("x", &[], "valid instructions", None);
+    let result = validate_meal("x", &[], "valid instructions", None, None);
     match &result {
         Err(AppError::Validation(msg)) => assert!(msg.contains("ingredient")),
         other => panic!("expected Validation, got {other:?}"),
@@ -216,6 +217,7 @@ fn given_ingredient_line_with_empty_trimmed_name_when_insert_meal_then_validatio
             quantity: None,
         }],
         "valid instructions",
+        None,
         None,
     );
     match &result {
@@ -235,6 +237,7 @@ fn given_ingredient_name_above_100_chars_when_insert_meal_then_validation_error(
         }],
         "valid instructions",
         None,
+        None,
     );
     match &result {
         Err(AppError::Validation(msg)) => assert!(msg.contains("name")),
@@ -253,6 +256,7 @@ fn given_ingredient_quantity_above_50_chars_when_insert_meal_then_validation_err
         }],
         "valid instructions",
         None,
+        None,
     );
     match &result {
         Err(AppError::Validation(msg)) => assert!(msg.contains("quantity")),
@@ -268,7 +272,7 @@ fn given_above_100_ingredient_lines_when_insert_meal_then_validation_error() {
             quantity: None,
         })
         .collect();
-    let result = validate_meal("x", &lines, "valid instructions", None);
+    let result = validate_meal("x", &lines, "valid instructions", None, None);
     match &result {
         Err(AppError::Validation(msg)) => assert!(msg.contains("100")),
         other => panic!("expected Validation, got {other:?}"),
@@ -284,6 +288,7 @@ fn given_empty_instructions_when_validate_meal_then_error() {
             quantity: None,
         }],
         "",
+        None,
         None,
     );
     match &result {
@@ -302,6 +307,7 @@ fn given_instructions_above_20000_chars_when_validate_meal_then_error() {
             quantity: None,
         }],
         &long_instructions,
+        None,
         None,
     );
     match &result {
@@ -324,6 +330,7 @@ async fn given_name_at_exactly_200_chars_when_insert_meal_then_succeeds() {
             }],
             instructions: "test".into(),
             portions: None,
+            source_url: None,
         },
         ImageChange::Keep,
     )
@@ -346,6 +353,7 @@ async fn given_name_at_201_chars_when_insert_meal_then_returns_validation_error(
             }],
             instructions: "test".into(),
             portions: None,
+            source_url: None,
         },
         ImageChange::Keep,
     )
@@ -369,6 +377,7 @@ async fn given_empty_name_when_insert_meal_then_returns_validation_error() {
             }],
             instructions: "test".into(),
             portions: None,
+            source_url: None,
         },
         ImageChange::Keep,
     )
@@ -392,6 +401,7 @@ async fn given_whitespace_only_name_when_insert_meal_then_returns_validation_err
             }],
             instructions: "test".into(),
             portions: None,
+            source_url: None,
         },
         ImageChange::Keep,
     )
@@ -602,10 +612,12 @@ async fn given_meals_with_ingredients_when_hydrate_then_attaches_ingredient_list
     let mut meals = vec![
         Meal {
             ingredients: Vec::new(),
+            source_url: None,
             ..m1.clone()
         },
         Meal {
             ingredients: Vec::new(),
+            source_url: None,
             ..m2.clone()
         },
     ];
@@ -626,8 +638,9 @@ async fn given_meals_with_no_ingredients_when_hydrate_then_attaches_empty_lists(
         .execute(&mut *conn)
         .await
         .unwrap();
-    let mut meals = vec![Meal {
+    let mut meals = [Meal {
         ingredients: Vec::new(),
+        source_url: None,
         ..meal.clone()
     }];
     hydrate_meals(&pool, &mut meals).await.expect("hydrate");
@@ -751,6 +764,7 @@ async fn given_valid_meal_when_insert_meal_then_persists_with_ingredients() {
             }],
             instructions: "test".into(),
             portions: None,
+            source_url: None,
         },
         ImageChange::Keep,
     )
@@ -782,6 +796,7 @@ async fn given_meal_exists_when_update_meal_then_preserves_id_and_advances_updat
             }],
             instructions: "test".into(),
             portions: None,
+            source_url: None,
         },
         ImageChange::Keep,
     )
@@ -818,6 +833,7 @@ async fn given_meal_when_update_meal_then_last_planned_at_is_unchanged() {
             }],
             instructions: "test".into(),
             portions: None,
+            source_url: None,
         },
         ImageChange::Keep,
     )
@@ -847,6 +863,7 @@ async fn given_meal_missing_when_update_meal_then_returns_not_found() {
             }],
             instructions: "test".into(),
             portions: None,
+            source_url: None,
         },
         ImageChange::Keep,
     )

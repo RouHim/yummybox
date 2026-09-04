@@ -71,6 +71,7 @@ export async function createMeal(
 	form.set('ingredients', JSON.stringify(payload.ingredients));
 	form.set('instructions', payload.instructions);
 	if (payload.portions != null) form.set('portions', String(payload.portions));
+	if (payload.source_url) form.set('source_url', payload.source_url);
 	if (image) form.set('image', image);
 	return request<Meal>('/api/meals', { method: 'POST', body: form });
 }
@@ -85,6 +86,12 @@ export async function updateMeal(
 	form.set('ingredients', JSON.stringify(payload.ingredients));
 	form.set('instructions', payload.instructions);
 	if (payload.portions != null) form.set('portions', String(payload.portions));
+	if (payload.source_url) {
+		form.set('source_url', payload.source_url);
+	} else if (payload.source_url === '' || payload.source_url === null) {
+		// Explicit empty/null means clear; undefined means omit (preserve)
+		if (payload.source_url !== undefined) form.set('source_url', '');
+	}
 	if (opts?.image) form.set('image', opts.image);
 	if (opts?.removeImage) form.set('image_action', 'remove');
 	return request<Meal>(`/api/meals/${id}`, { method: 'PUT', body: form });

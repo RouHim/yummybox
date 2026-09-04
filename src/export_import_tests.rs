@@ -36,6 +36,7 @@ fn sample_meal(id: i64, name: &str, has_image: bool) -> Meal {
         updated_at: Utc.with_ymd_and_hms(2026, 1, 16, 12, 0, 0).unwrap(),
         has_image,
         portions: None,
+        source_url: None,
     }
 }
 
@@ -277,6 +278,7 @@ async fn insert_test_meal(
             ingredients: lines,
             instructions: instructions.into(),
             portions: None,
+            source_url: None,
         },
         image_change,
     )

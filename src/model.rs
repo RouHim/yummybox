@@ -15,6 +15,8 @@ pub struct Meal {
     pub has_image: bool,
     #[serde(default)]
     pub portions: Option<i32>,
+    #[serde(default)]
+    pub source_url: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, sqlx::FromRow)]
@@ -31,6 +33,8 @@ pub struct NewMeal {
     pub instructions: String,
     #[serde(default)]
     pub portions: Option<i32>,
+    #[serde(default)]
+    pub source_url: Option<String>,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
@@ -47,6 +51,8 @@ pub struct MealPatch {
     pub instructions: String,
     #[serde(default)]
     pub portions: Option<i32>,
+    #[serde(default)]
+    pub source_url: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -163,6 +169,7 @@ mod tests {
                 .into(),
             has_image: false,
             portions: None,
+            source_url: None,
         };
         let json = serde_json::to_string(&meal).expect("should serialize");
         let roundtripped: Meal = serde_json::from_str(&json).expect("should deserialize");

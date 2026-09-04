@@ -492,6 +492,7 @@ async fn build_draft_from_tool_args(
         instructions: recipe::sanitize_instructions(&draft.instructions.unwrap_or_default()),
         image_base64,
         portions: draft.portion,
+        source_url: None,
     })
 }
 

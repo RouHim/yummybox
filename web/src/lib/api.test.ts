@@ -45,7 +45,7 @@ describe('listMeals', () => {
 
 describe('getMeal', () => {
 	it('calls /api/meals/:id', async () => {
-		const meal: Meal = { id: 5, name: 'Pasta', ingredients: [], last_planned_at: null, created_at: '', updated_at: '', has_image: false, instructions: '', portions: null };
+		const meal: Meal = { id: 5, name: 'Pasta', ingredients: [], last_planned_at: null, created_at: '', updated_at: '', has_image: false, instructions: '', portions: null, source_url: null };
 		mockResponse(200, meal);
 		const result = await getMeal(5);
 		expect(mockFetch).toHaveBeenCalledWith('/api/meals/5', expect.objectContaining({ signal: expect.any(AbortSignal) }));
@@ -61,7 +61,7 @@ describe('getMeal', () => {
 describe('createMeal', () => {
 	it('sends multipart form with name and ingredients', async () => {
 		const payload: MealPayload = { name: 'Test', ingredients: [{ name: 'stuff', quantity: null }] , instructions: '' };
-		const mealResponse: Meal = { id: 1, name: 'Test', ingredients: [{ name: 'stuff', quantity: null }], last_planned_at: null, created_at: '', updated_at: '', has_image: false, instructions: '', portions: null };
+		const mealResponse: Meal = { id: 1, name: 'Test', ingredients: [{ name: 'stuff', quantity: null }], last_planned_at: null, created_at: '', updated_at: '', has_image: false, instructions: '', portions: null, source_url: null };
 		mockResponse(201, mealResponse);
 		await createMeal(payload);
 		expect(mockFetch).toHaveBeenCalledTimes(1);
@@ -79,7 +79,7 @@ describe('createMeal', () => {
 
 	it('includes image file when provided', async () => {
 		const payload: MealPayload = { name: 'Pizza', ingredients: [{ name: 'cheese', quantity: null }] , instructions: '' };
-		const mealResponse: Meal = { id: 2, name: 'Pizza', ingredients: [{ name: 'cheese', quantity: null }], last_planned_at: null, created_at: '', updated_at: '', has_image: true, instructions: '', portions: null };
+		const mealResponse: Meal = { id: 2, name: 'Pizza', ingredients: [{ name: 'cheese', quantity: null }], last_planned_at: null, created_at: '', updated_at: '', has_image: true, instructions: '', portions: null, source_url: null };
 		mockResponse(201, mealResponse);
 		const file = new File([new Uint8Array([1, 2, 3])], 'photo.png', { type: 'image/png' });
 		await createMeal(payload, file);
@@ -90,18 +90,36 @@ describe('createMeal', () => {
 
 	it('handles null image gracefully', async () => {
 		const payload: MealPayload = { name: 'X', ingredients: [{ name: 'y', quantity: null }] , instructions: '' };
-		const mealResponse: Meal = { id: 3, name: 'X', ingredients: [{ name: 'y', quantity: null }], last_planned_at: null, created_at: '', updated_at: '', has_image: false, instructions: '', portions: null };
+		const mealResponse: Meal = { id: 3, name: 'X', ingredients: [{ name: 'y', quantity: null }], last_planned_at: null, created_at: '', updated_at: '', has_image: false, instructions: '', portions: null, source_url: null };
 		mockResponse(201, mealResponse);
 		await createMeal(payload, null);
 		const fd = mockFetch.mock.calls[0][1].body as FormData;
 		expect(fd.get('image')).toBeNull();
+	});
+
+	it('sends source_url when provided', async () => {
+		const payload: MealPayload = { name: 'Test', ingredients: [{ name: 'stuff', quantity: null }], instructions: '', source_url: 'https://example.com/recipe' };
+		const mealResponse: Meal = { id: 1, name: 'Test', ingredients: [{ name: 'stuff', quantity: null }], last_planned_at: null, created_at: '', updated_at: '', has_image: false, instructions: '', portions: null, source_url: 'https://example.com/recipe' };
+		mockResponse(201, mealResponse);
+		await createMeal(payload);
+		const fd = mockFetch.mock.calls[0][1].body as FormData;
+		expect(fd.get('source_url')).toBe('https://example.com/recipe');
+	});
+
+	it('omits source_url when absent or empty', async () => {
+		const payload: MealPayload = { name: 'Test', ingredients: [{ name: 'stuff', quantity: null }], instructions: '' };
+		const mealResponse: Meal = { id: 1, name: 'Test', ingredients: [{ name: 'stuff', quantity: null }], last_planned_at: null, created_at: '', updated_at: '', has_image: false, instructions: '', portions: null, source_url: null };
+		mockResponse(201, mealResponse);
+		await createMeal(payload);
+		const fd = mockFetch.mock.calls[0][1].body as FormData;
+		expect(fd.get('source_url')).toBeNull();
 	});
 });
 
 describe('updateMeal', () => {
 	it('sends multipart form with name and ingredients', async () => {
 		const payload: MealPayload = { name: 'Updated', ingredients: [{ name: 'new', quantity: null }] , instructions: '' };
-		const mealResponse: Meal = { id: 3, name: 'Updated', ingredients: [{ name: 'new', quantity: null }], last_planned_at: null, created_at: '', updated_at: '', has_image: false, instructions: '', portions: null };
+		const mealResponse: Meal = { id: 3, name: 'Updated', ingredients: [{ name: 'new', quantity: null }], last_planned_at: null, created_at: '', updated_at: '', has_image: false, instructions: '', portions: null, source_url: null };
 		mockResponse(200, mealResponse);
 		await updateMeal(3, payload);
 		const [url, opts] = mockFetch.mock.calls[0];
@@ -112,10 +130,9 @@ describe('updateMeal', () => {
 		expect(fd.get('ingredients')).toBe(JSON.stringify(payload.ingredients));
 		expect(fd.get('image_action')).toBeNull();
 	});
-
 	it('sends image_action=remove when removing', async () => {
 		const payload: MealPayload = { name: 'X', ingredients: [{ name: 'y', quantity: null }] , instructions: '' };
-		const mealResponse: Meal = { id: 4, name: 'X', ingredients: [{ name: 'y', quantity: null }], last_planned_at: null, created_at: '', updated_at: '', has_image: false, instructions: '', portions: null };
+		const mealResponse: Meal = { id: 4, name: 'X', ingredients: [{ name: 'y', quantity: null }], last_planned_at: null, created_at: '', updated_at: '', has_image: false, instructions: '', portions: null, source_url: null };
 		mockResponse(200, mealResponse);
 		await updateMeal(4, payload, { removeImage: true });
 		const fd = mockFetch.mock.calls[0][1].body as FormData;
@@ -124,13 +141,40 @@ describe('updateMeal', () => {
 
 	it('sends image file when replacing', async () => {
 		const payload: MealPayload = { name: 'X', ingredients: [{ name: 'y', quantity: null }] , instructions: '' };
-		const mealResponse: Meal = { id: 5, name: 'X', ingredients: [{ name: 'y', quantity: null }], last_planned_at: null, created_at: '', updated_at: '', has_image: true, instructions: '', portions: null };
+		const mealResponse: Meal = { id: 5, name: 'X', ingredients: [{ name: 'y', quantity: null }], last_planned_at: null, created_at: '', updated_at: '', has_image: true, instructions: '', portions: null, source_url: null };
 		mockResponse(200, mealResponse);
 		const file = new File([new Uint8Array([4, 5, 6])], 'new.jpg', { type: 'image/jpeg' });
 		await updateMeal(5, payload, { image: file });
 		const fd = mockFetch.mock.calls[0][1].body as FormData;
 		expect(fd.get('image')).toBeInstanceOf(File);
 		expect((fd.get('image') as File).name).toBe('new.jpg');
+	});
+
+	it('sends source_url when provided for update', async () => {
+		const payload: MealPayload = { name: 'X', ingredients: [{ name: 'y', quantity: null }], instructions: '', source_url: 'https://example.com/updated' };
+		const mealResponse: Meal = { id: 5, name: 'X', ingredients: [{ name: 'y', quantity: null }], last_planned_at: null, created_at: '', updated_at: '', has_image: false, instructions: '', portions: null, source_url: 'https://example.com/updated' };
+		mockResponse(200, mealResponse);
+		await updateMeal(5, payload);
+		const fd = mockFetch.mock.calls[0][1].body as FormData;
+		expect(fd.get('source_url')).toBe('https://example.com/updated');
+	});
+
+	it('omits source_url when not provided for update', async () => {
+		const payload: MealPayload = { name: 'X', ingredients: [{ name: 'y', quantity: null }], instructions: '' };
+		const mealResponse: Meal = { id: 5, name: 'X', ingredients: [{ name: 'y', quantity: null }], last_planned_at: null, created_at: '', updated_at: '', has_image: false, instructions: '', portions: null, source_url: null };
+		mockResponse(200, mealResponse);
+		await updateMeal(5, payload);
+		const fd = mockFetch.mock.calls[0][1].body as FormData;
+		expect(fd.get('source_url')).toBeNull();
+	});
+
+	it('sends empty source_url to clear when explicitly null', async () => {
+		const payload: MealPayload = { name: 'X', ingredients: [{ name: 'y', quantity: null }], instructions: '', source_url: null };
+		const mealResponse: Meal = { id: 5, name: 'X', ingredients: [{ name: 'y', quantity: null }], last_planned_at: null, created_at: '', updated_at: '', has_image: false, instructions: '', portions: null, source_url: null };
+		mockResponse(200, mealResponse);
+		await updateMeal(5, payload);
+		const fd = mockFetch.mock.calls[0][1].body as FormData;
+		expect(fd.get('source_url')).toBe('');
 	});
 });
 
@@ -614,7 +658,7 @@ describe('getVersion', () => {
 
 describe('generateMeal', () => {
 	it('sends model, ingredients and multiple images in multipart form', async () => {
-		const draft = { name: 'Pasta', ingredients: [], instructions: '', imageBase64: null, portions: null };
+		const draft = { name: 'Pasta', ingredients: [], instructions: '', imageBase64: null, portions: null, sourceUrl: null };
 		mockResponse(200, draft);
 		const img1 = new File([new Uint8Array([1])], 'a.jpg', { type: 'image/jpeg' });
 		const img2 = new File([new Uint8Array([2])], 'b.png', { type: 'image/png' });
@@ -633,7 +677,7 @@ describe('generateMeal', () => {
 	});
 
 	it('omits empty ingredients and includes custom endpoint fields', async () => {
-		mockResponse(200, { name: '', ingredients: [], instructions: '', imageBase64: null, portions: null });
+		mockResponse(200, { name: '', ingredients: [], instructions: '', imageBase64: null, portions: null, sourceUrl: null });
 		await generateMeal('m', '   ', [], 'http://localhost:8080/v1/', 'sk-123');
 		const fd = mockFetch.mock.calls[0][1].body as FormData;
 		expect(fd.get('ingredients')).toBeNull();

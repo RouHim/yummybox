@@ -87,12 +87,12 @@ import { focusTrap } from '$lib/focusTrap';
 
 	async function onSubmitEdit(payload: {
 		name: string; ingredients: NewIngredientLine[]; instructions: string;
-		portions: number | null; image: File | null; removeImage: boolean;
+		portions: number | null; source_url: string | null; image: File | null; removeImage: boolean;
 	}) {
 		if (!meal) return;
 		editSubmitting = true;
 		try {
-			await updateMeal(meal.id, { name: payload.name, ingredients: payload.ingredients, instructions: payload.instructions, portions: payload.portions }, {
+			await updateMeal(meal.id, { name: payload.name, ingredients: payload.ingredients, instructions: payload.instructions, portions: payload.portions, source_url: payload.source_url }, {
 				image: payload.image,
 				removeImage: payload.removeImage,
 			});
@@ -123,6 +123,8 @@ import { focusTrap } from '$lib/focusTrap';
 				name: meal.name,
 				ingredients: meal.ingredients,
 				instructions: polished,
+				portions: meal.portions ?? null,
+				source_url: meal.source_url ?? null,
 			});
 			await loadMeal();
 		} catch (err) {
@@ -200,7 +202,7 @@ import { focusTrap } from '$lib/focusTrap';
 		<!-- svelte-ignore a11y_click_events_have_key_events -->
 		<!-- svelte-ignore a11y_no_static_element_interactions -->
 		<div class="edit-modal-overlay glass--strong" role="dialog" aria-label={t('formEditHeading', { name: meal.name || t('formUntitled') })} tabindex="-1" transition:fade={{ duration: tierDuration(200) }} onclick={closeEdit} onkeydown={(e) => { if (e.key === 'Escape') closeEdit(); }} ondragover={(e) => e.preventDefault()} ondrop={(e) => e.preventDefault()} use:focusTrap>
-			<div class="edit-modal" onclick={(e) => e.stopPropagation()} onkeydown={() => {}}>
+		<div class="edit-modal" onclick={(e) => e.stopPropagation()} onkeydown={() => {}}>
 				<MealForm
 					editMode={true}
 					editingMeal={meal}
@@ -208,6 +210,7 @@ import { focusTrap } from '$lib/focusTrap';
 					initialIngredients={meal.ingredients.length > 0 ? meal.ingredients.map(i => ({ name: i.name, quantity: i.quantity })) : [{ name: '', quantity: null }]}
 					initialInstructions={meal.instructions}
 					initialPortions={meal.portions ?? null}
+					initialSourceUrl={meal.source_url ?? null}
 					submitting={editSubmitting}
 					existingNames={existingMealNames}
 					onsubmit={onSubmitEdit}
