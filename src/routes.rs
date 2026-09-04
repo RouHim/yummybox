@@ -249,6 +249,15 @@ pub async fn update_meal(
         _ => db::ImageChange::Keep,
     };
 
+    // Validate the payload before preserving the omitted source_url, so an
+    // invalid body returns 400 even when the meal id does not exist.
+    db::validate_meal(
+        &parsed.name,
+        &ingredients,
+        &parsed.instructions,
+        parsed.portions,
+        parsed.source_url.as_deref(),
+    )?;
     // Preserve existing source_url when field omitted (None), allow explicit
     // empty (Some("")) to clear, and Some(url) to set.
     let source_url = match parsed.source_url {

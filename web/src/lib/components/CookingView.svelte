@@ -33,6 +33,39 @@
 		return trimmed;
 	});
 
+	let copied = $state(false);
+	let copyTimer: ReturnType<typeof setTimeout> | null = null;
+
+	async function copySourceUrl(url: string | null): Promise<void> {
+		if (!url) return;
+		let ok = false;
+		try {
+			if (navigator.clipboard?.writeText) {
+				await navigator.clipboard.writeText(url);
+				ok = true;
+			}
+		} catch {
+			ok = false;
+		}
+		if (!ok) {
+			try {
+				const area = document.createElement('textarea');
+				area.value = url;
+				document.body.appendChild(area);
+				area.select();
+				ok = document.execCommand('copy');
+				area.remove();
+			} catch {
+				ok = false;
+			}
+		}
+		copied = ok;
+		if (ok) {
+			if (copyTimer) clearTimeout(copyTimer);
+			copyTimer = setTimeout(() => (copied = false), 2000);
+		}
+	}
+
 	function scaleQuantity(quantity: string | null, base: number, desired: number): string | null {
 		if (!quantity || desired <= 0 || desired === base) return null;
 		const match = quantity.match(/^(\d+\.?\d*)/);
@@ -135,20 +168,24 @@
 				<h2 class="cooking-view__section-title">{t('cookingViewSourceLabel')}</h2>
 				{#if safeSourceUrl}
 					<div class="cooking-view__source-box">
-						<Icon name="link" size={16} />
-						<a href={safeSourceUrl} target="_blank" rel="noopener noreferrer" class="cooking-view__source-link">{safeSourceUrl}</a>
+						<span class="cooking-view__source-icon"><Icon name="link" size={16} /></span>
+						<a href={safeSourceUrl} target="_blank" rel="noopener noreferrer" class="cooking-view__source-link" title={safeSourceUrl}>{safeSourceUrl}</a>
+						<button
+							type="button"
+							class="btn btn--ghost cooking-view__copy-btn"
+							onclick={() => copySourceUrl(safeSourceUrl)}
+							aria-label={t(copied ? 'cookingViewCopied' : 'cookingViewCopyLink')}
+							title={t(copied ? 'cookingViewCopied' : 'cookingViewCopyLink')}
+						>
+							<Icon name={copied ? 'check' : 'clipboard'} size={16} />
+						</button>
 					</div>
-					<input
-						class="cooking-view__source-input"
-						type="text"
-						value={safeSourceUrl}
-						readonly
-						onclick={(e) => (e.target as HTMLInputElement).select()}
-						aria-label={t('cookingViewSourceLabel')}
-					/>
+					{#if copied}
+						<p class="cooking-view__copied" aria-live="polite">{t('cookingViewCopied')}</p>
+					{/if}
 				{:else}
 					<div class="cooking-view__source-box">
-						<Icon name="link" size={16} />
+						<span class="cooking-view__source-icon"><Icon name="link" size={16} /></span>
 						<span class="cooking-view__source-link">{meal.source_url}</span>
 					</div>
 				{/if}
@@ -292,9 +329,18 @@
 		color: var(--color-text-secondary);
 	}
 
+	.cooking-view__source-icon {
+		display: inline-flex;
+		flex-shrink: 0;
+	}
+
 	.cooking-view__source-link {
 		color: var(--color-primary);
-		word-break: break-all;
+		flex: 1 1 auto;
+		min-width: 0;
+		white-space: nowrap;
+		overflow: hidden;
+		text-overflow: ellipsis;
 		text-decoration: none;
 		border-bottom: 1px dashed var(--color-primary);
 	}
@@ -303,14 +349,20 @@
 		border-bottom-style: solid;
 	}
 
-	.cooking-view__source-input {
-		width: 100%;
-		padding: var(--space-2) var(--space-3);
-		border: 1px solid var(--color-border);
+	.cooking-view__copy-btn {
+		padding: var(--space-1);
+		min-width: 36px;
+		min-height: 36px;
+		display: inline-flex;
+		align-items: center;
+		justify-content: center;
 		border-radius: var(--radius-md);
-		background: var(--color-surface);
-		color: var(--color-text);
+		flex-shrink: 0;
+	}
+
+	.cooking-view__copied {
+		margin: 0;
 		font-size: var(--text-sm);
-		font-family: var(--font-mono, monospace);
+		color: var(--color-text-secondary);
 	}
 </style>

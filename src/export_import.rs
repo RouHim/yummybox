@@ -441,12 +441,14 @@ async fn import_single_recipe(
             _ => None,
         }
     }
-    let source_url = recipe
-        .get("url")
-        .or_else(|| recipe.get("mainEntityOfPage"))
-        .or_else(|| recipe.get("isBasedOnUrl"))
-        .and_then(extract_url_string)
-        .filter(|s| !s.is_empty());
+    // Optional link is best-effort: keep the first candidate that passes
+    // validation, else None — so an invalid `url` doesn't shadow a valid
+    // `mainEntityOfPage` fallback (consistent with portions/image handling).
+    let source_url = ["url", "mainEntityOfPage", "isBasedOnUrl"]
+        .iter()
+        .filter_map(|key| recipe.get(*key).and_then(extract_url_string))
+        .filter(|s| !s.is_empty())
+        .find(|s| db::validate_source_url(Some(s)).is_ok());
     // --- validate -----------------------------------------------------------
     if let Err(e) = db::validate_meal(
         trimmed_name,
