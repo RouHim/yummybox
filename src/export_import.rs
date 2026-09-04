@@ -438,11 +438,14 @@ async fn import_single_recipe(
     let source_url = ["url", "mainEntityOfPage", "isBasedOnUrl"]
         .iter()
         .flat_map(|key| {
-            recipe.get(*key).map(|v| {
-                let mut out = Vec::new();
-                collect_url_strings(v, &mut out);
-                out
-            }).unwrap_or_default()
+            recipe
+                .get(*key)
+                .map(|v| {
+                    let mut out = Vec::new();
+                    collect_url_strings(v, &mut out);
+                    out
+                })
+                .unwrap_or_default()
         })
         .filter(|s| !s.is_empty())
         .find(|s| db::validate_source_url(Some(s)).is_ok());
