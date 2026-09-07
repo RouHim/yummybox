@@ -1,3 +1,10 @@
+# [1.22.0](https://github.com/RouHim/yummybox/compare/v1.21.0...v1.22.0) (2026-09-07)
+
+
+### Features
+
+* add Mealie backup import ([#9](https://github.com/RouHim/yummybox/issues/9)) ([dd6d2ba](https://github.com/RouHim/yummybox/commit/dd6d2baac60c3753a312b49aaf4ab4a7c879d757))
+
 # [1.21.0](https://github.com/RouHim/yummybox/compare/v1.20.0...v1.21.0) (2026-09-04)
 
 
