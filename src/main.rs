@@ -11,6 +11,9 @@ mod image;
 mod import;
 mod jsonld;
 mod llm_import;
+mod mealie;
+#[cfg(test)]
+mod mealie_tests;
 mod plan;
 
 mod model;
@@ -121,6 +124,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .route("/import/bulk", post(import::import_bulk))
         .route("/import/image-url", post(import::load_image_from_url))
         .route("/export/meals.zip", get(export_import::export_meals_zip))
+        .route("/import/mealie", post(mealie::import_mealie_zip))
         .route("/import/zip", post(export_import::import_meals_zip))
         .route("/plans", get(routes::get_plans).post(routes::create_plan))
         .route(

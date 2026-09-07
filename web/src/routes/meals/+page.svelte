@@ -1,5 +1,5 @@
 <script lang="ts">
-    import { listMeals, updateMeal, deleteMeal, mealImageUrl, createMeal, importFromLlm, importBulk, importZip, exportMealsUrl, listLlmProviders, listLlmModels, ApiError } from '$lib/api';
+    import { listMeals, updateMeal, deleteMeal, mealImageUrl, createMeal, importFromLlm, importBulk, importZip, importMealie, exportMealsUrl, listLlmProviders, listLlmModels, ApiError } from '$lib/api';
 	import type { Meal, NewIngredientLine } from '$lib/types';
 import { readStoredLlmConfig, persistLlmConfig } from '$lib/llm-config.svelte';
 	import { t, formatDate } from '$lib/i18n';
@@ -61,6 +61,8 @@ import { focusTrap } from '$lib/focusTrap';
     let bulkError = $state<string | null>(null);
     let zipFile = $state<File | null>(null);
     let zipImporting = $state(false);
+    let mealieFile = $state<File | null>(null);
+    let mealieImporting = $state(false);
     let zipResult = $state<import('$lib/types').ZipImportResult | null>(null);
     let zipError = $state<string | null>(null);
     let menuOpen = $state(false);
@@ -231,6 +233,33 @@ import { focusTrap } from '$lib/focusTrap';
                 : (err instanceof Error ? err.message : '');
         } finally {
             zipImporting = false;
+        }
+    }
+
+    async function onMealieImport() {
+        if (!mealieFile) return;
+        zipError = null;
+        zipResult = null;
+        mealieImporting = true;
+        try {
+            const result = await importMealie(mealieFile);
+            zipResult = result;
+            if (result.created.length === 1 && result.skipped === 0 && result.failed.length === 0) {
+                await goto(`/meals/${result.created[0].id}`);
+                addOpen = false;
+                return;
+            }
+            if (result.created.length > 0) {
+                await loadMeals();
+                addOpen = false;
+                return;
+            }
+        } catch (err) {
+            zipError = err instanceof ApiError
+                ? (err.code === 'REQUEST_FAILED' ? t('importErrorFetch') : err.message)
+                : (err instanceof Error ? err.message : '');
+        } finally {
+            mealieImporting = false;
         }
     }
 
@@ -663,18 +692,26 @@ import { focusTrap } from '$lib/focusTrap';
 												{/each}
 											</ul>
 										{/if}
-										<button type="button" class="btn btn--ghost" onclick={() => { zipResult = null; zipFile = null; zipError = null; }}>
+										<button type="button" class="btn btn--ghost" onclick={() => { zipResult = null; zipFile = null; mealieFile = null; zipError = null; }}>
 											{t('importBulkNewBatch')}
 										</button>
 									</div>
 								{:else}
 									<label class="import-field">
 										<span>{t('importZipLabel')}</span>
-										<input type="file" accept=".zip" onchange={(e) => { const files = (e.target as HTMLInputElement).files; zipFile = files?.[0] ?? null; }} disabled={zipImporting} />
+										<input type="file" accept=".zip" onchange={(e) => { const files = (e.target as HTMLInputElement).files; zipFile = files?.[0] ?? null; }} disabled={zipImporting || mealieImporting} />
 									</label>
 									<button type="button" class="btn btn--primary" onclick={onZipImport}
-										disabled={zipImporting || !zipFile}>
+										disabled={zipImporting || mealieImporting || !zipFile}>
 										{zipImporting ? t('importZipButtonLoading') : t('importZipButton')}
+									</button>
+									<label class="import-field">
+										<span>{t('importMealieLabel')}</span>
+										<input type="file" accept=".zip" onchange={(e) => { const files = (e.target as HTMLInputElement).files; mealieFile = files?.[0] ?? null; }} disabled={zipImporting || mealieImporting} />
+									</label>
+									<button type="button" class="btn btn--primary" onclick={onMealieImport}
+										disabled={zipImporting || mealieImporting || !mealieFile}>
+										{mealieImporting ? t('importMealieButtonLoading') : t('importMealieButton')}
 									</button>
 								{/if}
 								{:else if importMode === 'llm'}

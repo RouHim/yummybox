@@ -290,3 +290,12 @@ export async function importZip(file: File): Promise<ZipImportResult> {
 		body: formData,
 	});
 }
+
+export async function importMealie(file: File): Promise<ZipImportResult> {
+	const formData = new FormData();
+	formData.append('file', file);
+	return request<ZipImportResult>('/api/import/mealie', {
+		method: 'POST',
+		body: formData,
+	});
+}

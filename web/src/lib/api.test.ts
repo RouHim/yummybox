@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { listMeals, getMeal, createMeal, updateMeal, deleteMeal, mealImageUrl, listPlansForYear, getPlan, createPlan, updatePlan, deletePlan, importFromUrl, importFromPaste, importFromLlm, generateMeal, importBulk, listLlmProviders, listLlmModels, polishInstructions, getVersion, ApiError } from './api';
+import { listMeals, getMeal, createMeal, updateMeal, deleteMeal, mealImageUrl, listPlansForYear, getPlan, createPlan, updatePlan, deletePlan, importFromUrl, importFromPaste, importFromLlm, generateMeal, importBulk, listLlmProviders, listLlmModels, polishInstructions, getVersion, ApiError, importMealie } from './api';
 import type { Meal, MealPayload, NewIngredientLine, Plan, NewPlanRequest, PlanPatch } from './types';
 
 const mockFetch = vi.fn();
@@ -683,5 +683,21 @@ describe('generateMeal', () => {
 		expect(fd.get('ingredients')).toBeNull();
 		expect(fd.get('base_url')).toBe('http://localhost:8080/v1/');
 		expect(fd.get('api_key')).toBe('sk-123');
+	});
+});
+
+describe('importMealie', () => {
+	it('POSTs the file to /api/import/mealie as multipart form', async () => {
+		const result = { created: [], skipped: 0, failed: [] };
+		mockResponse(200, result);
+		const file = new File([new Uint8Array([1, 2, 3])], 'mealie.zip', { type: 'application/zip' });
+		const out = await importMealie(file);
+		expect(out).toEqual(result);
+		expect(mockFetch).toHaveBeenCalledTimes(1);
+		const [url, opts] = mockFetch.mock.calls[0];
+		expect(url).toBe('/api/import/mealie');
+		expect(opts.method).toBe('POST');
+		const fd = opts.body as FormData;
+		expect(fd.get('file')).toBe(file);
 	});
 });
