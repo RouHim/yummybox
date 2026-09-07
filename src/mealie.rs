@@ -265,9 +265,7 @@ fn normalize_step_text(text: &str) -> String {
     let trimmed = text.trim();
     if trimmed.starts_with('{') || trimmed.starts_with('[') {
         if let Some(texts) = extract_python_dict_texts(trimmed) {
-            if !texts.is_empty() {
-                return texts.join("\n\n");
-            }
+            return texts.join("\n\n");
         }
     }
     text.to_string()
@@ -305,10 +303,16 @@ pub(crate) fn parse_source_url(recipe: &serde_json::Value) -> Option<String> {
 }
 
 /// Candidate image paths for a recipe slug, best first.
-pub(crate) fn mealie_image_candidates(slug: &str) -> [String; 2] {
+pub(crate) fn mealie_image_candidates(slug: &str) -> [String; 8] {
     [
         format!("recipes/{slug}/images/original.webp"),
         format!("recipes/{slug}/images/min-original.webp"),
+        format!("recipes/{slug}/images/original.jpg"),
+        format!("recipes/{slug}/images/min-original.jpg"),
+        format!("recipes/{slug}/images/original.jpeg"),
+        format!("recipes/{slug}/images/min-original.jpeg"),
+        format!("recipes/{slug}/images/original.png"),
+        format!("recipes/{slug}/images/min-original.png"),
     ]
 }
 
@@ -320,6 +324,7 @@ pub(crate) fn extract_python_dict_texts(s: &str) -> Option<Vec<String>> {
     }
     let bytes = s.as_bytes();
     let mut out = Vec::new();
+    let mut found = false;
     let mut i = 0;
     while i < bytes.len() {
         let key = match find_text_key(s, i) {
@@ -345,13 +350,13 @@ pub(crate) fn extract_python_dict_texts(s: &str) -> Option<Vec<String>> {
         }
         let quote = bytes[j];
         j += 1;
-        let mut raw = String::new();
+        let mut raw: Vec<u8> = Vec::new();
         let mut closed = false;
         while j < bytes.len() {
             let c = bytes[j];
             if c == b'\\' && j + 1 < bytes.len() {
-                raw.push('\\');
-                raw.push(bytes[j + 1] as char);
+                raw.push(b'\\');
+                raw.push(bytes[j + 1]);
                 j += 2;
                 continue;
             }
@@ -360,11 +365,13 @@ pub(crate) fn extract_python_dict_texts(s: &str) -> Option<Vec<String>> {
                 j += 1;
                 break;
             }
-            raw.push(c as char);
+            raw.push(c);
             j += 1;
         }
         if closed {
-            let unescaped = unescape_python_string(&raw);
+            found = true;
+            let raw_str = String::from_utf8_lossy(&raw);
+            let unescaped = unescape_python_string(&raw_str);
             if !unescaped.trim().is_empty() {
                 out.push(unescaped);
             }
@@ -373,7 +380,7 @@ pub(crate) fn extract_python_dict_texts(s: &str) -> Option<Vec<String>> {
             break;
         }
     }
-    if out.is_empty() { None } else { Some(out) }
+    if found { Some(out) } else { None }
 }
 
 /// Locate the next `'text'` or `"text"` key at or after `from`.
@@ -404,8 +411,15 @@ fn unescape_python_string(s: &str) -> String {
     let mut i = 0;
     while i < bytes.len() {
         if bytes[i] != b'\\' {
-            out.push(bytes[i] as char);
-            i += 1;
+            // `s` is valid UTF-8 and `i` is kept on a char boundary
+            // (escapes consume ASCII only), so this preserves non-ASCII.
+            match s[i..].chars().next() {
+                Some(ch) => {
+                    out.push(ch);
+                    i += ch.len_utf8();
+                }
+                None => break,
+            }
             continue;
         }
         i += 1;
@@ -413,15 +427,17 @@ fn unescape_python_string(s: &str) -> String {
             out.push('\\');
             break;
         }
-        match bytes[i] as char {
-            'n' => out.push('\n'),
-            't' => out.push('\t'),
-            'r' => out.push('\r'),
-            '\\' => out.push('\\'),
-            '\'' => out.push('\''),
-            '"' => out.push('"'),
-            '0' => out.push('\0'),
-            'x' => {
+        // Only the ASCII escape introducer is byte-matched; anything else
+        // is decoded as UTF-8 below.
+        match bytes[i] {
+            b'n' => out.push('\n'),
+            b't' => out.push('\t'),
+            b'r' => out.push('\r'),
+            b'\\' => out.push('\\'),
+            b'\'' => out.push('\''),
+            b'"' => out.push('"'),
+            b'0' => out.push('\0'),
+            b'x' => {
                 let mut done = false;
                 if i + 2 < bytes.len() {
                     if let Ok(hex) = std::str::from_utf8(&bytes[i + 1..i + 3]) {
@@ -435,10 +451,11 @@ fn unescape_python_string(s: &str) -> String {
                     }
                 }
                 if !done {
+                    out.push('\\');
                     out.push('x');
                 }
             }
-            'u' => {
+            b'u' => {
                 let mut done = false;
                 if i + 4 < bytes.len() {
                     if let Ok(hex) = std::str::from_utf8(&bytes[i + 1..i + 5]) {
@@ -452,10 +469,24 @@ fn unescape_python_string(s: &str) -> String {
                     }
                 }
                 if !done {
+                    out.push('\\');
                     out.push('u');
                 }
             }
-            other => out.push(other),
+            _ => {
+                // Stray non-ASCII byte after `\`: push the full char
+                // instead of the raw byte as Latin-1. The trailing `i += 1`
+                // advances past single-byte codes; longer chars add the rest.
+                // Preserve the backslash so unknown escapes round-trip.
+                out.push('\\');
+                match s[i..].chars().next() {
+                    Some(ch) => {
+                        out.push(ch);
+                        i += ch.len_utf8() - 1;
+                    }
+                    None => break,
+                }
+            }
         }
         i += 1;
     }
@@ -463,7 +494,16 @@ fn unescape_python_string(s: &str) -> String {
 }
 
 fn is_mealie_recipe_entry(name: &str) -> bool {
-    name.starts_with("recipes/") && name.ends_with(".json")
+    if !name.starts_with("recipes/") || !name.ends_with(".json") {
+        return false;
+    }
+    // Only `recipes/<slug>/<file>.json` (exactly three segments, non-empty
+    // slug and file) counts as a recipe entry.
+    let mut parts = name.split('/');
+    match (parts.next(), parts.next(), parts.next(), parts.next()) {
+        (Some("recipes"), Some(slug), Some(file), None) => !slug.is_empty() && !file.is_empty(),
+        _ => false,
+    }
 }
 
 fn recipe_slug_from_path(path: &str) -> Option<String> {
@@ -518,7 +558,7 @@ fn preload_mealie_images<R: Read + std::io::Seek>(
         entry
             .read_to_end(&mut buf)
             .map_err(|e| AppError::BadRequest(format!("failed to read {name}: {e}")))?;
-        map.insert(name, buf);
+        map.insert(name.to_ascii_lowercase(), buf);
     }
     Ok(map)
 }
@@ -589,7 +629,7 @@ async fn import_single_mealie_recipe(
 
     let jpeg_bytes: Option<Vec<u8>> = mealie_image_candidates(slug)
         .iter()
-        .filter_map(|path| image_map.get(path))
+        .filter_map(|path| image_map.get(path.to_ascii_lowercase().as_str()))
         .find_map(|raw| image::convert_to_jpeg(raw).ok());
 
     let image_change = match &jpeg_bytes {

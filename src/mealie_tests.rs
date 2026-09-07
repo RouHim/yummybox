@@ -74,6 +74,20 @@ fn given_python_dict_with_escapes_when_parse_then_unescapes() {
 }
 
 #[test]
+fn given_python_dict_with_umlauts_when_parse_then_preserves_utf8() {
+    let text = "{'text': 'Grüße mit Käse und Bärlauch'}";
+    let recipe = json!({"recipe_instructions": [{"text": text}]});
+    let out = parse_instructions(&recipe);
+    assert!(out.contains("Grüße mit Käse und Bärlauch"), "got: {out}");
+}
+
+#[test]
+fn given_python_dict_with_empty_text_when_parse_then_returns_empty() {
+    let recipe = json!({"recipe_instructions": [{"text": "{'text': ''}"}]});
+    assert_eq!(parse_instructions(&recipe), "");
+}
+
+#[test]
 fn given_empty_instructions_when_parse_then_returns_empty() {
     let recipe = json!({"recipe_instructions": []});
     assert_eq!(parse_instructions(&recipe), "");
@@ -121,9 +135,15 @@ fn given_invalid_org_url_when_parse_source_url_then_returns_none() {
 
 #[test]
 fn given_slug_when_image_candidates_then_prefers_original() {
-    let [first, second] = mealie_image_candidates("my-slug");
-    assert_eq!(first, "recipes/my-slug/images/original.webp");
-    assert_eq!(second, "recipes/my-slug/images/min-original.webp");
+    let candidates = mealie_image_candidates("my-slug");
+    assert_eq!(candidates[0], "recipes/my-slug/images/original.webp");
+    assert_eq!(candidates[1], "recipes/my-slug/images/min-original.webp");
+    assert!(candidates.contains(&"recipes/my-slug/images/original.jpg".to_string()));
+    assert!(candidates.contains(&"recipes/my-slug/images/min-original.jpg".to_string()));
+    assert!(candidates.contains(&"recipes/my-slug/images/original.jpeg".to_string()));
+    assert!(candidates.contains(&"recipes/my-slug/images/min-original.jpeg".to_string()));
+    assert!(candidates.contains(&"recipes/my-slug/images/original.png".to_string()));
+    assert!(candidates.contains(&"recipes/my-slug/images/min-original.png".to_string()));
 }
 
 // ------------------------------------------------------------------
