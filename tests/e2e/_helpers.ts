@@ -62,6 +62,7 @@ export async function createMealViaApi(
 	ingredients: Array<{ name: string; quantity?: string }> = [{ name: 'flour' }],
 	instructions = 'Cooking steps',
 	portions?: number,
+	sourceUrl?: string,
 ): Promise<MealFromApi> {
 	const multipart: Record<string, string> = {
 		name,
@@ -69,6 +70,7 @@ export async function createMealViaApi(
 		instructions,
 	};
 	if (portions != null) multipart.portions = String(portions);
+	if (sourceUrl != null) multipart.source_url = sourceUrl;
 	const response = await request.post('/api/meals', { multipart });
 	expect(response.ok()).toBe(true);
 	return response.json();
