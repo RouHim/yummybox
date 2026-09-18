@@ -1,3 +1,10 @@
+## [1.22.1](https://github.com/RouHim/yummybox/compare/v1.22.0...v1.22.1) (2026-09-18)
+
+
+### Bug Fixes
+
+* keep meal detail card inside the viewport on mobile ([#10](https://github.com/RouHim/yummybox/issues/10)) ([1cec523](https://github.com/RouHim/yummybox/commit/1cec52324829a015f1fdd18607a3a263fb196ae6))
+
 # [1.22.0](https://github.com/RouHim/yummybox/compare/v1.21.0...v1.22.0) (2026-09-07)
 
 
