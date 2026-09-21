@@ -397,3 +397,47 @@ fn is_bare_url_rejects_plain_text() {
 fn is_bare_url_rejects_embedded_url() {
     assert!(!is_bare_url("see https://example.com here"));
 }
+// Fixture: mixed HowToStep + trailing HowToSection (WPRM shape, e.g.
+// madamecuisine.de/kartoffel-bohnen-pfanne with a "Zum Servieren" section).
+const HTML_MIXED_STEPS_AND_SECTION: &str = r#"<html><head>
+<script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@graph": [
+    {"@type": "Article", "@id": "https://example.com/pan/#article", "name": "Article"},
+    {
+      "@type": "Recipe",
+      "@id": "https://example.com/pan/#recipe",
+      "name": "Kartoffel-Bohnen-Pfanne",
+      "description": "Wuerzige Pfanne.",
+      "image": "https://example.com/pan.jpg",
+      "recipeYield": ["2", "2 Personen"],
+      "recipeIngredient": ["400 g Kartoffeln", "Salz"],
+      "recipeInstructions": [
+        {"@type": "HowToStep", "text": "Kartoffeln schneiden."},
+        {"@type": "HowToStep", "text": "Bohnen kochen."},
+        {
+          "@type": "HowToSection",
+          "name": "Zum Servieren",
+          "itemListElement": [
+            {"@type": "HowToStep", "text": "Joghurt ruehren und servieren."}
+          ]
+        }
+      ]
+    }
+  ]
+}
+</script>
+</head><body></body></html>"#;
+
+#[test]
+fn given_mixed_steps_and_section_when_parse_then_all_steps_joined() {
+    let draft =
+        parse_recipe(HTML_MIXED_STEPS_AND_SECTION).expect("should parse mixed instructions");
+    assert_eq!(draft.name, "Kartoffel-Bohnen-Pfanne");
+    assert_eq!(
+        draft.instructions,
+        "Kartoffeln schneiden.\nBohnen kochen.\nJoghurt ruehren und servieren."
+    );
+    assert_eq!(draft.portions, Some(2));
+}

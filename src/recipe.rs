@@ -113,6 +113,12 @@ fn parse_recipe_with_image_url(text: &str) -> Result<(ImportDraft, Option<String
 
     // Collect (raw_json_value, schema_entry) pairs for blocks that parse successfully
     let mut pairs: Vec<(serde_json::Value, SchemaOrgEntry)> = Vec::new();
+    // Raw JSON of every block that parses as JSON. Fallback parse below runs
+    // only when the `recipe-scraper` path finds no recipe at all, so keeping
+    // all blocks is safe: a block can deserialize yet yield zero recipes
+    // (e.g. a WPRM `Recipe` node with mixed `HowToStep`/`HowToSection`
+    // instructions falls into the catch-all `Nonsense` variant via its `@id`).
+    let mut raw_blocks: Vec<serde_json::Value> = Vec::new();
 
     for element in document.select(&selector) {
         let block_text = element.text().collect::<String>();
@@ -120,17 +126,19 @@ fn parse_recipe_with_image_url(text: &str) -> Result<(ImportDraft, Option<String
         if let Ok(json_value) = serde_json::from_str::<serde_json::Value>(&block_text) {
             // Try recipe_scraper parse for recipe extraction
             if let Ok(entry) = SchemaOrgEntry::from_json_str(&block_text) {
-                pairs.push((json_value, entry));
+                pairs.push((json_value.clone(), entry));
             }
+            raw_blocks.push(json_value);
         }
     }
 
     // Fallback: if no script blocks found, try parsing the text directly as raw JSON-LD
-    if pairs.is_empty() {
+    if pairs.is_empty() && raw_blocks.is_empty() {
         if let Ok(json_value) = serde_json::from_str::<serde_json::Value>(text) {
             if let Ok(entry) = SchemaOrgEntry::from_json_str(text) {
-                pairs.push((json_value, entry));
+                pairs.push((json_value.clone(), entry));
             }
+            raw_blocks.push(json_value);
         }
     }
 
@@ -199,9 +207,133 @@ fn parse_recipe_with_image_url(text: &str) -> Result<(ImportDraft, Option<String
         }
     }
 
+    // Fallback for blocks `recipe-scraper` rejects (e.g. WPRM output mixing
+    // `HowToStep` entries with a trailing `HowToSection`): parse the raw
+    // JSON manually and flatten the instructions.
+    for block in &raw_blocks {
+        let mut nodes = Vec::new();
+        collect_recipe_nodes(block, &mut nodes);
+        for node in nodes {
+            if let Some((draft, image_url)) = draft_from_recipe_json(node) {
+                return Ok((draft, image_url));
+            }
+        }
+    }
+
     Err(AppError::BadRequest(
         "no schema.org Recipe found in the provided content".into(),
     ))
+}
+
+/// Collect `Recipe`-typed nodes from a raw JSON-LD block (handles `@graph`
+/// objects, bare `Recipe` objects, and arrays of either).
+fn collect_recipe_nodes<'a>(json: &'a serde_json::Value, out: &mut Vec<&'a serde_json::Value>) {
+    if let Some(graph) = json.get("@graph").and_then(|g| g.as_array()) {
+        out.extend(graph.iter().filter(|item| is_recipe_type(item)));
+    } else if let Some(arr) = json.as_array() {
+        for item in arr {
+            collect_recipe_nodes(item, out);
+        }
+    } else if is_recipe_type(json) {
+        out.push(json);
+    }
+}
+
+/// Build a draft from a raw `Recipe` JSON object without `recipe-scraper`.
+/// Returns `None` when the node has no usable name (not a recipe draft).
+fn draft_from_recipe_json(json: &serde_json::Value) -> Option<(ImportDraft, Option<String>)> {
+    let name = json.get("name")?.as_str()?.trim().to_string();
+    if name.is_empty() {
+        return None;
+    }
+
+    let ingredients = match json.get("recipeIngredient") {
+        Some(serde_json::Value::String(s)) => vec![s.as_str()],
+        Some(serde_json::Value::Array(arr)) => {
+            arr.iter().filter_map(|v| v.as_str()).collect::<Vec<_>>()
+        }
+        _ => Vec::new(),
+    }
+    .into_iter()
+    .filter_map(|line| {
+        let trimmed = line.trim();
+        if trimmed.is_empty() {
+            None
+        } else {
+            Some(split_ingredient_line(trimmed))
+        }
+    })
+    .collect();
+
+    let mut steps = Vec::new();
+    if let Some(instructions) = json.get("recipeInstructions") {
+        flatten_instruction_texts(instructions, &mut steps);
+    }
+    let instructions = sanitize_instructions(&steps.join("\n"));
+
+    let portions = parse_yield_portions(json.get("recipeYield"));
+    let image_url = extract_image_url(json);
+
+    Some((
+        ImportDraft {
+            name,
+            ingredients,
+            instructions,
+            image_base64: None,
+            portions,
+            source_url: None,
+        },
+        image_url,
+    ))
+}
+
+/// Recursively flatten `recipeInstructions` into step texts. Handles plain
+/// strings, `HowToStep` (`text`), `HowToSection` (`itemListElement`), arrays
+/// mixing both, and generic wrapper objects.
+fn flatten_instruction_texts(json: &serde_json::Value, out: &mut Vec<String>) {
+    match json {
+        serde_json::Value::String(s) => {
+            let trimmed = s.trim();
+            if !trimmed.is_empty() {
+                out.push(trimmed.to_string());
+            }
+        }
+        serde_json::Value::Array(arr) => {
+            for item in arr {
+                flatten_instruction_texts(item, out);
+            }
+        }
+        serde_json::Value::Object(obj) => {
+            if let Some(nested) = obj.get("itemListElement") {
+                flatten_instruction_texts(nested, out);
+            } else if let Some(text) = obj.get("text") {
+                flatten_instruction_texts(text, out);
+            }
+        }
+        _ => {}
+    }
+}
+
+/// Extract the serving count from a `recipeYield` value (string, number, or
+/// array — first element wins), mirroring the `recipe-scraper` path.
+fn parse_yield_portions(yield_value: Option<&serde_json::Value>) -> Option<i32> {
+    fn yield_to_str(v: &serde_json::Value) -> Option<String> {
+        match v {
+            serde_json::Value::String(s) => Some(s.clone()),
+            serde_json::Value::Number(n) => Some(n.to_string()),
+            _ => None,
+        }
+    }
+    let s = match yield_value? {
+        serde_json::Value::Array(arr) => arr.first().and_then(yield_to_str)?,
+        other => yield_to_str(other)?,
+    };
+    let num_str: String = s
+        .chars()
+        .skip_while(|c| !c.is_ascii_digit())
+        .take_while(|c| c.is_ascii_digit())
+        .collect();
+    num_str.parse::<i32>().ok()
 }
 
 /// Unit words recognized as a quantity prefix in ingredient lines.
