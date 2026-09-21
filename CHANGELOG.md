@@ -1,3 +1,10 @@
+## [1.22.2](https://github.com/RouHim/yummybox/compare/v1.22.1...v1.22.2) (2026-09-21)
+
+
+### Bug Fixes
+
+* import recipes with mixed HowToStep/HowToSection instructions ([#11](https://github.com/RouHim/yummybox/issues/11)) ([a2abe9f](https://github.com/RouHim/yummybox/commit/a2abe9f06c50fe66e481cc02e4f6da1a693aaf1d))
+
 ## [1.22.1](https://github.com/RouHim/yummybox/compare/v1.22.0...v1.22.1) (2026-09-18)
 
 
