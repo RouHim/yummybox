@@ -24,9 +24,19 @@
 	let bringStatus = $state<'idle' | 'checking' | 'connected' | 'error'>('idle');
 	let bringStatusError = $state<string | null>(null);
 
+	// Snapshots are applied in request order. The mount-time load captures its
+	// sequence number before the request starts, so a stale response that lands
+	// after a newer commit response is discarded instead of overwriting the
+	// state that commit just showed (the commit response carries a higher
+	// number because its request started later).
+	let appliedSeq = 0;
+	let requestSeq = 0;
+
 	// Shared by the initial load and by every commit response: the snapshot is
 	// the only source of truth for where a value comes from.
-	function applyBringSnapshot(snapshot: SettingsSnapshot) {
+	function applyBringSnapshot(snapshot: SettingsSnapshot, seq = ++requestSeq) {
+		if (seq <= appliedSeq) return;
+		appliedSeq = seq;
 		bringEmailSource = snapshot.bring.emailSource;
 		bringPasswordState = snapshot.bring.password;
 		// Only refill the email when the field is empty: that is the case after
@@ -86,9 +96,11 @@
 
 	$effect(() => {
 		refreshBringStatus();
+		const seq = ++requestSeq;
 		getSettings()
-			.then(applyBringSnapshot)
+			.then((snapshot) => applyBringSnapshot(snapshot, seq))
 			.catch((err) => {
+				if (seq <= appliedSeq) return;
 				bringStatus = 'error';
 				bringStatusError = err instanceof Error ? err.message : String(err);
 			});
