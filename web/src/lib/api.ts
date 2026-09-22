@@ -1,4 +1,5 @@
 import type { Meal, MealPayload, NewIngredientLine, ImportDraft, Plan, PlanSummaryItem, NewPlanRequest, PlanPatch, LlmProviderInfo, LlmModelsResponse, BulkImportRequest, BulkImportResult, ZipImportResult } from './types';
+import type { SettingsPatch, SettingsSnapshot } from './settings.svelte';
 
 
 export class ApiError extends Error {
@@ -173,35 +174,17 @@ export async function importFromPaste(content: string, imageUrl?: string): Promi
 		body: JSON.stringify({ content, ...(imageUrl ? { imageUrl } : {}) }),
 	}, 40_000);
 }
-export async function importFromLlm(
-    model: string,
-    hint: string | null,
-    images: File[],
-    baseUrl?: string,
-    apiKey?: string,
-): Promise<ImportDraft> {
+export async function importFromLlm(hint: string | null, images: File[]): Promise<ImportDraft> {
     const form = new FormData();
-    form.set('model', model);
     if (hint && hint.trim()) form.set('hint', hint.trim());
     for (const img of images) form.append('image', img);
-    if (baseUrl) form.set('base_url', baseUrl);
-    if (apiKey) form.set('api_key', apiKey);
     return request<ImportDraft>('/api/import/llm', { method: 'POST', body: form }, 90_000);
 }
 
-export async function generateMeal(
-    model: string,
-    ingredients: string,
-    images: File[],
-    baseUrl?: string,
-    apiKey?: string,
-): Promise<ImportDraft> {
+export async function generateMeal(ingredients: string, images: File[]): Promise<ImportDraft> {
     const form = new FormData();
-    form.set('model', model);
     if (ingredients.trim()) form.set('ingredients', ingredients);
     for (const img of images) form.append('image', img);
-    if (baseUrl) form.set('base_url', baseUrl);
-    if (apiKey) form.set('api_key', apiKey);
     return request<ImportDraft>('/api/import/generate', { method: 'POST', body: form }, 90_000);
 }
 
@@ -210,30 +193,36 @@ export async function listLlmProviders(): Promise<LlmProviderInfo[]> {
     return data.providers;
 }
 
-export async function listLlmModels(provider: string, baseUrl?: string, apiKey?: string): Promise<LlmModelsResponse> {
+export async function listLlmModels(provider: string): Promise<LlmModelsResponse> {
     const params = new URLSearchParams({ provider });
-    if (baseUrl) params.set('base_url', baseUrl);
-    if (apiKey) params.set('api_key', apiKey);
     return request<LlmModelsResponse>(`/api/llm/models?${params}`, undefined, 20_000);
 }
 
 export async function polishInstructions(
-    model: string,
     name: string,
     ingredients: NewIngredientLine[],
     instructions: string,
-    baseUrl?: string,
-    apiKey?: string,
 ): Promise<string> {
     const form = new FormData();
-    form.set('model', model);
     form.set('name', name);
     form.set('ingredients', JSON.stringify(ingredients));
     form.set('instructions', instructions);
-    if (baseUrl) form.set('base_url', baseUrl);
-    if (apiKey) form.set('api_key', apiKey);
     const data = await request<{ instructions: string }>('/api/llm/polish', { method: 'POST', body: form }, 90_000);
     return data.instructions;
+}
+
+// Settings API
+
+export async function getSettings(): Promise<SettingsSnapshot> {
+	return request<SettingsSnapshot>('/api/settings');
+}
+
+export async function updateSettings(patch: SettingsPatch): Promise<SettingsSnapshot> {
+	return request<SettingsSnapshot>('/api/settings', {
+		method: 'PATCH',
+		headers: { 'Content-Type': 'application/json' },
+		body: JSON.stringify(patch),
+	});
 }
 
 // Bring! shopping list API

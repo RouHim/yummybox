@@ -11,6 +11,7 @@ export function llmErrorMessage(err: unknown): string {
 		if (err.code === 'llm_timeout') return t('llmErrorTimeout');
 		if (err.code === 'llm_parse_failed') return t('llmErrorParseFailed');
 		if (err.code === 'llm_api_key_missing') return err.message;
+		if (err.code === 'llm_not_configured') return t('llmErrorNotConfigured');
 		if (err.code) return t('llmErrorGeneric', { message: err.message });
 		return err.message;
 	}

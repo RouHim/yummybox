@@ -22,6 +22,12 @@ describe('llmErrorMessage', () => {
 		);
 	});
 
+	it('maps llm_not_configured to the settings hint', () => {
+		expect(llmErrorMessage(new ApiError('llm not configured', 'llm_not_configured', 400))).toBe(
+			t('llmErrorNotConfigured')
+		);
+	});
+
 	it('wraps unknown codes in the generic message', () => {
 		expect(llmErrorMessage(new ApiError('weird', 'other_code', 500))).toBe(
 			t('llmErrorGeneric', { message: 'weird' })

@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { listMeals, getMeal, createMeal, updateMeal, deleteMeal, mealImageUrl, listPlansForYear, getPlan, createPlan, updatePlan, deletePlan, importFromUrl, importFromPaste, importFromLlm, generateMeal, importBulk, listLlmProviders, listLlmModels, polishInstructions, getVersion, ApiError, importMealie } from './api';
+import { listMeals, getMeal, createMeal, updateMeal, deleteMeal, mealImageUrl, listPlansForYear, getPlan, createPlan, updatePlan, deletePlan, importFromUrl, importFromPaste, importFromLlm, generateMeal, importBulk, listLlmProviders, listLlmModels, polishInstructions, getVersion, ApiError, importMealie, getSettings, updateSettings } from './api';
 import type { Meal, MealPayload, NewIngredientLine, Plan, NewPlanRequest, PlanPatch } from './types';
 
 const mockFetch = vi.fn();
@@ -527,58 +527,42 @@ describe('listLlmProviders', () => {
 });
 
 describe('listLlmModels', () => {
-    it('calls GET /api/llm/models?provider=openai', async () => {
+    it('sends only the provider, never a key', async () => {
         const models = { models: ['gpt-4o-mini', 'gpt-4o'] };
         mockResponse(200, models);
         const result = await listLlmModels('openai');
         expect(mockFetch).toHaveBeenCalledWith('/api/llm/models?provider=openai', expect.objectContaining({ signal: expect.any(AbortSignal) }));
         expect(result).toEqual(models);
     });
-
-    it('includes base_url and api_key for custom providers', async () => {
-        const models = { models: ['local-model'] };
-        mockResponse(200, models);
-        await listLlmModels('custom', 'http://localhost:8080/v1/', 'sk-key');
-        const url = mockFetch.mock.calls[0][0] as string;
-        expect(url).toContain('provider=custom');
-        expect(url).toContain('base_url=http%3A%2F%2Flocalhost%3A8080%2Fv1%2F');
-        expect(url).toContain('api_key=sk-key');
-    });
 });
 
 describe('importFromLlm', () => {
-    it('sends model, hint, image in multipart form', async () => {
+    it('sends hint and image in multipart form', async () => {
         const draft = { name: 'Pasta', ingredients: [], instructions: '', imageBase64: null };
         mockResponse(200, draft);
         const file = new File([new Uint8Array([1])], 'photo.jpg', { type: 'image/jpeg' });
-        await importFromLlm('gpt-4o-mini', 'pasta dish', [file]);
+        await importFromLlm('pasta dish', [file]);
         expect(mockFetch).toHaveBeenCalledTimes(1);
         const [url, opts] = mockFetch.mock.calls[0];
         expect(url).toBe('/api/import/llm');
         expect(opts.method).toBe('POST');
         const fd = opts.body as FormData;
-        expect(fd.get('model')).toBe('gpt-4o-mini');
         expect(fd.get('hint')).toBe('pasta dish');
         expect(fd.getAll('image')).toHaveLength(1);
         expect(fd.getAll('image')[0]).toBeInstanceOf(File);
-    });
-
-    it('sends base_url and api_key for custom endpoints', async () => {
-        const draft = { name: 'Pasta', ingredients: [], instructions: '', imageBase64: null };
-        mockResponse(200, draft);
-        await importFromLlm('local-model', null, [], 'http://localhost:8080/v1/', 'sk-123');
-        const fd = mockFetch.mock.calls[0][1].body as FormData;
-        expect(fd.get('base_url')).toBe('http://localhost:8080/v1/');
-        expect(fd.get('api_key')).toBe('sk-123');
-    });
-
-    it('omits base_url and api_key when not provided', async () => {
-        const draft = { name: 'Pasta', ingredients: [], instructions: '', imageBase64: null };
-        mockResponse(200, draft);
-        await importFromLlm('gpt-4o-mini', 'pasta', []);
-        const fd = mockFetch.mock.calls[0][1].body as FormData;
+        // The provider, model, endpoint and key are resolved from the stored
+        // settings server-side and are never passed by the client.
+        expect(fd.get('model')).toBeNull();
         expect(fd.get('base_url')).toBeNull();
         expect(fd.get('api_key')).toBeNull();
+    });
+
+    it('omits an empty hint', async () => {
+        const draft = { name: 'Pasta', ingredients: [], instructions: '', imageBase64: null };
+        mockResponse(200, draft);
+        await importFromLlm('   ', []);
+        const fd = mockFetch.mock.calls[0][1].body as FormData;
+        expect(fd.get('hint')).toBeNull();
     });
 
     it('appends multiple images in order', async () => {
@@ -587,7 +571,7 @@ describe('importFromLlm', () => {
         const front = new File([new Uint8Array([1])], 'front.jpg', { type: 'image/jpeg' });
         const back = new File([new Uint8Array([2])], 'back.jpg', { type: 'image/jpeg' });
         const extra = new File([new Uint8Array([3])], 'extra.jpg', { type: 'image/jpeg' });
-        await importFromLlm('gpt-4o-mini', 'front and back', [front, back, extra]);
+        await importFromLlm('front and back', [front, back, extra]);
         const fd = mockFetch.mock.calls[0][1].body as FormData;
         const parts = fd.getAll('image');
         expect(parts).toHaveLength(3);
@@ -602,45 +586,75 @@ describe('importFromLlm', () => {
 // ---------------------------------------------------------------------------
 
 describe('polishInstructions', () => {
-    it('sends model, name, ingredients, and instructions as multipart', async () => {
+    it('sends name, ingredients and instructions as multipart', async () => {
         mockResponse(200, { instructions: '<p>Step 1</p>' });
         const ings: NewIngredientLine[] = [{ name: 'flour', quantity: '200g' }];
-        await polishInstructions('gpt-4o-mini', 'Cake', ings, 'Mix everything');
+        await polishInstructions('Cake', ings, 'Mix everything');
         expect(mockFetch).toHaveBeenCalledTimes(1);
         const [url, opts] = mockFetch.mock.calls[0];
         expect(url).toBe('/api/llm/polish');
         expect(opts.method).toBe('POST');
         const fd = opts.body as FormData;
-        expect(fd.get('model')).toBe('gpt-4o-mini');
         expect(fd.get('name')).toBe('Cake');
         expect(fd.get('ingredients')).toBe(JSON.stringify(ings));
         expect(fd.get('instructions')).toBe('Mix everything');
+        // The stored settings supply the model, endpoint and key server-side.
+        expect(fd.get('model')).toBeNull();
+        expect(fd.get('base_url')).toBeNull();
+        expect(fd.get('api_key')).toBeNull();
     });
 
     it('returns the polished instructions from response', async () => {
         mockResponse(200, { instructions: '<p>Step 1. Mix.</p>' });
         const ings: NewIngredientLine[] = [{ name: 'salt', quantity: null }];
-        const result = await polishInstructions('gpt-4o', 'Soup', ings, 'Add salt');
+        const result = await polishInstructions('Soup', ings, 'Add salt');
         expect(result).toBe('<p>Step 1. Mix.</p>');
     });
+});
 
-    it('sends base_url and api_key when provided', async () => {
-        mockResponse(200, { instructions: '<p>ok</p>' });
-        const ings: NewIngredientLine[] = [];
-        await polishInstructions('local-model', 'Test', ings, 'do it', 'http://localhost:8080/v1/', 'sk-123');
-        const fd = mockFetch.mock.calls[0][1].body as FormData;
-        expect(fd.get('base_url')).toBe('http://localhost:8080/v1/');
-        expect(fd.get('api_key')).toBe('sk-123');
-    });
+// ---------------------------------------------------------------------------
+// Settings API
+// ---------------------------------------------------------------------------
 
-    it('omits base_url and api_key when not provided', async () => {
-        mockResponse(200, { instructions: '<p>ok</p>' });
-        const ings: NewIngredientLine[] = [{ name: 'x', quantity: null }];
-        await polishInstructions('gpt-4o', 'Test', ings, 'do it');
-        const fd = mockFetch.mock.calls[0][1].body as FormData;
-        expect(fd.get('base_url')).toBeNull();
-        expect(fd.get('api_key')).toBeNull();
-    });
+describe('getSettings', () => {
+	it('GETs /api/settings and returns the snapshot', async () => {
+		mockResponse(200, {
+			ai: { provider: 'openai', model: 'gpt-4o-mini', customBaseUrl: '', apiKey: { set: true, source: 'settings' } },
+			bring: { email: '', emailSource: 'none', password: { set: false, source: 'none' } },
+		});
+
+		const settings = await getSettings();
+
+		expect(mockFetch).toHaveBeenCalledWith('/api/settings', expect.objectContaining({ signal: expect.any(AbortSignal) }));
+		expect(settings.ai.provider).toBe('openai');
+		expect(settings.ai.apiKey.source).toBe('settings');
+	});
+});
+
+describe('updateSettings', () => {
+	it('PATCHes the given patch as JSON and returns the snapshot', async () => {
+		mockResponse(200, {
+			ai: { provider: 'custom', model: 'llama3', customBaseUrl: 'http://localhost:8080/v1/', apiKey: { set: false, source: 'none' } },
+			bring: { email: '', emailSource: 'none', password: { set: false, source: 'none' } },
+		});
+
+		const settings = await updateSettings({ ai: { provider: 'custom', apiKey: null } });
+
+		expect(mockFetch).toHaveBeenCalledWith('/api/settings', expect.objectContaining({
+			method: 'PATCH',
+			headers: { 'Content-Type': 'application/json' },
+			body: JSON.stringify({ ai: { provider: 'custom', apiKey: null } }),
+		}));
+		expect(settings.ai.provider).toBe('custom');
+	});
+
+	it('surfaces the field error from a rejected commit', async () => {
+		mockResponse(400, { error: "provider must be one of openai, anthropic, custom, got 'nope'" });
+
+		await expect(updateSettings({ ai: { provider: 'nope' } })).rejects.toThrow(
+			'provider must be one of',
+		);
+	});
 });
 
 // ---------------------------------------------------------------------------
@@ -657,32 +671,33 @@ describe('getVersion', () => {
 });
 
 describe('generateMeal', () => {
-	it('sends model, ingredients and multiple images in multipart form', async () => {
+	it('sends ingredients and multiple images in multipart form', async () => {
 		const draft = { name: 'Pasta', ingredients: [], instructions: '', imageBase64: null, portions: null, sourceUrl: null };
 		mockResponse(200, draft);
 		const img1 = new File([new Uint8Array([1])], 'a.jpg', { type: 'image/jpeg' });
 		const img2 = new File([new Uint8Array([2])], 'b.png', { type: 'image/png' });
-		await generateMeal('mock-model', 'flour\neggs', [img1, img2]);
+		await generateMeal('flour\neggs', [img1, img2]);
 		expect(mockFetch).toHaveBeenCalledTimes(1);
 		const [url, opts] = mockFetch.mock.calls[0];
 		expect(url).toBe('/api/import/generate');
 		expect(opts.method).toBe('POST');
 		const fd = opts.body as FormData;
-		expect(fd.get('model')).toBe('mock-model');
 		expect(fd.get('ingredients')).toBe('flour\neggs');
 		const images = fd.getAll('image');
 		expect(images).toHaveLength(2);
 		expect(images[0]).toBe(img1);
 		expect(images[1]).toBe(img2);
+		// The stored settings supply the model, endpoint and key server-side.
+		expect(fd.get('model')).toBeNull();
+		expect(fd.get('base_url')).toBeNull();
+		expect(fd.get('api_key')).toBeNull();
 	});
 
-	it('omits empty ingredients and includes custom endpoint fields', async () => {
+	it('omits empty ingredients', async () => {
 		mockResponse(200, { name: '', ingredients: [], instructions: '', imageBase64: null, portions: null, sourceUrl: null });
-		await generateMeal('m', '   ', [], 'http://localhost:8080/v1/', 'sk-123');
+		await generateMeal('   ', []);
 		const fd = mockFetch.mock.calls[0][1].body as FormData;
 		expect(fd.get('ingredients')).toBeNull();
-		expect(fd.get('base_url')).toBe('http://localhost:8080/v1/');
-		expect(fd.get('api_key')).toBe('sk-123');
 	});
 });
 

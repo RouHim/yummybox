@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { getMeal, updateMeal, deleteMeal, mealImageUrl, polishInstructions, ApiError, listMeals } from '$lib/api';
+	import { getMeal, updateMeal, deleteMeal, mealImageUrl, polishInstructions, ApiError, listMeals, getSettings } from '$lib/api';
 	import Icon from '$lib/Icon.svelte';
 	import { t } from '$lib/i18n';
 	import { page } from '$app/state';
@@ -10,7 +10,8 @@
 	import DeleteConfirmDialog from '$lib/DeleteConfirmDialog.svelte';
 import { focusTrap } from '$lib/focusTrap';
 	import CookingView from '$lib/components/CookingView.svelte';
-	import { readStoredLlmConfig } from '$lib/llm-config.svelte';
+	import AiConfigNotice from '$lib/components/AiConfigNotice.svelte';
+	import { isAiConfigured, type SettingsSnapshot } from '$lib/settings.svelte';
 	import MealForm from '$lib/MealForm.svelte';
 
 	let meal = $state<Meal | null>(null);
@@ -32,9 +33,15 @@ import { focusTrap } from '$lib/focusTrap';
 	let polishing = $state(false);
 	let polishError = $state<string | null>(null);
 
-	let hasLlmConfig = $derived.by(() => {
-		const config = readStoredLlmConfig();
-		return !!config && !!config.model;
+	let settings = $state<SettingsSnapshot | null>(null);
+	let hasLlmConfig = $derived(isAiConfigured(settings));
+
+	$effect(() => {
+		let cancelled = false;
+		getSettings()
+			.then((snapshot) => { if (!cancelled) settings = snapshot; })
+			.catch(() => { if (!cancelled) settings = null; });
+		return () => { cancelled = true; };
 	});
 
 	async function loadMeal() {
@@ -105,20 +112,11 @@ import { focusTrap } from '$lib/focusTrap';
 
 
 	async function doPolish() {
-		if (!meal || polishing) return;
-		const config = readStoredLlmConfig();
-		if (!config || !config.model) return;
+		if (!meal || polishing || !hasLlmConfig) return;
 		polishing = true;
 		polishError = null;
 		try {
-			const polished = await polishInstructions(
-				config.model,
-				meal.name,
-				meal.ingredients,
-				meal.instructions,
-				config.provider === 'custom' ? config.customBaseUrl : undefined,
-				config.provider === 'custom' ? config.customApiKey : undefined,
-			);
+			const polished = await polishInstructions(meal.name, meal.ingredients, meal.instructions);
 			await updateMeal(meal.id, {
 				name: meal.name,
 				ingredients: meal.ingredients,
@@ -129,7 +127,8 @@ import { focusTrap } from '$lib/focusTrap';
 			await loadMeal();
 		} catch (err) {
 			if (err instanceof ApiError) {
-				if (err.code === 'llm_timeout') polishError = t('llmErrorTimeout');
+				if (err.code === 'llm_not_configured') polishError = t('llmErrorNotConfigured');
+				else if (err.code === 'llm_timeout') polishError = t('llmErrorTimeout');
 				else if (err.code === 'llm_parse_failed') polishError = t('llmErrorParseFailed');
 				else if (err.code === 'llm_api_key_missing') polishError = t('llmErrorApiKey', { envVar: '' });
 				else polishError = t('polishErrorFailed');
@@ -181,6 +180,9 @@ import { focusTrap } from '$lib/focusTrap';
 								<Icon name="sparkles" size={16} />
 							{/if}
 						</button>
+					{/if}
+					{#if !hasLlmConfig}
+						<AiConfigNotice />
 					{/if}
 					<button
 						type="button"

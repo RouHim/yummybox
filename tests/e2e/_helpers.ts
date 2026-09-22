@@ -18,6 +18,16 @@ export async function resetMeals(request: APIRequestContext): Promise<void> {
 	await Promise.all(meals.map((m) => request.delete(`/api/meals/${m.id}`)));
 }
 
+export async function resetSettings(request: APIRequestContext): Promise<void> {
+	const res = await request.patch('/api/settings', {
+		data: {
+			ai: { provider: null, model: null, customBaseUrl: null, apiKey: null },
+			bring: { email: null, password: null },
+		},
+	});
+	expect(res.ok()).toBe(true);
+}
+
 export async function createMeal(
 	page: Page,
 	name: string,

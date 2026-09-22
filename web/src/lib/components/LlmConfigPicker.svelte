@@ -1,6 +1,13 @@
 <script lang="ts">
-	import { listLlmProviders, listLlmModels, ApiError } from '$lib/api';
-	import { readStoredLlmConfig } from '$lib/llm-config.svelte';
+	import { listLlmProviders, listLlmModels, getSettings, updateSettings, ApiError } from '$lib/api';
+	import {
+		SettingsCommitter,
+		isAiConfigured,
+		commitStatusLabelKey,
+		secretSourceLabelKey,
+		type SecretState,
+		type SettingsPatch,
+	} from '$lib/settings.svelte';
 	import { t } from '$lib/i18n';
 	import type { LlmProviderInfo } from '$lib/types';
 
@@ -8,22 +15,16 @@
 		provider = $bindable(''),
 		providerName = $bindable(''),
 		model = $bindable(''),
-		customBaseUrl = $bindable(''),
-		customApiKey = $bindable(''),
 		disabled = false,
 		providersReady = $bindable(true),
-		autorestore = true,
-		onrestored,
+		configured = $bindable(false),
 	}: {
 		provider?: string;
 		providerName?: string;
 		model?: string;
-		customBaseUrl?: string;
-		customApiKey?: string;
 		disabled?: boolean;
 		providersReady?: boolean;
-		autorestore?: boolean;
-		onrestored?: () => void;
+		configured?: boolean;
 	} = $props();
 
 	let llmProviders = $state<LlmProviderInfo[]>([]);
@@ -32,6 +33,9 @@
 	let llmModels: string[] = $state([]);
 	let llmModelsLoading = $state(false);
 	let llmModelsError = $state<string | null>(null);
+	let customBaseUrl = $state('');
+	let apiKeyInput = $state('');
+	let apiKeyState = $state<SecretState>({ set: false, source: 'none' });
 	let restored = $state(false);
 	// Provider whose models were already loaded this mount; ensures a fresh
 	// model load after the component remounts (collapse/expand, tab switch).
@@ -39,6 +43,18 @@
 	// Monotonic sequence for model-list requests: a slow earlier response must
 	// not overwrite the models of a newer provider switch.
 	let modelsRequestSeq = 0;
+
+	// Commits are serialized: a settings change may only be followed by the
+	// next one once the previous request has been answered, so a slow
+	// provider commit can never land after a newer model commit.
+	const committer = new SettingsCommitter(updateSettings, (snapshot) => {
+		apiKeyState = snapshot.ai.apiKey;
+		configured = isAiConfigured(snapshot);
+	});
+
+	function commit(patch: SettingsPatch): Promise<void> {
+		return committer.commit(patch);
+	}
 
 	async function loadModels() {
 		const seq = ++modelsRequestSeq;
@@ -56,11 +72,7 @@
 		llmModelsLoading = true;
 		llmModelsError = null;
 		try {
-			const resp = await listLlmModels(
-				provider,
-				provider === 'custom' ? customBaseUrl : undefined,
-				provider === 'custom' ? customApiKey || undefined : undefined,
-			);
+			const resp = await listLlmModels(provider);
 			if (seq !== modelsRequestSeq) return;
 			llmModels = resp.models;
 			if (model && !resp.models.includes(model)) {
@@ -81,20 +93,54 @@
 
 	function onProviderChange() {
 		// Invalidate any in-flight model-list request: a stale response must
-		// not repopulate the model select after a provider switch (incl. to
-		// 'custom', which does not trigger a new loadModels()).
+		// not repopulate the model select after a provider switch.
 		modelsRequestSeq++;
 		model = '';
+		customBaseUrl = '';
+		apiKeyInput = '';
 		llmModels = [];
 		llmModelsError = null;
-		customBaseUrl = '';
-		customApiKey = '';
-		if (provider && provider !== 'custom') {
-			loadModels();
-		}
-		// onProviderChange already (re)loads models directly; mark the new
-		// provider so the remount-reload effect below does not load twice.
-		modelsLoadedFor = provider;
+		providerName = llmProviders.find((p) => p.id === provider)?.name ?? provider;
+		// A provider switch invalidates the previous provider's model,
+		// endpoint and key: clear them in the same commit.
+		commit({
+			ai: { provider, model: null, customBaseUrl: null, apiKey: null },
+		}).then(() => {
+			modelsLoadedFor = provider;
+			if (provider && provider !== 'custom') loadModels();
+		});
+	}
+
+	function onModelChange() {
+		commit({ ai: { model: model.trim() ? model : null } });
+	}
+
+	function onBaseUrlChange() {
+		commit({ ai: { customBaseUrl: customBaseUrl.trim() ? customBaseUrl : null } }).then(() => {
+			if (provider === 'custom' && customBaseUrl.trim()) loadModels();
+		});
+	}
+
+	function onApiKeyChange() {
+		const value = apiKeyInput;
+		if (!value.trim()) return;
+		commit({ ai: { apiKey: value } }).then(() => {
+			// The value is stored now; never keep it in the DOM. A value typed
+			// while the request was in flight stays untouched.
+			if (apiKeyInput === value) apiKeyInput = '';
+			if (provider === 'custom' && customBaseUrl.trim()) loadModels();
+		});
+	}
+
+	function onClearApiKey() {
+		apiKeyInput = '';
+		commit({ ai: { apiKey: null } });
+	}
+
+	function onEnter(event: KeyboardEvent, commitField: () => void) {
+		if (event.key !== 'Enter') return;
+		event.preventDefault();
+		commitField();
 	}
 
 	// Re-run the providers load after a failure: resetting llmProvidersLoaded
@@ -104,33 +150,8 @@
 		llmProvidersLoaded = false;
 	}
 
-	// Publish the current provider's display name (once providers load and on
-	// every provider change) so collapsed summaries can show it instead of the id.
+	// Load providers once, then reconcile the stored provider.
 	$effect(() => {
-		providerName = llmProviders.find((p) => p.id === provider)?.name ?? providerName;
-	});
-
-	$effect(() => {
-		// Restore stored config once per mount; never overwrite user edits.
-		if (autorestore && !restored) {
-			restored = true;
-			const stored = readStoredLlmConfig();
-			if (stored && !provider) {
-				provider = stored.provider;
-				model = stored.model;
-				customBaseUrl = stored.customBaseUrl;
-				customApiKey = stored.customApiKey;
-				// The direct loadModels() below covers the restored provider.
-				modelsLoadedFor = stored.provider;
-				if (stored.provider && stored.provider !== 'custom') {
-					loadModels();
-				}
-				if (stored.provider && stored.model) {
-					onrestored?.();
-				}
-			}
-		}
-		// Load providers once, then reconcile the restored provider.
 		if (!llmProvidersLoaded && !llmProvidersLoading) {
 			llmProvidersLoading = true;
 			providersReady = true;
@@ -140,6 +161,7 @@
 					llmProvidersLoaded = true;
 					llmProvidersLoading = false;
 					providersReady = p.length > 0;
+					providerName = p.find((pp) => pp.id === provider)?.name ?? provider;
 					if (provider && !p.some((pp) => pp.id === provider)) {
 						provider = '';
 						model = '';
@@ -153,35 +175,32 @@
 		}
 	});
 
-	// Debounced model loading for custom endpoint URL / API key changes.
-	let _customDebounceTimer: ReturnType<typeof setTimeout> | undefined;
+	// Load the stored configuration once per mount; never overwrite user edits.
 	$effect(() => {
-		customBaseUrl;
-		customApiKey;
-		if (provider === 'custom' && customBaseUrl.trim()) {
-			if (_customDebounceTimer) clearTimeout(_customDebounceTimer);
-			_customDebounceTimer = setTimeout(() => {
-				loadModels();
-			}, 500);
-		} else if (provider === 'custom') {
-			// Base URL cleared: drop the stale model list instead of leaving
-			// the previously loaded models selectable. Bump the seq first so a
-			// listLlmModels response still in flight is invalidated and cannot
-			// repopulate the list (or surface a stale error) afterwards.
-			modelsRequestSeq++;
-			model = '';
-			llmModels = [];
-			llmModelsLoading = false;
-			llmModelsError = null;
-		}
-		return () => {
-			if (_customDebounceTimer) clearTimeout(_customDebounceTimer);
-		};
+		if (restored) return;
+		restored = true;
+		getSettings()
+			.then((snapshot) => {
+				provider = snapshot.ai.provider;
+				model = snapshot.ai.model;
+				customBaseUrl = snapshot.ai.customBaseUrl;
+				apiKeyState = snapshot.ai.apiKey;
+				configured = isAiConfigured(snapshot);
+				providerName = llmProviders.find((p) => p.id === provider)?.name ?? provider;
+				// Standard providers list their models straight away; the custom
+				// provider waits for a base URL to be stored.
+				if (provider && provider !== 'custom') {
+					modelsLoadedFor = provider;
+					loadModels();
+				}
+			})
+			.catch(() => {
+				// A settings read failure leaves the picker empty; the settings
+				// page surfaces the error again on its own load.
+			});
 	});
 
 	// Reload models when the picker remounts with a provider already selected.
-	// Collapse/expand toggles and tab switches unmount this component, which
-	// resets the per-mount llmModels list, so nothing else would repopulate it.
 	$effect(() => {
 		if (provider && provider !== 'custom' && modelsLoadedFor !== provider) {
 			modelsLoadedFor = provider;
@@ -216,9 +235,11 @@
 					<span class="import-loading">{t('llmModelLoading')}</span>
 				{:else if llmModelsError}
 					<input type="text" bind:value={model} placeholder={t('importLlmModelPlaceholder')}
-						disabled={disabled} />
+						disabled={disabled} onchange={onModelChange}
+						onkeydown={(e) => onEnter(e, onModelChange)} />
 				{:else}
-					<select bind:value={model} aria-label={t('llmModelLabel')} disabled={disabled}>
+					<select bind:value={model} aria-label={t('llmModelLabel')} disabled={disabled}
+						onchange={onModelChange}>
 						<option value="">{t('llmModelPlaceholder')}</option>
 						{#each llmModels as m}
 							<option value={m}>{m}</option>
@@ -233,13 +254,27 @@
 			<label class="import-field">
 				<span>{t('llmCustomBaseUrlLabel')}</span>
 				<input type="url" bind:value={customBaseUrl} placeholder={t('llmCustomBaseUrlPlaceholder')}
-					disabled={disabled} />
+					disabled={disabled} onchange={onBaseUrlChange}
+					onkeydown={(e) => onEnter(e, onBaseUrlChange)} />
 			</label>
+		{/if}
+
+		{#if provider}
 			<label class="import-field">
-				<span>{t('llmCustomApiKeyLabel')}</span>
-				<input type="password" bind:value={customApiKey} placeholder={t('llmCustomApiKeyPlaceholder')}
-					disabled={disabled} />
+				<span>{provider === 'custom' ? t('llmCustomApiKeyLabel') : t('settingsApiKeyLabel')}</span>
+				<input type="password" bind:value={apiKeyInput}
+					placeholder={provider === 'custom' ? t('llmCustomApiKeyPlaceholder') : t('settingsApiKeyPlaceholder')}
+					disabled={disabled} onchange={onApiKeyChange}
+					onkeydown={(e) => onEnter(e, onApiKeyChange)} />
 			</label>
+			<p class="llm-secret-state">
+				{t(secretSourceLabelKey(apiKeyState.source))}
+				{#if apiKeyState.source === 'settings'}
+					<button type="button" class="btn btn--ghost" onclick={onClearApiKey} disabled={disabled}>
+						{t('settingsSecretClear')}
+					</button>
+				{/if}
+			</p>
 		{/if}
 
 		{#if llmModelsError}
@@ -247,6 +282,13 @@
 		{/if}
 		{#if provider === 'ollama' && llmModelsError}
 			<p class="import-info">{t('llmOllamaHint')}</p>
+		{/if}
+
+		<p class="llm-commit-state" role="status">
+			{commitStatusLabelKey(committer.state.status) ? t(commitStatusLabelKey(committer.state.status)!) : ''}
+		</p>
+		{#if committer.state.status === 'error'}
+			<p class="form-error" role="alert">{committer.state.error}</p>
 		{/if}
 	</div>
 {/if}
@@ -270,5 +312,18 @@
 	.llm-provider-row > * {
 		flex: 1;
 		min-width: 0;
+	}
+
+	.llm-secret-state {
+		display: flex;
+		align-items: center;
+		gap: var(--space-2);
+		font-size: var(--text-sm);
+		color: var(--color-text-secondary);
+	}
+	.llm-commit-state {
+		min-height: 1.2em;
+		font-size: var(--text-sm);
+		color: var(--color-text-muted);
 	}
 </style>

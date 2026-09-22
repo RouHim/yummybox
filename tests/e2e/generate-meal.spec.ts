@@ -1,19 +1,21 @@
-import { test, expect } from '@playwright/test';
-import { resetMeals, setLocale } from './_helpers';
+import { test, expect, type Page } from '@playwright/test';
+import { resetMeals, resetSettings, setLocale } from './_helpers';
 
 const TINY_PNG = Buffer.from(
 	'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==',
 	'base64',
 );
 
-async function configureMockProvider(page: import('@playwright/test').Page) {
+async function configureMockProvider(page: Page) {
 	// Provider select is the first select in the picker.
 	await page.locator('select').first().selectOption('custom');
 	await page.getByLabel('Base URL').fill('http://127.0.0.1:18999/v1/');
 	// genai's OpenAI adapter requires a key value even for keyless endpoints;
 	// the mock ignores the Authorization header.
 	await page.getByLabel('API Key (optional)').fill('mock-key');
-	// Model list loads from the mock after the 500 ms debounce.
+	// Blurring commits the base URL and the key, which is what triggers the
+	// model list request against the now stored configuration.
+	await page.getByLabel('API Key (optional)').blur();
 	await expect(page.locator('select').nth(1)).toBeVisible({ timeout: 10_000 });
 	await page.locator('select').nth(1).selectOption('mock-model');
 }
@@ -22,6 +24,7 @@ test.describe('Generate meal page', () => {
 	test.beforeEach(async ({ request, page }) => {
 		await setLocale(page, 'en');
 		await resetMeals(request);
+		await resetSettings(request);
 	});
 
 	test('top bar button opens the generate page', async ({ page }) => {

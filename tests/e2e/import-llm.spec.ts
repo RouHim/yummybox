@@ -1,10 +1,11 @@
 import { test, expect, type Page } from '@playwright/test';
-import { resetMeals, setLocale } from './_helpers';
+import { resetMeals, resetSettings, setLocale } from './_helpers';
 
 test.describe('LLM import', () => {
 	test.beforeEach(async ({ request, page }) => {
 		await setLocale(page, 'en');
 		await resetMeals(request);
+		await resetSettings(request);
 	});
 
 	async function openLlmTab(page: Page): Promise<void> {
@@ -64,6 +65,12 @@ test.describe('LLM import', () => {
 		const modelSelect = dialog.locator('select').nth(1);
 		await expect(modelSelect).toBeVisible();
 		await modelSelect.selectOption('gpt-4o-mini');
+
+		// `openai` needs a stored key: the parse button stays disabled until the
+		// stored configuration is complete. Blurring commits the key.
+		const apiKey = dialog.getByLabel('API key');
+		await apiKey.fill('test-key');
+		await apiKey.blur();
 
 		await dialog.locator('.llm-hint-input').fill('A spicy chicken curry');
 
