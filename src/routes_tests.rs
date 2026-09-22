@@ -2996,6 +2996,8 @@ async fn given_stored_provider_when_replaced_then_snapshot_reports_the_new_value
 }
 
 // Provider list vs. stored/env keys
+// Each assertion runs in a controlled environment: the API-key variables it
+// reads are saved, cleared or set, and restored under the shared lock.
 
 /// Read one provider entry from the `/llm/providers` response.
 fn find_provider<'a>(json: &'a serde_json::Value, id: &str) -> &'a serde_json::Value {
@@ -3029,7 +3031,11 @@ async fn get_providers(ctx: &TestCtx) -> serde_json::Value {
 async fn given_stored_key_for_provider_when_list_providers_then_provider_configured() {
     let _guard = PROCESS_ENV_LOCK.lock().await;
     let had_key = std::env::var("OPENAI_API_KEY").ok();
-    unsafe { std::env::remove_var("OPENAI_API_KEY") };
+    let had_anthropic_key = std::env::var("ANTHROPIC_API_KEY").ok();
+    unsafe {
+        std::env::remove_var("OPENAI_API_KEY");
+        std::env::remove_var("ANTHROPIC_API_KEY");
+    }
 
     let ctx = setup().await;
     ctx.seed_setting("llm.provider", "openai").await;
@@ -3055,6 +3061,9 @@ async fn given_stored_key_for_provider_when_list_providers_then_provider_configu
     if let Some(value) = had_key {
         unsafe { std::env::set_var("OPENAI_API_KEY", value) };
     }
+    if let Some(value) = had_anthropic_key {
+        unsafe { std::env::set_var("ANTHROPIC_API_KEY", value) };
+    }
 }
 
 #[tokio::test]
@@ -3071,6 +3080,26 @@ async fn given_blank_env_key_when_list_providers_then_env_key_not_set() {
     // `settings::provider_env_key` treats it, so the two endpoints agree.
     assert_eq!(openai["envKeySet"], serde_json::Value::Bool(false));
     assert_eq!(openai["configured"], serde_json::Value::Bool(false));
+
+    match had_key {
+        Some(value) => unsafe { std::env::set_var("OPENAI_API_KEY", value) },
+        None => unsafe { std::env::remove_var("OPENAI_API_KEY") },
+    }
+}
+
+#[tokio::test]
+async fn given_env_key_when_list_providers_then_env_key_set_and_configured() {
+    let _guard = PROCESS_ENV_LOCK.lock().await;
+    let had_key = std::env::var("OPENAI_API_KEY").ok();
+    unsafe { std::env::set_var("OPENAI_API_KEY", "sk-env") };
+
+    let ctx = setup().await;
+    let json = get_providers(&ctx).await;
+    let openai = find_provider(&json, "openai");
+
+    assert_eq!(openai["envKeySet"], serde_json::Value::Bool(true));
+    // FR-016: the environment variable alone makes the provider usable.
+    assert_eq!(openai["configured"], serde_json::Value::Bool(true));
 
     match had_key {
         Some(value) => unsafe { std::env::set_var("OPENAI_API_KEY", value) },
