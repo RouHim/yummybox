@@ -2912,6 +2912,16 @@ async fn given_stored_secret_when_patched_then_response_never_contains_it() {
 
 #[tokio::test]
 async fn given_credentials_when_cleared_then_settings_fall_back_to_environment() {
+    // The handler resolves the cleared fields through the process environment,
+    // so ambient BRING_EMAIL/BRING_PASSWORD must not leak into this test.
+    let _guard = BRING_ENV_LOCK.lock().await;
+    let had_email = std::env::var("BRING_EMAIL").ok();
+    let had_password = std::env::var("BRING_PASSWORD").ok();
+    unsafe {
+        std::env::remove_var("BRING_EMAIL");
+        std::env::remove_var("BRING_PASSWORD");
+    }
+
     let ctx = setup().await;
     ctx.seed_setting("bring.email", "stored@example.com").await;
     ctx.seed_setting("bring.password", "stored-pass").await;
@@ -2925,6 +2935,18 @@ async fn given_credentials_when_cleared_then_settings_fall_back_to_environment()
     assert_eq!(status, StatusCode::OK);
     assert_eq!(json["bring"]["emailSource"], "none");
     assert_eq!(json["bring"]["password"]["set"], false);
+
+    // Restore env vars
+    if let Some(value) = had_email {
+        unsafe {
+            std::env::set_var("BRING_EMAIL", value);
+        }
+    }
+    if let Some(value) = had_password {
+        unsafe {
+            std::env::set_var("BRING_PASSWORD", value);
+        }
+    }
 }
 
 #[tokio::test]
