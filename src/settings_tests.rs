@@ -615,3 +615,76 @@ async fn given_cleared_value_without_environment_when_cleared_then_not_configure
     let stored = load(&pool).await.expect("load");
     assert!(resolve_bring(&stored, &empty_env()).is_none());
 }
+
+#[test]
+fn given_no_stored_credentials_when_resolved_then_environment_values_apply() {
+    let env = |key: &str| match key {
+        "BRING_EMAIL" => Some("env@example.com".to_string()),
+        "BRING_PASSWORD" => Some("env-pass".to_string()),
+        _ => None,
+    };
+
+    let credentials = resolve_bring(&StoredSettings::default(), &env).expect("credentials");
+
+    assert_eq!(credentials.email, "env@example.com");
+    assert_eq!(credentials.password, "env-pass");
+}
+
+#[test]
+fn given_only_one_stored_field_when_resolved_then_the_other_falls_back_to_environment() {
+    let stored = StoredSettings {
+        bring_email: Some("stored@example.com".to_string()),
+        ..StoredSettings::default()
+    };
+    let env = |key: &str| match key {
+        "BRING_EMAIL" => Some("env@example.com".to_string()),
+        "BRING_PASSWORD" => Some("env-pass".to_string()),
+        _ => None,
+    };
+
+    let credentials = resolve_bring(&stored, &env).expect("credentials");
+
+    // Each field resolves on its own: stored email, inherited password.
+    assert_eq!(credentials.email, "stored@example.com");
+    assert_eq!(credentials.password, "env-pass");
+}
+
+#[tokio::test]
+async fn given_cleared_credentials_with_environment_when_resolved_then_environment_values_apply() {
+    let (pool, _dir) = setup_db().await;
+    apply(
+        &pool,
+        &SettingsPatch {
+            ai: None,
+            bring: Some(BringPatch {
+                email: Some(Some("stored@example.com".to_string())),
+                password: Some(Some("stored-pass".to_string())),
+            }),
+        },
+    )
+    .await
+    .expect("store credentials");
+    apply(
+        &pool,
+        &SettingsPatch {
+            ai: None,
+            bring: Some(BringPatch {
+                email: Some(None),
+                password: Some(None),
+            }),
+        },
+    )
+    .await
+    .expect("clear credentials");
+
+    let env = |key: &str| match key {
+        "BRING_EMAIL" => Some("env@example.com".to_string()),
+        "BRING_PASSWORD" => Some("env-pass".to_string()),
+        _ => None,
+    };
+    let stored = load(&pool).await.expect("load");
+    let credentials = resolve_bring(&stored, &env).expect("credentials");
+
+    assert_eq!(credentials.email, "env@example.com");
+    assert_eq!(credentials.password, "env-pass");
+}
