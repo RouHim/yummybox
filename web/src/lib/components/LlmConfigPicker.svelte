@@ -200,9 +200,10 @@
 				apiKeyState = snapshot.ai.apiKey;
 				configured = isAiConfigured(snapshot);
 				providerName = llmProviders.find((p) => p.id === provider)?.name ?? provider;
-				// Standard providers list their models straight away; the custom
-				// provider waits for a base URL to be stored.
-				if (provider && provider !== 'custom') {
+				// List the restored provider's models straight away, so a stored
+				// model is displayed and stays editable; `loadModels` returns
+				// early while a custom provider has no stored base URL yet.
+				if (provider) {
 					modelsLoadedFor = provider;
 					loadModels();
 				}
@@ -215,7 +216,7 @@
 
 	// Reload models when the picker remounts with a provider already selected.
 	$effect(() => {
-		if (provider && provider !== 'custom' && modelsLoadedFor !== provider) {
+		if (provider && modelsLoadedFor !== provider) {
 			modelsLoadedFor = provider;
 			loadModels();
 		}
@@ -237,7 +238,10 @@
 				disabled={llmProvidersLoading || disabled}>
 				<option value="">{t('llmProviderPlaceholder')}</option>
 				{#each llmProviders as p}
-					<option value={p.id} disabled={!p.configured && p.id !== 'ollama'}>
+					<!-- Never disable a provider: `configured` only reports whether a
+					     key is available right now, and a disabled option would make
+					     storing that key from this picker impossible. -->
+					<option value={p.id}>
 						{p.name}{p.configured ? '' : ` (${t('notConfigured')})`}
 					</option>
 				{/each}

@@ -37,6 +37,40 @@ test.describe('Settings page', () => {
 		await expect(page.getByRole('heading', { name: 'Settings' })).toBeVisible();
 	});
 
+	test('given_fresh_database_when_provider_chosen_then_option_selectable_and_key_field_shown', async ({ page }) => {
+		// The real provider list is the thing under test: a fresh database with
+		// no provider environment variables reports every keyed provider as not
+		// configured, and that must not make it unselectable - a provider whose
+		// option is disabled can never have its key stored from the UI. Only the
+		// model listing is mocked, so no request can leave for a real provider.
+		await page.route('**/api/llm/models?*', async (route) => {
+			await route.fulfill({
+				status: 400,
+				contentType: 'application/json',
+				body: JSON.stringify({ error: 'API key not configured', code: 'llm_not_configured' }),
+			});
+		});
+
+		await page.goto('/settings');
+		const providerSelect = page.locator('select').first();
+		// The real list loads asynchronously; wait for a known provider before
+		// counting options, otherwise the empty pre-load select is measured.
+		await expect(providerSelect.locator('option[value="openai"]')).toHaveCount(1);
+
+		// Every provider in the real list must be choosable, whether or not it
+		// already has a usable key.
+		const options = providerSelect.locator('option[value]:not([value=""])');
+		const optionCount = await options.count();
+		expect(optionCount).toBeGreaterThan(0);
+		for (let i = 0; i < optionCount; i++) {
+			await expect(options.nth(i)).toBeEnabled();
+		}
+
+		// Choosing a keyed provider reveals the field its key is stored in.
+		await providerSelect.selectOption('openai');
+		await expect(page.getByLabel('API key')).toBeVisible();
+	});
+
 	test('given_provider_and_model_when_committed_then_saved_state_and_persisted', async ({ page }) => {
 		await page.goto('/settings');
 
@@ -58,6 +92,10 @@ test.describe('Settings page', () => {
 		await page.reload();
 		await expect(page.locator('select').first()).toHaveValue('custom');
 		await expect(page.getByLabel('Base URL')).toHaveValue(DEAD_ENDPOINT);
+		// The stored model survives too: the dead endpoint makes the listing fail
+		// again, so the restored model is shown in the free-text field. Without a
+		// listing on restore the model control would only offer its placeholder.
+		await expect(page.getByPlaceholder('Model name (e.g. gpt-4o-mini)')).toHaveValue('test-model');
 	});
 
 	test('given_stored_api_key_when_page_loads_then_state_shown_and_value_never_rendered', async ({ page, request }) => {

@@ -121,6 +121,7 @@ export interface LlmProviderInfo {
     id: string;
     name: string;
     envVar: string;
+    envKeySet: boolean;
     configured: boolean;
     supportsCustomEndpoint: boolean;
 }
