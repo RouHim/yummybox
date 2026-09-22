@@ -19,12 +19,13 @@ use crate::error::AppError;
 use crate::model::{Meal, Plan, PlanSummaryItem};
 use crate::routes::{
     add_bring_item, create_meal, create_plan, delete_meal, delete_plan, get_bring_status, get_meal,
-    get_meal_image, get_plans, get_version, list_meals, update_meal, update_plan,
+    get_meal_image, get_plans, get_settings, get_version, list_meals, update_meal, update_plan,
 };
 use crate::state::AppState;
 
 struct TestCtx {
     app: Router,
+    pool: sqlx::SqlitePool,
     _dir: tempfile::TempDir,
 }
 
@@ -32,7 +33,7 @@ async fn setup() -> TestCtx {
     let dir = tempfile::tempdir().expect("tempdir");
     let db_path = dir.path().join("test.db");
     let pool = init_db(&db_path).await.expect("init_db");
-    let state = Arc::new(AppState { pool });
+    let state = Arc::new(AppState { pool: pool.clone() });
     let app = Router::new()
         .route("/meals", get(list_meals).post(create_meal))
         .route(
@@ -52,10 +53,27 @@ async fn setup() -> TestCtx {
         .route("/plans/{year}/{week}", put(update_plan).delete(delete_plan))
         .route("/bring/items", post(add_bring_item))
         .route("/bring/status", get(get_bring_status))
+        .route("/settings", get(get_settings))
         .route("/version", get(get_version))
         .layer(axum::extract::DefaultBodyLimit::max(crate::MAX_BODY_BYTES))
         .with_state(state);
-    TestCtx { app, _dir: dir }
+    TestCtx {
+        app,
+        pool,
+        _dir: dir,
+    }
+}
+
+impl TestCtx {
+    /// Write a stored setting directly, bypassing the HTTP layer.
+    async fn seed_setting(&self, key: &str, value: &str) {
+        sqlx::query("INSERT INTO settings (key, value) VALUES (?1, ?2) ON CONFLICT(key) DO UPDATE SET value = excluded.value")
+            .bind(key)
+            .bind(value)
+            .execute(&self.pool)
+            .await
+            .expect("seed setting");
+    }
 }
 
 fn make_ingredient_lines(ings: &[(&str, Option<&str>)]) -> Vec<serde_json::Value> {
@@ -2491,7 +2509,7 @@ async fn given_missing_bring_credentials_when_status_then_returns_not_configured
         std::env::remove_var("BRING_PASSWORD");
     }
 
-    let TestCtx { app, _dir } = setup().await;
+    let TestCtx { app, _dir, .. } = setup().await;
     let request = Request::builder()
         .uri("/bring/status")
         .method(Method::GET)
@@ -2697,4 +2715,74 @@ async fn given_running_app_when_get_version_then_returns_cargo_pkg_version() {
     let v: serde_json::Value = serde_json::from_slice(&body).unwrap();
     let expected = option_env!("YUMMYBOX_VERSION").unwrap_or(env!("CARGO_PKG_VERSION"));
     assert_eq!(v["version"], expected);
+}
+
+// -----------------------------------------------------------------------
+// Settings routes
+// -----------------------------------------------------------------------
+
+#[tokio::test]
+async fn given_empty_settings_when_get_settings_then_blank_snapshot() {
+    let ctx = setup().await;
+    let response = ctx
+        .app
+        .oneshot(
+            Request::builder()
+                .method(Method::GET)
+                .uri("/settings")
+                .body(axum::body::Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    let body = to_bytes(response.into_body(), 8192).await.unwrap();
+    let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
+    assert_eq!(json["ai"]["provider"], "");
+    assert_eq!(json["ai"]["model"], "");
+    assert_eq!(json["ai"]["customBaseUrl"], "");
+    assert_eq!(json["ai"]["apiKey"]["set"], false);
+    assert_eq!(json["ai"]["apiKey"]["source"], "none");
+    assert_eq!(json["bring"]["email"], "");
+    assert_eq!(json["bring"]["emailSource"], "none");
+    assert_eq!(json["bring"]["password"]["set"], false);
+}
+
+#[tokio::test]
+async fn given_stored_secrets_when_get_settings_then_values_absent_from_body() {
+    let ctx = setup().await;
+    ctx.seed_setting("llm.provider", "openai").await;
+    ctx.seed_setting("llm.model", "gpt-4o-mini").await;
+    ctx.seed_setting("llm.api_key", "sk-super-secret").await;
+    ctx.seed_setting("bring.email", "cook@example.com").await;
+    ctx.seed_setting("bring.password", "super-secret-pass")
+        .await;
+
+    let response = ctx
+        .app
+        .oneshot(
+            Request::builder()
+                .method(Method::GET)
+                .uri("/settings")
+                .body(axum::body::Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    let body = to_bytes(response.into_body(), 8192).await.unwrap();
+    let text = String::from_utf8(body.to_vec()).unwrap();
+
+    assert!(!text.contains("sk-super-secret"), "api key leaked: {text}");
+    assert!(
+        !text.contains("super-secret-pass"),
+        "password leaked: {text}"
+    );
+
+    let json: serde_json::Value = serde_json::from_str(&text).unwrap();
+    assert_eq!(json["ai"]["apiKey"]["set"], true);
+    assert_eq!(json["ai"]["apiKey"]["source"], "settings");
+    assert_eq!(json["bring"]["email"], "cook@example.com");
+    assert_eq!(json["bring"]["emailSource"], "settings");
+    assert_eq!(json["bring"]["password"]["set"], true);
 }

@@ -645,3 +645,15 @@ pub async fn find_meal_image(
         None => Ok(None),
     }
 }
+
+// ---------------------------------------------------------------------------
+// Settings
+// ---------------------------------------------------------------------------
+
+/// Read every stored setting as (key, value) pairs.
+pub async fn list_settings(pool: &SqlitePool) -> Result<Vec<(String, String)>, AppError> {
+    let rows: Vec<(String, String)> = sqlx::query_as("SELECT key, value FROM settings")
+        .fetch_all(pool)
+        .await?;
+    Ok(rows)
+}

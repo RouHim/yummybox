@@ -429,3 +429,19 @@ pub async fn get_version(State(_state): State<Arc<AppState>>) -> Json<crate::mod
         version: option_env!("YUMMYBOX_VERSION").unwrap_or(env!("CARGO_PKG_VERSION")),
     })
 }
+
+// ---------------------------------------------------------------------------
+// Settings handler
+// ---------------------------------------------------------------------------
+
+/// The stored AI and Bring! settings, with secrets reduced to their set state.
+#[instrument(skip(state))]
+pub async fn get_settings(
+    State(state): State<Arc<AppState>>,
+) -> Result<Json<crate::settings::SettingsSnapshot>, AppError> {
+    let stored = crate::settings::load(&state.pool).await?;
+    Ok(Json(crate::settings::snapshot(
+        &stored,
+        &crate::settings::env_lookup,
+    )))
+}

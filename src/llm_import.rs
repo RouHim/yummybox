@@ -38,20 +38,36 @@ pub struct LlmModelsResponse {
 // Provider detection
 // ---------------------------------------------------------------------------
 
+/// The synthetic OpenAI-compatible provider id.
+pub const PROVIDER_CUSTOM: &str = "custom";
+
+/// Provider adapters offered by the app, with their display names.
+const PROVIDER_KINDS: &[(AdapterKind, &str)] = &[
+    (AdapterKind::OpenAI, "OpenAI"),
+    (AdapterKind::Anthropic, "Anthropic"),
+    (AdapterKind::Gemini, "Gemini"),
+    (AdapterKind::Groq, "Groq"),
+    (AdapterKind::Ollama, "Ollama"),
+    (AdapterKind::DeepSeek, "DeepSeek"),
+    (AdapterKind::Xai, "xAI"),
+];
+
+/// Every provider id the settings accept: the adapter kinds plus the
+/// synthetic OpenAI-compatible `custom` provider.
+pub fn provider_ids() -> Vec<&'static str> {
+    PROVIDER_KINDS
+        .iter()
+        .map(|(kind, _)| kind.as_lower_str())
+        .chain(std::iter::once(PROVIDER_CUSTOM))
+        .collect()
+}
+
 /// Returns the list of LLM providers and whether they are configured.
 /// Providers with a configured API key env var are marked `configured: true`.
 /// Ollama is always `configured: true` (no API key; local server).
 /// A synthetic "custom" provider for OpenAI-compatible endpoints is appended.
 pub fn list_providers() -> Vec<LlmProviderInfo> {
-    let kinds: &[(AdapterKind, &str)] = &[
-        (AdapterKind::OpenAI, "OpenAI"),
-        (AdapterKind::Anthropic, "Anthropic"),
-        (AdapterKind::Gemini, "Gemini"),
-        (AdapterKind::Groq, "Groq"),
-        (AdapterKind::Ollama, "Ollama"),
-        (AdapterKind::DeepSeek, "DeepSeek"),
-        (AdapterKind::Xai, "xAI"),
-    ];
+    let kinds = PROVIDER_KINDS;
 
     let mut providers: Vec<LlmProviderInfo> = kinds
         .iter()
@@ -74,7 +90,7 @@ pub fn list_providers() -> Vec<LlmProviderInfo> {
 
     // Append the synthetic "custom" OpenAI-compatible endpoint provider
     providers.push(LlmProviderInfo {
-        id: "custom".to_string(),
+        id: PROVIDER_CUSTOM.to_string(),
         name: "Custom OpenAI-compatible".to_string(),
         env_var: String::new(),
         configured: true,
