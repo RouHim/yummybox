@@ -6,7 +6,7 @@
 //! their origin.
 
 use genai::adapter::AdapterKind;
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use sqlx::SqlitePool;
 
 use crate::db;
@@ -228,4 +228,200 @@ fn secret_state(stored: bool, environment: bool) -> SecretState {
             source: ValueSource::None,
         }
     }
+}
+
+// ---------------------------------------------------------------------------
+// Commits
+// ---------------------------------------------------------------------------
+
+/// A field update: absent leaves the stored value untouched, `null` clears it,
+/// a string replaces it.
+pub type FieldUpdate = Option<Option<String>>;
+
+/// Deserialize a [`FieldUpdate`]. Serde turns a JSON `null` into a plain
+/// `None` for `Option<Option<String>>`, which would make "clear this field"
+/// indistinguishable from "leave it untouched", so an explicit `null` is
+/// wrapped back into `Some(None)`; a missing field stays `None` through the
+/// field's `#[serde(default)]`.
+fn field_update<'de, D>(deserializer: D) -> Result<FieldUpdate, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    Option::<String>::deserialize(deserializer).map(Some)
+}
+
+/// AI fields a commit may change.
+#[derive(Debug, Default, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct AiPatch {
+    #[serde(default, deserialize_with = "field_update")]
+    pub provider: FieldUpdate,
+    #[serde(default, deserialize_with = "field_update")]
+    pub model: FieldUpdate,
+    #[serde(default, deserialize_with = "field_update")]
+    pub custom_base_url: FieldUpdate,
+    #[serde(default, deserialize_with = "field_update")]
+    pub api_key: FieldUpdate,
+}
+
+/// Bring! fields a commit may change.
+#[derive(Debug, Default, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct BringPatch {
+    #[serde(default, deserialize_with = "field_update")]
+    pub email: FieldUpdate,
+    #[serde(default, deserialize_with = "field_update")]
+    pub password: FieldUpdate,
+}
+
+/// A settings commit. Omitting a section or a field leaves it untouched.
+#[derive(Debug, Default, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct SettingsPatch {
+    #[serde(default)]
+    pub ai: Option<AiPatch>,
+    #[serde(default)]
+    pub bring: Option<BringPatch>,
+}
+
+/// A validated commit: keys to upsert and keys to remove.
+#[derive(Debug, Default, PartialEq, Eq)]
+pub struct SettingWrites {
+    pub set: Vec<(&'static str, String)>,
+    pub delete: Vec<&'static str>,
+}
+
+/// Validate a patch and turn it into the writes it performs. A rejection names
+/// the offending field and the violated constraint; nothing is written.
+pub fn plan_writes(patch: &SettingsPatch) -> Result<SettingWrites, AppError> {
+    let mut writes = SettingWrites::default();
+    if let Some(ai) = &patch.ai {
+        plan_text(
+            &mut writes,
+            ai.provider.as_ref(),
+            KEY_LLM_PROVIDER,
+            validate_provider,
+        )?;
+        plan_text(&mut writes, ai.model.as_ref(), KEY_LLM_MODEL, |value| {
+            validate_len("model", value, MAX_MODEL_LEN)
+        })?;
+        plan_text(
+            &mut writes,
+            ai.custom_base_url.as_ref(),
+            KEY_LLM_BASE_URL,
+            validate_base_url,
+        )?;
+        plan_text(&mut writes, ai.api_key.as_ref(), KEY_LLM_API_KEY, |value| {
+            validate_len("apiKey", value, MAX_API_KEY_LEN)
+        })?;
+    }
+    if let Some(bring) = &patch.bring {
+        plan_text(
+            &mut writes,
+            bring.email.as_ref(),
+            KEY_BRING_EMAIL,
+            |value| validate_len("email", value, MAX_BRING_EMAIL_LEN),
+        )?;
+        plan_secret(
+            &mut writes,
+            bring.password.as_ref(),
+            KEY_BRING_PASSWORD,
+            MAX_BRING_PASSWORD_LEN,
+        )?;
+    }
+    Ok(writes)
+}
+
+/// Record a text field: absent = untouched, `null` = clear, blank = clear,
+/// otherwise validate and set.
+fn plan_text(
+    writes: &mut SettingWrites,
+    update: Option<&Option<String>>,
+    key: &'static str,
+    validate: impl FnOnce(&str) -> Result<(), AppError>,
+) -> Result<(), AppError> {
+    let Some(update) = update else {
+        return Ok(());
+    };
+    let Some(raw) = update else {
+        writes.delete.push(key);
+        return Ok(());
+    };
+    let value = raw.trim();
+    if value.is_empty() {
+        writes.delete.push(key);
+        return Ok(());
+    }
+    validate(value)?;
+    writes.set.push((key, value.to_string()));
+    Ok(())
+}
+
+/// Record a secret field: stored verbatim, because leading or trailing spaces
+/// may be part of the value; only `null` or an empty string clears it.
+fn plan_secret(
+    writes: &mut SettingWrites,
+    update: Option<&Option<String>>,
+    key: &'static str,
+    max: usize,
+) -> Result<(), AppError> {
+    let Some(update) = update else {
+        return Ok(());
+    };
+    let Some(value) = update else {
+        writes.delete.push(key);
+        return Ok(());
+    };
+    if value.is_empty() {
+        writes.delete.push(key);
+        return Ok(());
+    }
+    validate_len("password", value, max)?;
+    writes.set.push((key, value.clone()));
+    Ok(())
+}
+
+fn validate_provider(value: &str) -> Result<(), AppError> {
+    validate_len("provider", value, MAX_PROVIDER_LEN)?;
+    let ids = crate::llm_import::provider_ids();
+    if !ids.contains(&value) {
+        return Err(AppError::Validation(format!(
+            "provider must be one of {}, got '{value}'",
+            ids.join(", ")
+        )));
+    }
+    Ok(())
+}
+
+fn validate_len(field: &str, value: &str, max: usize) -> Result<(), AppError> {
+    if value.chars().count() > max {
+        return Err(AppError::Validation(format!(
+            "{field} must be at most {max} characters, got {}",
+            value.chars().count()
+        )));
+    }
+    Ok(())
+}
+
+fn validate_base_url(value: &str) -> Result<(), AppError> {
+    validate_len("customBaseUrl", value, MAX_BASE_URL_LEN)?;
+    let lower = value.to_ascii_lowercase();
+    if !(lower.starts_with("http://") || lower.starts_with("https://")) {
+        return Err(AppError::Validation(
+            "customBaseUrl must start with http:// or https://".to_string(),
+        ));
+    }
+    if value.chars().any(char::is_whitespace) {
+        return Err(AppError::Validation(
+            "customBaseUrl must not contain whitespace".to_string(),
+        ));
+    }
+    Ok(())
+}
+
+/// Apply a commit: validate, then write every change in one transaction, so a
+/// rejected or failing commit leaves the previous values in place.
+pub async fn apply(pool: &SqlitePool, patch: &SettingsPatch) -> Result<(), AppError> {
+    let writes = plan_writes(patch)?;
+    db::apply_setting_writes(pool, &writes.set, &writes.delete).await
 }

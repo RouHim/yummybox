@@ -657,3 +657,30 @@ pub async fn list_settings(pool: &SqlitePool) -> Result<Vec<(String, String)>, A
         .await?;
     Ok(rows)
 }
+
+/// Apply a settings commit atomically: `set` pairs are upserted and `delete`
+/// keys removed inside one transaction, so a failing commit changes nothing.
+pub async fn apply_setting_writes(
+    pool: &SqlitePool,
+    set: &[(&str, String)],
+    delete: &[&str],
+) -> Result<(), AppError> {
+    let mut tx = pool.begin().await?;
+    for (key, value) in set {
+        sqlx::query(
+            "INSERT INTO settings (key, value) VALUES (?1, ?2) ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+        )
+        .bind(key)
+        .bind(value)
+        .execute(&mut *tx)
+        .await?;
+    }
+    for key in delete {
+        sqlx::query("DELETE FROM settings WHERE key = ?1")
+            .bind(key)
+            .execute(&mut *tx)
+            .await?;
+    }
+    tx.commit().await?;
+    Ok(())
+}

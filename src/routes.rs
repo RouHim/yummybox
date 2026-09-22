@@ -3,6 +3,7 @@ use std::sync::Arc;
 
 use axum::Json;
 use axum::extract::multipart::Field;
+use axum::extract::rejection::JsonRejection;
 use axum::extract::{Multipart, Path, Query, State};
 use axum::http::{HeaderMap, HeaderValue, StatusCode, header};
 use axum::response::{IntoResponse, Response};
@@ -439,6 +440,22 @@ pub async fn get_version(State(_state): State<Arc<AppState>>) -> Json<crate::mod
 pub async fn get_settings(
     State(state): State<Arc<AppState>>,
 ) -> Result<Json<crate::settings::SettingsSnapshot>, AppError> {
+    let stored = crate::settings::load(&state.pool).await?;
+    Ok(Json(crate::settings::snapshot(
+        &stored,
+        &crate::settings::env_lookup,
+    )))
+}
+
+/// Commit stored AI and Bring! settings, returning the new effective snapshot.
+/// A malformed or unknown-field body, and any rejected field, change nothing.
+#[instrument(skip(state))]
+pub async fn patch_settings(
+    State(state): State<Arc<AppState>>,
+    payload: Result<Json<crate::settings::SettingsPatch>, JsonRejection>,
+) -> Result<Json<crate::settings::SettingsSnapshot>, AppError> {
+    let Json(patch) = payload.map_err(|rejection| AppError::BadRequest(rejection.body_text()))?;
+    crate::settings::apply(&state.pool, &patch).await?;
     let stored = crate::settings::load(&state.pool).await?;
     Ok(Json(crate::settings::snapshot(
         &stored,

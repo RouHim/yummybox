@@ -203,3 +203,225 @@ fn given_stored_password_with_spaces_when_read_then_preserved() {
 fn given_env_lookup_when_reading_unset_variable_then_none() {
     assert_eq!(env_lookup("YUMMYBOX_DEFINITELY_UNSET_VARIABLE"), None);
 }
+
+// ---------------------------------------------------------------------------
+// Commits
+// ---------------------------------------------------------------------------
+
+use crate::settings::{AiPatch, BringPatch, SettingWrites, SettingsPatch, apply, plan_writes};
+
+fn ai_patch(provider: Option<Option<&str>>, model: Option<Option<&str>>) -> SettingsPatch {
+    SettingsPatch {
+        ai: Some(AiPatch {
+            provider: provider.map(|value| value.map(str::to_string)),
+            model: model.map(|value| value.map(str::to_string)),
+            ..AiPatch::default()
+        }),
+        bring: None,
+    }
+}
+
+#[test]
+fn given_provider_and_model_when_plan_writes_then_both_set() {
+    let patch = ai_patch(Some(Some("openai")), Some(Some("gpt-4o-mini")));
+    let writes = plan_writes(&patch).expect("valid patch");
+    assert_eq!(
+        writes,
+        SettingWrites {
+            set: vec![
+                ("llm.provider", "openai".to_string()),
+                ("llm.model", "gpt-4o-mini".to_string()),
+            ],
+            delete: vec![],
+        }
+    );
+}
+
+#[test]
+fn given_null_field_when_plan_writes_then_key_deleted() {
+    let patch = ai_patch(None, Some(None));
+    let writes = plan_writes(&patch).expect("valid patch");
+    assert_eq!(writes.set, vec![]);
+    assert_eq!(writes.delete, vec!["llm.model"]);
+}
+
+#[test]
+fn given_absent_field_when_plan_writes_then_untouched() {
+    let patch = ai_patch(Some(Some("openai")), None);
+    let writes = plan_writes(&patch).expect("valid patch");
+    assert_eq!(writes.set.len(), 1);
+    assert!(writes.delete.is_empty());
+}
+
+#[test]
+fn given_blank_string_when_plan_writes_then_treated_as_clear() {
+    let patch = ai_patch(Some(Some("   ")), Some(Some("")));
+    let writes = plan_writes(&patch).expect("valid patch");
+    assert_eq!(writes.set, vec![]);
+    assert_eq!(writes.delete, vec!["llm.provider", "llm.model"]);
+}
+
+#[test]
+fn given_unknown_provider_when_plan_writes_then_rejected_naming_field() {
+    let patch = ai_patch(Some(Some("gpt-5-legacy")), None);
+    let err = plan_writes(&patch).expect_err("must reject");
+    let message = err.to_string();
+    assert!(message.contains("provider must be one of"), "{message}");
+    assert!(message.contains("gpt-5-legacy"), "{message}");
+}
+
+#[test]
+fn given_overlong_model_when_plan_writes_then_rejected_naming_field() {
+    let long = "m".repeat(201);
+    let patch = ai_patch(None, Some(Some(&long)));
+    let err = plan_writes(&patch).expect_err("must reject");
+    let message = err.to_string();
+    assert!(
+        message.contains("model must be at most 200 characters"),
+        "{message}"
+    );
+}
+
+#[test]
+fn given_base_url_without_scheme_when_plan_writes_then_rejected() {
+    let patch = SettingsPatch {
+        ai: Some(AiPatch {
+            custom_base_url: Some(Some("localhost:8080/v1/".to_string())),
+            ..AiPatch::default()
+        }),
+        bring: None,
+    };
+    let err = plan_writes(&patch).expect_err("must reject");
+    assert!(
+        err.to_string()
+            .contains("customBaseUrl must start with http:// or https://"),
+        "{err}"
+    );
+}
+
+#[test]
+fn given_base_url_with_whitespace_when_plan_writes_then_rejected() {
+    let patch = SettingsPatch {
+        ai: Some(AiPatch {
+            custom_base_url: Some(Some("http://local host/v1/".to_string())),
+            ..AiPatch::default()
+        }),
+        bring: None,
+    };
+    let err = plan_writes(&patch).expect_err("must reject");
+    assert!(
+        err.to_string()
+            .contains("customBaseUrl must not contain whitespace"),
+        "{err}"
+    );
+}
+
+#[tokio::test]
+async fn given_valid_patch_when_apply_then_stored_and_snapshot_updated() {
+    let (pool, _dir) = setup_db().await;
+    let patch = SettingsPatch {
+        ai: Some(AiPatch {
+            provider: Some(Some("custom".to_string())),
+            model: Some(Some("llama3".to_string())),
+            custom_base_url: Some(Some("http://localhost:8080/v1/".to_string())),
+            api_key: Some(Some("local-key".to_string())),
+        }),
+        bring: None,
+    };
+    apply(&pool, &patch).await.expect("apply");
+
+    let snapshot = snapshot(&load(&pool).await.expect("load"), &empty_env());
+    assert_eq!(snapshot.ai.provider, "custom");
+    assert_eq!(snapshot.ai.model, "llama3");
+    assert_eq!(snapshot.ai.custom_base_url, "http://localhost:8080/v1/");
+    assert_eq!(snapshot.ai.api_key.source, ValueSource::Settings);
+}
+
+#[tokio::test]
+async fn given_stored_secret_when_cleared_then_environment_value_is_effective_again() {
+    let (pool, _dir) = setup_db().await;
+    apply(
+        &pool,
+        &SettingsPatch {
+            ai: Some(AiPatch {
+                provider: Some(Some("openai".to_string())),
+                model: Some(Some("gpt-4o-mini".to_string())),
+                api_key: Some(Some("sk-stored".to_string())),
+                ..AiPatch::default()
+            }),
+            bring: Some(BringPatch {
+                email: Some(Some("stored@example.com".to_string())),
+                password: Some(Some("stored-pass".to_string())),
+            }),
+        },
+    )
+    .await
+    .expect("apply");
+
+    apply(
+        &pool,
+        &SettingsPatch {
+            ai: Some(AiPatch {
+                api_key: Some(None),
+                ..AiPatch::default()
+            }),
+            bring: Some(BringPatch {
+                email: Some(None),
+                password: Some(None),
+            }),
+        },
+    )
+    .await
+    .expect("clear");
+
+    let env = |key: &str| match key {
+        "OPENAI_API_KEY" => Some("sk-env".to_string()),
+        "BRING_EMAIL" => Some("env@example.com".to_string()),
+        "BRING_PASSWORD" => Some("env-pass".to_string()),
+        _ => None,
+    };
+    let stored = load(&pool).await.expect("load");
+    let snapshot = snapshot(&stored, &env);
+    assert_eq!(snapshot.ai.api_key.source, ValueSource::Environment);
+    assert_eq!(snapshot.bring.email, "env@example.com");
+    assert_eq!(snapshot.bring.email_source, ValueSource::Environment);
+    assert_eq!(snapshot.bring.password.source, ValueSource::Environment);
+}
+
+#[tokio::test]
+async fn given_password_with_spaces_when_stored_then_preserved_verbatim() {
+    let (pool, _dir) = setup_db().await;
+    apply(
+        &pool,
+        &SettingsPatch {
+            bring: Some(BringPatch {
+                password: Some(Some(" pa ss ".to_string())),
+                email: None,
+            }),
+            ai: None,
+        },
+    )
+    .await
+    .expect("apply");
+
+    let stored = load(&pool).await.expect("load");
+    assert_eq!(stored.bring_password.as_deref(), Some(" pa ss "));
+}
+
+#[test]
+fn given_overlong_password_when_plan_writes_then_rejected_naming_field() {
+    let long = "p".repeat(257);
+    let patch = SettingsPatch {
+        ai: None,
+        bring: Some(BringPatch {
+            email: None,
+            password: Some(Some(long)),
+        }),
+    };
+    let err = plan_writes(&patch).expect_err("must reject");
+    assert!(
+        err.to_string()
+            .contains("password must be at most 256 characters"),
+        "{err}"
+    );
+}

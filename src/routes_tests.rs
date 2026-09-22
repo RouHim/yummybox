@@ -19,7 +19,8 @@ use crate::error::AppError;
 use crate::model::{Meal, Plan, PlanSummaryItem};
 use crate::routes::{
     add_bring_item, create_meal, create_plan, delete_meal, delete_plan, get_bring_status, get_meal,
-    get_meal_image, get_plans, get_settings, get_version, list_meals, update_meal, update_plan,
+    get_meal_image, get_plans, get_settings, get_version, list_meals, patch_settings, update_meal,
+    update_plan,
 };
 use crate::state::AppState;
 
@@ -53,7 +54,7 @@ async fn setup() -> TestCtx {
         .route("/plans/{year}/{week}", put(update_plan).delete(delete_plan))
         .route("/bring/items", post(add_bring_item))
         .route("/bring/status", get(get_bring_status))
-        .route("/settings", get(get_settings))
+        .route("/settings", get(get_settings).patch(patch_settings))
         .route("/version", get(get_version))
         .layer(axum::extract::DefaultBodyLimit::max(crate::MAX_BODY_BYTES))
         .with_state(state);
@@ -2807,4 +2808,136 @@ async fn given_stored_secrets_when_get_settings_then_values_absent_from_body() {
     assert_eq!(json["bring"]["email"], "cook@example.com");
     assert_eq!(json["bring"]["emailSource"], "settings");
     assert_eq!(json["bring"]["password"]["set"], true);
+}
+
+// -----------------------------------------------------------------------
+// Settings commits
+// -----------------------------------------------------------------------
+
+async fn patch_settings_json(
+    ctx: &TestCtx,
+    body: serde_json::Value,
+) -> (StatusCode, serde_json::Value) {
+    let response = ctx
+        .app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method(Method::PATCH)
+                .uri("/settings")
+                .header("content-type", "application/json")
+                .body(axum::body::Body::from(body.to_string()))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    let status = response.status();
+    let bytes = to_bytes(response.into_body(), 8192).await.unwrap();
+    let json: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
+    (status, json)
+}
+
+#[tokio::test]
+async fn given_provider_and_model_when_patch_settings_then_snapshot_reports_them() {
+    let ctx = setup().await;
+    let (status, json) = patch_settings_json(
+        &ctx,
+        json!({ "ai": { "provider": "openai", "model": "gpt-4o-mini" } }),
+    )
+    .await;
+
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(json["ai"]["provider"], "openai");
+    assert_eq!(json["ai"]["model"], "gpt-4o-mini");
+}
+
+#[tokio::test]
+async fn given_unknown_provider_when_patch_settings_then_400_names_field_and_keeps_values() {
+    let ctx = setup().await;
+    let (status, _) = patch_settings_json(&ctx, json!({ "ai": { "provider": "openai" } })).await;
+    assert_eq!(status, StatusCode::OK);
+
+    let (status, json) =
+        patch_settings_json(&ctx, json!({ "ai": { "provider": "gpt-5-legacy" } })).await;
+    assert_eq!(status, StatusCode::BAD_REQUEST);
+    assert!(
+        json["error"]
+            .as_str()
+            .unwrap()
+            .contains("provider must be one of"),
+        "{json}"
+    );
+
+    let response = ctx
+        .app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method(Method::GET)
+                .uri("/settings")
+                .body(axum::body::Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    let bytes = to_bytes(response.into_body(), 8192).await.unwrap();
+    let json: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
+    assert_eq!(
+        json["ai"]["provider"], "openai",
+        "a rejected commit must not change stored values"
+    );
+}
+
+#[tokio::test]
+async fn given_unknown_field_when_patch_settings_then_400() {
+    let ctx = setup().await;
+    let (status, _) = patch_settings_json(&ctx, json!({ "ai": { "providerr": "openai" } })).await;
+    assert_eq!(status, StatusCode::BAD_REQUEST);
+}
+
+#[tokio::test]
+async fn given_stored_secret_when_patched_then_response_never_contains_it() {
+    let ctx = setup().await;
+    let (status, json) = patch_settings_json(
+        &ctx,
+        json!({ "ai": { "provider": "openai", "apiKey": "sk-super-secret" } }),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    let text = json.to_string();
+    assert!(!text.contains("sk-super-secret"), "api key leaked: {text}");
+    assert_eq!(json["ai"]["apiKey"]["set"], true);
+    assert_eq!(json["ai"]["apiKey"]["source"], "settings");
+}
+
+#[tokio::test]
+async fn given_credentials_when_cleared_then_settings_fall_back_to_environment() {
+    let ctx = setup().await;
+    ctx.seed_setting("bring.email", "stored@example.com").await;
+    ctx.seed_setting("bring.password", "stored-pass").await;
+
+    let (status, json) = patch_settings_json(
+        &ctx,
+        json!({ "bring": { "email": null, "password": null } }),
+    )
+    .await;
+
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(json["bring"]["emailSource"], "none");
+    assert_eq!(json["bring"]["password"]["set"], false);
+}
+
+#[tokio::test]
+async fn given_overlong_model_when_patch_settings_then_400_names_field() {
+    let ctx = setup().await;
+    let long = "m".repeat(201);
+    let (status, json) = patch_settings_json(&ctx, json!({ "ai": { "model": long } })).await;
+    assert_eq!(status, StatusCode::BAD_REQUEST);
+    assert!(
+        json["error"]
+            .as_str()
+            .unwrap()
+            .contains("model must be at most 200 characters"),
+        "{json}"
+    );
 }
