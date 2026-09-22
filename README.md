@@ -211,11 +211,19 @@ After generating a weekly plan, send ingredients to your [Bring!](https://getbri
 | `YUMMYBOX_DATA_DIR` | Where the database file lives | `./data` (next to the binary) |
 | `YUMMYBOX_PORT` | Port the server listens on | `11341` |
 
+### Settings page
+
+Open `/settings` (top-bar gear) to configure the AI provider and your Bring! account. Values entered there are stored in the SQLite database and take precedence over environment variables; a value cleared on the page falls back to the environment variable, or is reported as not configured when the environment provides none.
+
+API keys and the Bring! password are never sent back to the browser: the page only shows whether a value is set and whether it comes from the settings or from the environment.
+
+> **Security:** settings are stored in plaintext inside the database file. YummyBox has no authentication, so the database file permissions and the network exposure of the port are the security boundary. Do not expose the app to the internet.
+
 ### LLM providers
 
 To use the AI-powered recipe import, set an API key for your provider:
 
-| Provider | Environment variable | Example model |
+| Provider | Environment variable (fallback; prefer the settings page) | Example model |
 |----------|---------------------|---------------|
 | OpenAI | `OPENAI_API_KEY` | `gpt-4o-mini` |
 | Anthropic | `ANTHROPIC_API_KEY` | `claude-sonnet-4-20250514` |
@@ -237,8 +245,8 @@ OPENAI_API_KEY=sk-... ./yummybox
 
 | Variable | What it does |
 |----------|--------------|
-| `BRING_EMAIL` | Your Bring! account email address |
-| `BRING_PASSWORD` | Your Bring! account password |
+| `BRING_EMAIL` | Your Bring! account email address (fallback; prefer the settings page) |
+| `BRING_PASSWORD` | Your Bring! account password (fallback; prefer the settings page) |
 
 Example:
 

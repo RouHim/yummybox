@@ -38,9 +38,11 @@ Browser (SPA) ──fetch──▶ axum (Rust) ──async──▶ SQLite (via 
 | `src/export_import.rs` | ZIP export/import of meals |
 | `src/seed.rs` | Database seeding with sample meals (`yummybox seed`) |
 | `src/data_dir.rs` | Data directory resolution and creation |
+| `src/settings.rs` | Stored AI and Bring! settings, effective-configuration resolution, validation |
 | `migrations/` | SQLx migration files for schema evolution |
 | `web/` | SvelteKit project (frontend) |
 | `web/src/routes/` | Svelte page components: `+page.svelte` (home), `meals/` (list/create), `meals/[id]/` (detail/edit/cooking), `planner/` (weekly planner) |
+| `web/src/routes/settings/` | Settings page: AI provider/model/endpoint/key and Bring! credentials |
 | `web/src/lib/` | Shared modules: `api.ts` (fetch client), `validation.ts`, `types.ts`, i18n, components |
 | `web/build/` | Build output (embedded into binary at compile time) |
 
