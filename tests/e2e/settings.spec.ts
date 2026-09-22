@@ -5,10 +5,17 @@ import { resetMeals, resetSettings, setLocale } from './_helpers';
 // app never reaches a real LLM provider, and the model listing always fails.
 const DEAD_ENDPOINT = 'http://127.0.0.1:1/v1/';
 
-/** Answer the Bring! status probe the page (and the app-bar footer) runs. */
-async function mockBringStatus(page: Page, body: object): Promise<void> {
+type BringStatus = { configured: boolean; connected: boolean; error: string | null };
+
+/**
+ * Answer the Bring! status probe the page (and the app-bar footer) runs. A
+ * function is re-evaluated per request, so a mock can change its answer once a
+ * commit has landed.
+ */
+async function mockBringStatus(page: Page, body: BringStatus | (() => BringStatus)): Promise<void> {
 	await page.route('**/api/bring/status', async (route) => {
-		await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(body) });
+		const status = typeof body === 'function' ? body() : body;
+		await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(status) });
 	});
 }
 
@@ -68,7 +75,11 @@ test.describe('Settings page', () => {
 
 		await page.goto('/settings');
 
-		await expect(page.getByText('Stored in settings').first()).toBeVisible();
+		// Scoped to the AI card's own state line: the Bring! card renders its
+		// own "Not set" labels, so an unscoped locator would stay green even
+		// if the clear commit never reached the server.
+		const aiSecretState = page.locator('.settings-card').first().locator('.llm-secret-state');
+		await expect(aiSecretState).toContainText('Stored in settings');
 		await expect(page.locator('body')).not.toContainText('super-secret-key');
 
 		const res = await request.get('/api/settings');
@@ -76,7 +87,7 @@ test.describe('Settings page', () => {
 
 		// Clearing falls back to "not set" when no environment value exists.
 		await page.getByRole('button', { name: 'Clear' }).first().click();
-		await expect(page.getByText('Not set').first()).toBeVisible();
+		await expect(aiSecretState).toHaveText('Not set');
 	});
 
 	test('given_stored_bring_password_when_page_loads_then_value_never_rendered', async ({ page, request }) => {
@@ -89,30 +100,51 @@ test.describe('Settings page', () => {
 		await expect(page.getByLabel('Bring! email')).toHaveValue('cook@example.com');
 		await expect(page.getByText('Stored in settings').first()).toBeVisible();
 		await expect(page.locator('body')).not.toContainText('bring-secret-pass');
+		// The body text cannot see an input's value, so pin the field itself.
+		await expect(page.getByLabel('Bring! password')).toHaveValue('');
 
 		const res = await request.get('/api/settings');
 		expect(await res.text()).not.toContain('bring-secret-pass');
 	});
 
 	test('given_rejected_connection_when_credentials_committed_then_error_shown_inline', async ({ page }) => {
-		// Registered after the default probe mock, so it takes precedence.
-		await mockBringStatus(page, {
-			configured: true,
-			connected: false,
-			error: 'Bring! login failed, check your Bring! credentials in Settings',
+		// The failing answer only arrives once a commit landed: the page probes
+		// the endpoint on mount too, so a static mock would let this assertion
+		// pass without the post-commit re-probe (FR-011) existing at all.
+		let credentialsCommitted = false;
+		await page.route('**/api/settings', async (route) => {
+			const isCommit = route.request().method() === 'PATCH';
+			const response = await route.fetch();
+			if (isCommit) credentialsCommitted = true;
+			await route.fulfill({ response });
 		});
+		// Registered after the default probe mock, so it takes precedence.
+		await mockBringStatus(page, () =>
+			credentialsCommitted
+				? {
+						configured: true,
+						connected: false,
+						error: 'Bring! login failed, check your Bring! credentials in Settings',
+					}
+				: { configured: true, connected: false, error: null }
+		);
 
 		await page.goto('/settings');
+		// The app-bar layout probes the same endpoint for its footer, which
+		// repeats the message, so scope this to the page itself.
+		const inlineError = page.getByRole('main').getByText('Bring! login failed');
+		await expect(inlineError).toBeHidden();
+
 		const email = page.getByLabel('Bring! email');
 		await email.fill('cook@example.com');
 		await email.blur();
+		await expect(inlineError).toBeVisible();
+
 		const password = page.getByLabel('Bring! password');
 		await password.fill('wrong-password');
 		await password.blur();
 
-		// The app-bar layout probes the same endpoint for its footer, which
-		// repeats the message, so scope this to the page itself.
-		await expect(page.getByRole('main').getByText('Bring! login failed')).toBeVisible();
+		await expect(inlineError).toBeVisible();
 		await expect(page.getByLabel('Bring! password')).toHaveValue('');
 	});
 
