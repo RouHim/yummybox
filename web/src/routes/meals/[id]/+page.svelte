@@ -147,6 +147,9 @@ import { focusTrap } from '$lib/focusTrap';
 	{:else if notFound}
 		<p class="cooking-view__not-found">{t('cookingViewNotFound')}</p>
 	{:else if meal}
+		{#if !hasLlmConfig}
+			<AiConfigNotice />
+		{/if}
 		{#key meal.id}
 			<CookingView
 				{meal}
@@ -180,9 +183,6 @@ import { focusTrap } from '$lib/focusTrap';
 								<Icon name="sparkles" size={16} />
 							{/if}
 						</button>
-					{/if}
-					{#if !hasLlmConfig}
-						<AiConfigNotice />
 					{/if}
 					<button
 						type="button"

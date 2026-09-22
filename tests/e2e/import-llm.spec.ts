@@ -100,4 +100,105 @@ test.describe('LLM import', () => {
 		await expect(error).toBeVisible();
 		await expect(page.getByRole('button', { name: 'Parse with AI' })).toHaveCount(0);
 	});
+
+	test('given_failed_model_listing_when_api_key_stored_then_model_select_appears', async ({ page }) => {
+		await page.route('**/api/llm/providers', async (route) => {
+			await route.fulfill({
+				status: 200,
+				contentType: 'application/json',
+				body: JSON.stringify({
+					providers: [
+						{
+							id: 'openai',
+							name: 'OpenAI',
+							envVar: 'OPENAI_API_KEY',
+							configured: true,
+							supportsCustomEndpoint: false,
+						},
+					],
+				}),
+			});
+		});
+
+		// The server resolves the key from the store: the listing only succeeds
+		// once the key has been committed, exactly like the real backend.
+		await page.route('**/api/llm/models?*', async (route) => {
+			const settings = await page.request.get('/api/settings');
+			const keySet = ((await settings.json()) as { ai: { apiKey: { set: boolean } } }).ai.apiKey.set;
+			if (!keySet) {
+				await route.fulfill({
+					status: 400,
+					contentType: 'application/json',
+					body: JSON.stringify({ error: 'API key not configured', code: 'llm_not_configured' }),
+				});
+				return;
+			}
+			await route.fulfill({
+				status: 200,
+				contentType: 'application/json',
+				body: JSON.stringify({ models: ['gpt-4o-mini'] }),
+			});
+		});
+
+		await openLlmTab(page);
+		const dialog = page.getByRole('dialog');
+		await dialog.locator('select').first().selectOption('openai');
+
+		// A listing without a stored key falls back to a free-text model field.
+		const modelInput = dialog.getByPlaceholder('Model name (e.g. gpt-4o-mini)');
+		await expect(modelInput).toBeVisible();
+
+		// Storing the key must retry the listing and bring the select back.
+		const apiKey = dialog.getByLabel('API key');
+		await apiKey.fill('test-key');
+		await apiKey.blur();
+
+		const modelSelect = dialog.locator('select').nth(1);
+		await expect(modelSelect).toBeVisible();
+		await expect(modelSelect.locator('option[value="gpt-4o-mini"]')).toHaveCount(1);
+	});
+
+	test('given_loaded_custom_models_when_base_url_cleared_then_stale_models_are_dropped', async ({ page }) => {
+		await page.route('**/api/llm/providers', async (route) => {
+			await route.fulfill({
+				status: 200,
+				contentType: 'application/json',
+				body: JSON.stringify({
+					providers: [
+						{
+							id: 'custom',
+							name: 'Custom (OpenAI-compatible)',
+							envVar: '',
+							configured: true,
+							supportsCustomEndpoint: true,
+						},
+					],
+				}),
+			});
+		});
+
+		await page.route('**/api/llm/models?*', async (route) => {
+			await route.fulfill({
+				status: 200,
+				contentType: 'application/json',
+				body: JSON.stringify({ models: ['local-model'] }),
+			});
+		});
+
+		await openLlmTab(page);
+		const dialog = page.getByRole('dialog');
+		await dialog.locator('select').first().selectOption('custom');
+		await dialog.getByLabel('Base URL').fill('http://127.0.0.1:18999/v1/');
+		await dialog.getByLabel('Base URL').blur();
+
+		const modelSelect = dialog.locator('select').nth(1);
+		await expect(modelSelect.locator('option[value="local-model"]')).toHaveCount(1);
+		await modelSelect.selectOption('local-model');
+
+		// Clearing the endpoint drops the models that belonged to it.
+		await dialog.getByLabel('Base URL').fill('');
+		await dialog.getByLabel('Base URL').blur();
+
+		await expect(dialog.locator('select').nth(1).locator('option[value="local-model"]')).toHaveCount(0);
+	});
 });

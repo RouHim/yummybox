@@ -116,8 +116,19 @@
 	}
 
 	function onBaseUrlChange() {
-		commit({ ai: { customBaseUrl: customBaseUrl.trim() ? customBaseUrl : null } }).then(() => {
-			if (provider === 'custom' && customBaseUrl.trim()) loadModels();
+		if (!customBaseUrl.trim()) {
+			// The endpoint is gone: its models and the model chosen from them go
+			// with it, and a listing still in flight must not repopulate either.
+			modelsRequestSeq++;
+			model = '';
+			llmModels = [];
+			llmModelsLoading = false;
+			llmModelsError = null;
+			commit({ ai: { customBaseUrl: null, model: null } });
+			return;
+		}
+		commit({ ai: { customBaseUrl } }).then(() => {
+			if (provider === 'custom') loadModels();
 		});
 	}
 
@@ -128,7 +139,9 @@
 			// The value is stored now; never keep it in the DOM. A value typed
 			// while the request was in flight stays untouched.
 			if (apiKeyInput === value) apiKeyInput = '';
-			if (provider === 'custom' && customBaseUrl.trim()) loadModels();
+			// The stored key turns a failed model listing into a successful one,
+			// so retry it whenever the provider has a usable endpoint.
+			if (provider && (provider !== 'custom' || customBaseUrl.trim())) loadModels();
 		});
 	}
 
