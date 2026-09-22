@@ -20,6 +20,9 @@ pub struct LlmProviderInfo {
     pub id: String,
     pub name: String,
     pub env_var: String,
+    /// Whether the provider's API-key environment variable holds a value.
+    pub env_key_set: bool,
+    /// Whether the provider can be used right now.
     pub configured: bool,
     pub supports_custom_endpoint: bool,
 }
@@ -62,27 +65,29 @@ pub fn provider_ids() -> Vec<&'static str> {
         .collect()
 }
 
-/// Returns the list of LLM providers and whether they are configured.
-/// Providers with a configured API key env var are marked `configured: true`.
-/// Ollama is always `configured: true` (no API key; local server).
-/// A synthetic "custom" provider for OpenAI-compatible endpoints is appended.
-pub fn list_providers() -> Vec<LlmProviderInfo> {
-    let kinds = PROVIDER_KINDS;
-
-    let mut providers: Vec<LlmProviderInfo> = kinds
+/// Returns the list of LLM providers with their usability.
+///
+/// `configured` is true when the provider can be used right now: it needs no
+/// API key, its API-key environment variable is set, or a key is stored in the
+/// settings for exactly this provider. `env_key_set` reports the environment
+/// variable alone, so the UI can distinguish a stored key from an inherited one.
+pub fn list_providers(stored_provider: Option<&str>, stored_key_set: bool) -> Vec<LlmProviderInfo> {
+    let mut providers: Vec<LlmProviderInfo> = PROVIDER_KINDS
         .iter()
         .map(|(kind, name)| {
+            let id = kind.as_lower_str().to_string();
             let env_var = kind.default_key_env_name().unwrap_or("").to_string();
-            let configured = if matches!(kind, AdapterKind::Ollama) {
-                true
-            } else {
-                std::env::var(&env_var).is_ok()
-            };
+            // A present-but-empty variable counts as unset, matching
+            // `settings::provider_env_key`, so both endpoints agree.
+            let env_key_set =
+                !env_var.is_empty() && std::env::var(&env_var).is_ok_and(|value| !value.is_empty());
+            let stored_applies = stored_key_set && stored_provider == Some(id.as_str());
             LlmProviderInfo {
-                id: kind.as_lower_str().to_string(),
-                name: name.to_string(),
+                configured: needs_no_api_key(&id) || env_key_set || stored_applies,
+                id,
+                name: (*name).to_string(),
                 env_var,
-                configured,
+                env_key_set,
                 supports_custom_endpoint: false,
             }
         })
@@ -93,11 +98,17 @@ pub fn list_providers() -> Vec<LlmProviderInfo> {
         id: PROVIDER_CUSTOM.to_string(),
         name: "Custom OpenAI-compatible".to_string(),
         env_var: String::new(),
+        env_key_set: false,
         configured: true,
         supports_custom_endpoint: true,
     });
 
     providers
+}
+
+/// Providers that work without an API key.
+fn needs_no_api_key(id: &str) -> bool {
+    id == "ollama" || id == PROVIDER_CUSTOM
 }
 
 // ---------------------------------------------------------------------------
@@ -672,7 +683,7 @@ mod tests {
 
     #[test]
     fn list_providers_includes_all_providers() {
-        let providers = list_providers();
+        let providers = list_providers(None, false);
         let ids: Vec<&str> = providers.iter().map(|p| p.id.as_str()).collect();
         for expected in &[
             "openai",
@@ -693,7 +704,7 @@ mod tests {
 
     #[test]
     fn list_providers_ollama_always_configured() {
-        let providers = list_providers();
+        let providers = list_providers(None, false);
         let ollama = providers
             .iter()
             .find(|p| p.id == "ollama")
@@ -703,7 +714,7 @@ mod tests {
 
     #[test]
     fn list_providers_custom_supports_custom_endpoint() {
-        let providers = list_providers();
+        let providers = list_providers(None, false);
         let custom = providers
             .iter()
             .find(|p| p.id == "custom")

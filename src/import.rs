@@ -669,13 +669,17 @@ pub(crate) struct ModelsQuery {
     pub(crate) base_url: Option<String>,
     pub(crate) api_key: Option<String>,
 }
-#[instrument(skip(_state))]
+#[instrument(skip(state))]
 pub(crate) async fn llm_providers(
-    State(_state): State<Arc<AppState>>,
-) -> Json<crate::llm_import::LlmProvidersResponse> {
-    Json(crate::llm_import::LlmProvidersResponse {
-        providers: crate::llm_import::list_providers(),
-    })
+    State(state): State<Arc<AppState>>,
+) -> Result<Json<crate::llm_import::LlmProvidersResponse>, AppError> {
+    let stored = crate::settings::load(&state.pool).await?;
+    Ok(Json(crate::llm_import::LlmProvidersResponse {
+        providers: crate::llm_import::list_providers(
+            stored.provider.as_deref(),
+            stored.api_key.is_some(),
+        ),
+    }))
 }
 
 #[instrument(skip(_state))]

@@ -2441,16 +2441,15 @@ async fn given_missing_host_when_get_meal_jsonld_then_image_omitted() {
 
 // Bring! integration tests
 
-// Serializes tests that mutate the process-global BRING_EMAIL/BRING_PASSWORD
-// env vars; a concurrent restore in one test could otherwise land between
-// another test's remove_var and its assertion. tokio Mutex: the guard is
-// held across awaits.
-static BRING_ENV_LOCK: std::sync::LazyLock<tokio::sync::Mutex<()>> =
+// Serializes tests that mutate process-global environment variables; a
+// concurrent restore in one test could otherwise land between another test's
+// remove_var and its assertion. tokio Mutex: the guard is held across awaits.
+static PROCESS_ENV_LOCK: std::sync::LazyLock<tokio::sync::Mutex<()>> =
     std::sync::LazyLock::new(|| tokio::sync::Mutex::new(()));
 
 #[tokio::test]
 async fn given_missing_bring_credentials_when_send_then_returns_400() {
-    let _guard = BRING_ENV_LOCK.lock().await;
+    let _guard = PROCESS_ENV_LOCK.lock().await;
     // Ensure env vars are unset during test
     let had_email = std::env::var("BRING_EMAIL").ok();
     let had_password = std::env::var("BRING_PASSWORD").ok();
@@ -2501,7 +2500,7 @@ async fn given_missing_bring_credentials_when_send_then_returns_400() {
 
 #[tokio::test]
 async fn given_missing_bring_credentials_when_status_then_returns_not_configured() {
-    let _guard = BRING_ENV_LOCK.lock().await;
+    let _guard = PROCESS_ENV_LOCK.lock().await;
     // Ensure env vars are unset
     let had_email = std::env::var("BRING_EMAIL").ok();
     let had_password = std::env::var("BRING_PASSWORD").ok();
@@ -2726,7 +2725,7 @@ async fn given_running_app_when_get_version_then_returns_cargo_pkg_version() {
 async fn given_empty_settings_when_get_settings_then_blank_snapshot() {
     // The handler falls back to BRING_EMAIL/BRING_PASSWORD, so the process
     // environment must not leak into a test that asserts blank fields.
-    let _guard = BRING_ENV_LOCK.lock().await;
+    let _guard = PROCESS_ENV_LOCK.lock().await;
     let had_email = std::env::var("BRING_EMAIL").ok();
     let had_password = std::env::var("BRING_PASSWORD").ok();
     unsafe {
@@ -2914,7 +2913,7 @@ async fn given_stored_secret_when_patched_then_response_never_contains_it() {
 async fn given_credentials_when_cleared_then_settings_fall_back_to_environment() {
     // The handler resolves the cleared fields through the process environment,
     // so ambient BRING_EMAIL/BRING_PASSWORD must not leak into this test.
-    let _guard = BRING_ENV_LOCK.lock().await;
+    let _guard = PROCESS_ENV_LOCK.lock().await;
     let had_email = std::env::var("BRING_EMAIL").ok();
     let had_password = std::env::var("BRING_PASSWORD").ok();
     unsafe {
@@ -2994,4 +2993,87 @@ async fn given_stored_provider_when_replaced_then_snapshot_reports_the_new_value
         !json.to_string().contains("sk-second"),
         "no secret value may be echoed"
     );
+}
+
+// Provider list vs. stored/env keys
+
+/// Read one provider entry from the `/llm/providers` response.
+fn find_provider<'a>(json: &'a serde_json::Value, id: &str) -> &'a serde_json::Value {
+    json["providers"]
+        .as_array()
+        .expect("providers array")
+        .iter()
+        .find(|p| p["id"].as_str() == Some(id))
+        .unwrap_or_else(|| panic!("provider {id} missing"))
+}
+
+async fn get_providers(ctx: &TestCtx) -> serde_json::Value {
+    let response = ctx
+        .app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method(Method::GET)
+                .uri("/llm/providers")
+                .body(axum::body::Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    let body = to_bytes(response.into_body(), 8192).await.unwrap();
+    serde_json::from_slice(&body).unwrap()
+}
+
+#[tokio::test]
+async fn given_stored_key_for_provider_when_list_providers_then_provider_configured() {
+    let _guard = PROCESS_ENV_LOCK.lock().await;
+    let had_key = std::env::var("OPENAI_API_KEY").ok();
+    unsafe { std::env::remove_var("OPENAI_API_KEY") };
+
+    let ctx = setup().await;
+    ctx.seed_setting("llm.provider", "openai").await;
+    ctx.seed_setting("llm.api_key", "sk-stored").await;
+
+    let json = get_providers(&ctx).await;
+    let openai = find_provider(&json, "openai");
+    assert_eq!(openai["configured"], serde_json::Value::Bool(true));
+    assert_eq!(openai["envKeySet"], serde_json::Value::Bool(false));
+    assert_eq!(openai["envVar"], "OPENAI_API_KEY");
+
+    // The stored key belongs to OpenAI only.
+    assert_eq!(
+        find_provider(&json, "anthropic")["configured"],
+        serde_json::Value::Bool(false)
+    );
+    // A provider that needs no key stays selectable.
+    assert_eq!(
+        find_provider(&json, "custom")["configured"],
+        serde_json::Value::Bool(true)
+    );
+
+    if let Some(value) = had_key {
+        unsafe { std::env::set_var("OPENAI_API_KEY", value) };
+    }
+}
+
+#[tokio::test]
+async fn given_blank_env_key_when_list_providers_then_env_key_not_set() {
+    let _guard = PROCESS_ENV_LOCK.lock().await;
+    let had_key = std::env::var("OPENAI_API_KEY").ok();
+    unsafe { std::env::set_var("OPENAI_API_KEY", "") };
+
+    let ctx = setup().await;
+    let json = get_providers(&ctx).await;
+    let openai = find_provider(&json, "openai");
+
+    // A present-but-empty variable is an unset key, exactly as
+    // `settings::provider_env_key` treats it, so the two endpoints agree.
+    assert_eq!(openai["envKeySet"], serde_json::Value::Bool(false));
+    assert_eq!(openai["configured"], serde_json::Value::Bool(false));
+
+    match had_key {
+        Some(value) => unsafe { std::env::set_var("OPENAI_API_KEY", value) },
+        None => unsafe { std::env::remove_var("OPENAI_API_KEY") },
+    }
 }
