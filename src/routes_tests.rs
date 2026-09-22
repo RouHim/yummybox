@@ -2723,6 +2723,16 @@ async fn given_running_app_when_get_version_then_returns_cargo_pkg_version() {
 
 #[tokio::test]
 async fn given_empty_settings_when_get_settings_then_blank_snapshot() {
+    // The handler falls back to BRING_EMAIL/BRING_PASSWORD, so the process
+    // environment must not leak into a test that asserts blank fields.
+    let _guard = BRING_ENV_LOCK.lock().await;
+    let had_email = std::env::var("BRING_EMAIL").ok();
+    let had_password = std::env::var("BRING_PASSWORD").ok();
+    unsafe {
+        std::env::remove_var("BRING_EMAIL");
+        std::env::remove_var("BRING_PASSWORD");
+    }
+
     let ctx = setup().await;
     let response = ctx
         .app
@@ -2746,6 +2756,18 @@ async fn given_empty_settings_when_get_settings_then_blank_snapshot() {
     assert_eq!(json["bring"]["email"], "");
     assert_eq!(json["bring"]["emailSource"], "none");
     assert_eq!(json["bring"]["password"]["set"], false);
+
+    // Restore env vars
+    if let Some(value) = had_email {
+        unsafe {
+            std::env::set_var("BRING_EMAIL", value);
+        }
+    }
+    if let Some(value) = had_password {
+        unsafe {
+            std::env::set_var("BRING_PASSWORD", value);
+        }
+    }
 }
 
 #[tokio::test]
