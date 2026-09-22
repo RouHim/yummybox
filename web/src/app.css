@@ -756,7 +756,8 @@ button {
   background: var(--glass-scrim);
   border-radius: var(--radius-lg);
 }
-.app-bar__theme {
+.app-bar__theme,
+.app-bar__settings {
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -768,13 +769,16 @@ button {
   color: var(--color-text-secondary);
   border-radius: var(--radius-full);
   cursor: pointer;
+  text-decoration: none;
   transition: color var(--transition-fast), background var(--transition-fast);
 }
-.app-bar__theme:hover {
+.app-bar__theme:hover,
+.app-bar__settings:hover {
   color: var(--color-primary);
   background: var(--glass-bg-strong);
 }
-.app-bar__theme:focus-visible {
+.app-bar__theme:focus-visible,
+.app-bar__settings:focus-visible {
   outline: 2px solid var(--color-primary);
   outline-offset: 2px;
 }

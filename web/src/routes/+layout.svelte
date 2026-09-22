@@ -89,6 +89,12 @@
 		</a>
 	</nav>
 	<div class="app-bar__actions">
+		<a href="/settings" class="app-bar__settings"
+			aria-label={t('navSettings')}
+			title={t('navSettings')}
+			aria-current={pathname.startsWith('/settings') ? 'page' : undefined}>
+			<Icon name="settings" size={16} />
+		</a>
 		<button class="app-bar__theme" type="button"
 			onclick={cycleTheme}
 			aria-label={t('themeToggle')}
