@@ -40,22 +40,20 @@ pub enum BringStatus {
     Error(String),
 }
 
-/// Push a single ingredient to the user's first Bring! shopping list.
-///
-/// Reads `BRING_EMAIL` and `BRING_PASSWORD` from the environment at call time.
-/// Truncates `name` to 100 characters if longer.
-pub async fn push_item_to_bring(name: &str, spec: Option<&str>) -> Result<(), AppError> {
-    let email = std::env::var("BRING_EMAIL").map_err(|_| {
-        AppError::BadRequest(
-            "Bring! credentials not configured: set BRING_EMAIL and BRING_PASSWORD".into(),
-        )
-    })?;
-    let password = std::env::var("BRING_PASSWORD").map_err(|_| {
-        AppError::BadRequest(
-            "Bring! credentials not configured: set BRING_EMAIL and BRING_PASSWORD".into(),
-        )
-    })?;
+/// Bring! account credentials for one request.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct BringCredentials {
+    pub email: String,
+    pub password: String,
+}
 
+/// Push a single ingredient to the user's first Bring! shopping list.
+/// Truncates `name` to 100 characters if longer.
+pub async fn push_item_to_bring(
+    creds: &BringCredentials,
+    name: &str,
+    spec: Option<&str>,
+) -> Result<(), AppError> {
     let name = truncate_name(name);
 
     let client = Client::builder()
@@ -65,7 +63,7 @@ pub async fn push_item_to_bring(name: &str, spec: Option<&str>) -> Result<(), Ap
         .map_err(|e| AppError::Internal(format!("failed to build HTTP client: {e}")))?;
 
     // Step 1: authenticate
-    let auth = bring_login(&client, &email, &password).await?;
+    let auth = bring_login(&client, &creds.email, &creds.password).await?;
     info!(uuid = %auth.uuid, "authenticated with Bring! API");
 
     // Step 2: list shopping lists and pick the first one
@@ -87,16 +85,11 @@ pub async fn push_item_to_bring(name: &str, spec: Option<&str>) -> Result<(), Ap
     Ok(())
 }
 
-/// Probe Bring! credentials at startup. Returns the connection status without
-/// making a network call when env vars are missing.
-pub async fn check_bring_status() -> BringStatus {
-    let email = match std::env::var("BRING_EMAIL") {
-        Ok(v) => v,
-        Err(_) => return BringStatus::NotConfigured,
-    };
-    let password = match std::env::var("BRING_PASSWORD") {
-        Ok(v) => v,
-        Err(_) => return BringStatus::NotConfigured,
+/// Probe the given credentials. `None` means no credentials are configured in
+/// either the settings or the environment, and no network call is made.
+pub async fn check_bring_status(creds: Option<&BringCredentials>) -> BringStatus {
+    let Some(creds) = creds else {
+        return BringStatus::NotConfigured;
     };
 
     let client = match Client::builder()
@@ -108,7 +101,7 @@ pub async fn check_bring_status() -> BringStatus {
         Err(e) => return BringStatus::Error(format!("failed to build HTTP client: {e}")),
     };
 
-    let auth = match bring_login(&client, &email, &password).await {
+    let auth = match bring_login(&client, &creds.email, &creds.password).await {
         Ok(a) => a,
         Err(e) => return BringStatus::Error(e.to_string()),
     };
@@ -158,7 +151,7 @@ async fn bring_login(
 
     if resp.status().is_client_error() {
         return Err(AppError::BringAuthFailed(
-            "Bring! login failed — check BRING_EMAIL and BRING_PASSWORD".into(),
+            "Bring! login failed, check your Bring! credentials in Settings".to_string(),
         ));
     }
 
@@ -327,31 +320,10 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn given_no_bring_env_vars_when_check_status_then_not_configured() {
-        // Ensure env vars are unset for this test
-        let had_email = std::env::var("BRING_EMAIL").ok();
-        let had_password = std::env::var("BRING_PASSWORD").ok();
-        unsafe {
-            std::env::remove_var("BRING_EMAIL");
-            std::env::remove_var("BRING_PASSWORD");
-        }
-
-        let status = check_bring_status().await;
-        match status {
+    async fn given_no_credentials_when_check_status_then_not_configured() {
+        match check_bring_status(None).await {
             BringStatus::NotConfigured => {}
             other => panic!("expected NotConfigured, got {other:?}"),
-        }
-
-        // Restore env vars
-        if let Some(v) = had_email {
-            unsafe {
-                std::env::set_var("BRING_EMAIL", v);
-            }
-        }
-        if let Some(v) = had_password {
-            unsafe {
-                std::env::set_var("BRING_PASSWORD", v);
-            }
         }
     }
 }

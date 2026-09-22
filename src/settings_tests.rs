@@ -5,7 +5,7 @@ use crate::db;
 use crate::settings::{
     KEY_BRING_EMAIL, KEY_BRING_PASSWORD, KEY_LLM_API_KEY, KEY_LLM_BASE_URL, KEY_LLM_MODEL,
     KEY_LLM_PROVIDER, SecretState, StoredSettings, ValueSource, env_lookup, load,
-    provider_credentials, resolve_ai, snapshot,
+    provider_credentials, resolve_ai, resolve_bring, snapshot,
 };
 
 async fn setup_db() -> (sqlx::SqlitePool, tempfile::TempDir) {
@@ -554,4 +554,64 @@ fn given_foreign_stored_key_when_credentials_for_another_provider_then_not_appli
     // …and the key is still used for the provider it was stored for.
     let own = provider_credentials(&stored, "anthropic", &env);
     assert_eq!(own.api_key.as_deref(), Some("sk-anthropic-stored"));
+}
+
+#[tokio::test]
+async fn given_stored_credentials_when_resolved_then_stored_wins_over_environment() {
+    let (pool, _dir) = setup_db().await;
+    apply(
+        &pool,
+        &SettingsPatch {
+            ai: None,
+            bring: Some(BringPatch {
+                email: Some(Some("stored@example.com".to_string())),
+                password: Some(Some("stored-pass".to_string())),
+            }),
+        },
+    )
+    .await
+    .expect("apply");
+
+    let env = |key: &str| match key {
+        "BRING_EMAIL" => Some("env@example.com".to_string()),
+        "BRING_PASSWORD" => Some("env-pass".to_string()),
+        _ => None,
+    };
+    let stored = load(&pool).await.expect("load");
+    let credentials = resolve_bring(&stored, &env).expect("credentials");
+
+    assert_eq!(credentials.email, "stored@example.com");
+    assert_eq!(credentials.password, "stored-pass");
+}
+
+#[tokio::test]
+async fn given_cleared_value_without_environment_when_cleared_then_not_configured() {
+    let (pool, _dir) = setup_db().await;
+    apply(
+        &pool,
+        &SettingsPatch {
+            ai: None,
+            bring: Some(BringPatch {
+                email: Some(Some("stored@example.com".to_string())),
+                password: Some(Some("stored-pass".to_string())),
+            }),
+        },
+    )
+    .await
+    .expect("apply");
+    apply(
+        &pool,
+        &SettingsPatch {
+            ai: None,
+            bring: Some(BringPatch {
+                email: Some(None),
+                password: Some(None),
+            }),
+        },
+    )
+    .await
+    .expect("clear");
+
+    let stored = load(&pool).await.expect("load");
+    assert!(resolve_bring(&stored, &empty_env()).is_none());
 }

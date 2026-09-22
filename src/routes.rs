@@ -403,21 +403,29 @@ impl From<bring::BringStatus> for BringStatusResponse {
     }
 }
 
-#[instrument(skip(_state))]
+/// Reported when neither the settings nor the environment hold credentials.
+pub(crate) const BRING_NOT_CONFIGURED: &str = "Bring! credentials not configured: set them in Settings or via the BRING_EMAIL and BRING_PASSWORD environment variables";
+
+#[instrument(skip(state))]
 pub async fn add_bring_item(
-    State(_state): State<Arc<AppState>>,
+    State(state): State<Arc<AppState>>,
     Json(req): Json<BringItemRequest>,
 ) -> Result<Json<serde_json::Value>, AppError> {
-    bring::push_item_to_bring(&req.name, req.spec.as_deref()).await?;
+    let stored = crate::settings::load(&state.pool).await?;
+    let creds = crate::settings::resolve_bring(&stored, &crate::settings::env_lookup)
+        .ok_or_else(|| AppError::BadRequest(BRING_NOT_CONFIGURED.to_string()))?;
+    bring::push_item_to_bring(&creds, &req.name, req.spec.as_deref()).await?;
     Ok(Json(serde_json::json!({"sent": true})))
 }
 
-#[instrument(skip(_state))]
+#[instrument(skip(state))]
 pub async fn get_bring_status(
-    State(_state): State<Arc<AppState>>,
+    State(state): State<Arc<AppState>>,
 ) -> Result<Json<BringStatusResponse>, AppError> {
+    let stored = crate::settings::load(&state.pool).await?;
+    let creds = crate::settings::resolve_bring(&stored, &crate::settings::env_lookup);
     Ok(Json(BringStatusResponse::from(
-        bring::check_bring_status().await,
+        bring::check_bring_status(creds.as_ref()).await,
     )))
 }
 

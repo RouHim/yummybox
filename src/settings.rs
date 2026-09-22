@@ -9,6 +9,7 @@ use genai::adapter::AdapterKind;
 use serde::{Deserialize, Serialize};
 use sqlx::SqlitePool;
 
+use crate::bring::BringCredentials;
 use crate::db;
 use crate::error::AppError;
 use crate::llm_import::PROVIDER_CUSTOM;
@@ -217,6 +218,20 @@ pub fn resolve_ai(stored: &StoredSettings, env: Env<'_>) -> Result<Option<Effect
         base_url: credentials.base_url,
         api_key: credentials.api_key,
     }))
+}
+
+/// Resolve the Bring! credentials: stored value, then environment variable,
+/// then unset.
+pub fn resolve_bring(stored: &StoredSettings, env: Env<'_>) -> Option<BringCredentials> {
+    let email = stored
+        .bring_email
+        .clone()
+        .or_else(|| env(BRING_EMAIL_ENV).filter(|value| !value.is_empty()))?;
+    let password = stored
+        .bring_password
+        .clone()
+        .or_else(|| env(BRING_PASSWORD_ENV).filter(|value| !value.is_empty()))?;
+    Some(BringCredentials { email, password })
 }
 
 // ---------------------------------------------------------------------------
