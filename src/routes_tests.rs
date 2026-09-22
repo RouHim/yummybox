@@ -1667,6 +1667,79 @@ async fn given_no_stored_ai_config_when_generate_meal_then_400_not_configured() 
     assert_eq!(json["code"], "llm_not_configured");
 }
 
+#[tokio::test]
+async fn given_stored_custom_provider_when_generate_meal_then_draft_returned() {
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+
+    let ctx = setup().await;
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let port = listener.local_addr().unwrap().port();
+
+    // The mock reports the model the flow asked for, so the assertion below
+    // proves the *stored* model reaches the provider.
+    let (model_tx, model_rx) = tokio::sync::oneshot::channel::<Option<String>>();
+    let mock_body = r#"{"id":"chatcmpl-test","object":"chat.completion","created":0,"model":"test-model","choices":[{"index":0,"message":{"role":"assistant","content":null,"tool_calls":[{"id":"call_1","type":"function","function":{"name":"extract_recipe","arguments":"{\"name\":\"Flour Eggs Pancake\",\"ingredients\":[{\"name\":\"flour\",\"quantity\":\"200 g\"},{\"name\":\"eggs\",\"quantity\":\"2\"}],\"instructions\":\"Whisk and fry.\",\"portion\":2}"}}]},"finish_reason":"tool_calls"}],"usage":{"prompt_tokens":1,"completion_tokens":1,"total_tokens":2}}"#;
+    tokio::spawn(async move {
+        let (mut stream, _) = listener.accept().await.unwrap();
+        // Drain the request headers, then the body per Content-Length.
+        let mut buf = Vec::new();
+        let mut byte = [0u8; 1];
+        while !buf.ends_with(b"\r\n\r\n") {
+            stream.read_exact(&mut byte).await.unwrap();
+            buf.push(byte[0]);
+        }
+        let headers = String::from_utf8_lossy(&buf);
+        let content_length = headers
+            .lines()
+            .find_map(|l| {
+                l.to_ascii_lowercase()
+                    .strip_prefix("content-length:")
+                    .map(|v| v.trim().parse::<usize>().unwrap())
+            })
+            .unwrap_or(0);
+        let mut body = vec![0u8; content_length];
+        if content_length > 0 {
+            stream.read_exact(&mut body).await.unwrap();
+        }
+        let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
+        let _ = model_tx.send(json["model"].as_str().map(String::from));
+        let resp = format!(
+            "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
+            mock_body.len(),
+            mock_body
+        );
+        let _ = stream.write_all(resp.as_bytes()).await;
+    });
+
+    seed_custom_ai(&ctx, &format!("http://127.0.0.1:{port}/v1/"), "test-model").await;
+
+    let (body, content_type) = build_generate_multipart(Some("flour\neggs"), &[]);
+    let response = ctx
+        .app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method(Method::POST)
+                .uri("/import/generate")
+                .header("content-type", content_type)
+                .body(axum::body::Body::from(body))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    let bytes = to_bytes(response.into_body(), 4096).await.unwrap();
+    let draft: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
+    assert_eq!(draft["name"], "Flour Eggs Pancake");
+    assert_eq!(draft["ingredients"][0]["name"], "flour");
+    assert_eq!(draft["ingredients"][1]["name"], "eggs");
+    assert_eq!(
+        model_rx.await.expect("mock reported the model").as_deref(),
+        Some("test-model"),
+        "the stored model must reach the provider"
+    );
+}
+
 fn build_generate_multipart(ingredients: Option<&str>, images: &[&[u8]]) -> (Vec<u8>, String) {
     let boundary = "testboundaryGEN";
     let mut body = Vec::new();
