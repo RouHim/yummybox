@@ -425,3 +425,50 @@ fn given_overlong_password_when_plan_writes_then_rejected_naming_field() {
         "{err}"
     );
 }
+
+#[tokio::test]
+async fn given_existing_values_when_committed_again_then_stored_values_are_replaced() {
+    let (pool, _dir) = setup_db().await;
+    apply(
+        &pool,
+        &SettingsPatch {
+            ai: Some(AiPatch {
+                provider: Some(Some("openai".to_string())),
+                model: Some(Some("gpt-4o-mini".to_string())),
+                ..AiPatch::default()
+            }),
+            bring: Some(BringPatch {
+                email: Some(Some("first@example.com".to_string())),
+                password: Some(Some("first-pass".to_string())),
+            }),
+        },
+    )
+    .await
+    .expect("first commit");
+
+    apply(
+        &pool,
+        &SettingsPatch {
+            ai: Some(AiPatch {
+                model: Some(Some("gpt-4o".to_string())),
+                ..AiPatch::default()
+            }),
+            bring: Some(BringPatch {
+                email: Some(Some("second@example.com".to_string())),
+                password: Some(Some("second-pass".to_string())),
+            }),
+        },
+    )
+    .await
+    .expect("replacement commit");
+
+    let stored = load(&pool).await.expect("load");
+    assert_eq!(
+        stored.provider.as_deref(),
+        Some("openai"),
+        "untouched fields survive"
+    );
+    assert_eq!(stored.model.as_deref(), Some("gpt-4o"));
+    assert_eq!(stored.bring_email.as_deref(), Some("second@example.com"));
+    assert_eq!(stored.bring_password.as_deref(), Some("second-pass"));
+}

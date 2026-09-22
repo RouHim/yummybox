@@ -449,7 +449,9 @@ pub async fn get_settings(
 
 /// Commit stored AI and Bring! settings, returning the new effective snapshot.
 /// A malformed or unknown-field body, and any rejected field, change nothing.
-#[instrument(skip(state))]
+/// The payload is skipped: it carries the plaintext API key and Bring!
+/// password, which must never be formatted into a span.
+#[instrument(skip(state, payload))]
 pub async fn patch_settings(
     State(state): State<Arc<AppState>>,
     payload: Result<Json<crate::settings::SettingsPatch>, JsonRejection>,

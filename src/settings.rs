@@ -326,6 +326,7 @@ pub fn plan_writes(patch: &SettingsPatch) -> Result<SettingWrites, AppError> {
             &mut writes,
             bring.password.as_ref(),
             KEY_BRING_PASSWORD,
+            "password",
             MAX_BRING_PASSWORD_LEN,
         )?;
     }
@@ -358,11 +359,13 @@ fn plan_text(
 }
 
 /// Record a secret field: stored verbatim, because leading or trailing spaces
-/// may be part of the value; only `null` or an empty string clears it.
+/// may be part of the value; only `null` or an empty string clears it. The
+/// field name is passed in so the rejection names the field that was sent.
 fn plan_secret(
     writes: &mut SettingWrites,
     update: Option<&Option<String>>,
     key: &'static str,
+    field: &str,
     max: usize,
 ) -> Result<(), AppError> {
     let Some(update) = update else {
@@ -376,7 +379,7 @@ fn plan_secret(
         writes.delete.push(key);
         return Ok(());
     }
-    validate_len("password", value, max)?;
+    validate_len(field, value, max)?;
     writes.set.push((key, value.clone()));
     Ok(())
 }

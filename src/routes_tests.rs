@@ -2963,3 +2963,35 @@ async fn given_overlong_model_when_patch_settings_then_400_names_field() {
         "{json}"
     );
 }
+
+#[tokio::test]
+async fn given_stored_provider_when_replaced_then_snapshot_reports_the_new_value() {
+    let ctx = setup().await;
+    let (status, json) = patch_settings_json(&ctx, json!({ "ai": { "provider": "openai" } })).await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(json["ai"]["provider"], "openai");
+
+    let (status, json) =
+        patch_settings_json(&ctx, json!({ "ai": { "provider": "anthropic" } })).await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(
+        json["ai"]["provider"], "anthropic",
+        "a repeat commit must replace, not ignore"
+    );
+
+    let (status, json) = patch_settings_json(&ctx, json!({ "ai": { "apiKey": "sk-first" } })).await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(json["ai"]["apiKey"]["set"], true);
+    let (status, json) =
+        patch_settings_json(&ctx, json!({ "ai": { "apiKey": "sk-second" } })).await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(json["ai"]["apiKey"]["source"], "settings");
+    assert!(
+        !json.to_string().contains("sk-first"),
+        "the replaced secret must be gone"
+    );
+    assert!(
+        !json.to_string().contains("sk-second"),
+        "no secret value may be echoed"
+    );
+}
