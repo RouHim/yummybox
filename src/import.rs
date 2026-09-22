@@ -122,16 +122,31 @@ pub(crate) fn map_multipart_error(
     }
 }
 
-#[instrument(skip(_state))]
+// ---------------------------------------------------------------------------
+// Effective AI configuration
+// ---------------------------------------------------------------------------
+
+/// Resolve the effective AI configuration, or report that AI is not
+/// configured and the settings page has to be visited first.
+pub(crate) async fn effective_ai(
+    pool: &sqlx::SqlitePool,
+) -> Result<crate::settings::EffectiveAi, AppError> {
+    let stored = crate::settings::load(pool).await?;
+    crate::settings::resolve_ai(&stored, &crate::settings::env_lookup)?.ok_or_else(|| {
+        AppError::Llm(
+            "AI is not configured: choose a provider and a model in Settings".to_string(),
+            "llm_not_configured",
+        )
+    })
+}
+
+#[instrument(skip(state))]
 pub(crate) async fn import_from_llm(
-    State(_state): State<Arc<AppState>>,
+    State(state): State<Arc<AppState>>,
     mut multipart: Multipart,
 ) -> Result<Json<recipe::ImportDraft>, AppError> {
-    let mut model: Option<String> = None;
     let mut hint: Option<String> = None;
     let mut images: Vec<(Vec<u8>, Option<String>)> = Vec::new(); // (bytes, content_type) in multipart order
-    let mut base_url: Option<String> = None;
-    let mut api_key: Option<String> = None;
 
     while let Some(field) = multipart
         .next_field()
@@ -139,13 +154,6 @@ pub(crate) async fn import_from_llm(
         .map_err(|e| map_multipart_error(e, "invalid multipart data"))?
     {
         match field.name() {
-            Some("model") => {
-                let text = field
-                    .text()
-                    .await
-                    .map_err(|e| map_multipart_error(e, "failed to read model field"))?;
-                model = Some(text);
-            }
             Some("hint") => {
                 let text = field
                     .text()
@@ -168,35 +176,11 @@ pub(crate) async fn import_from_llm(
                 }
                 images.push((data.to_vec(), content_type));
             }
-            Some("base_url") => {
-                let text = field
-                    .text()
-                    .await
-                    .map_err(|e| map_multipart_error(e, "failed to read base_url field"))?;
-                base_url = Some(text);
-            }
-            Some("api_key") => {
-                let text = field
-                    .text()
-                    .await
-                    .map_err(|e| map_multipart_error(e, "failed to read api_key field"))?;
-                api_key = Some(text);
-            }
             _ => {}
         }
     }
 
-    let model = model
-        .map(|s| s.trim().to_string())
-        .filter(|s| !s.is_empty())
-        .ok_or_else(|| AppError::BadRequest("missing 'model' field".into()))?;
     let hint = hint.map(|s| s.trim().to_string()).filter(|s| !s.is_empty());
-    let base_url = base_url
-        .map(|s| s.trim().to_string())
-        .filter(|s| !s.is_empty());
-    let api_key = api_key
-        .map(|s| s.trim().to_string())
-        .filter(|s| !s.is_empty());
 
     // Only non-empty images count toward the cap — empty picker entries were
     // skipped during collection, so this runs on the post-filter list.
@@ -244,14 +228,14 @@ pub(crate) async fn import_from_llm(
 
     let hint = expand_hint_if_bare_url(hint).await?;
 
+    let ai = effective_ai(&state.pool).await?;
     let skip_image_download = !llm_images.is_empty();
 
     let mut draft = crate::llm_import::import_via_llm(
-        &model,
+        &ai.target(),
+        &ai.model,
         hint.as_deref(),
         llm_images,
-        base_url.as_deref(),
-        api_key.as_deref(),
         skip_image_download,
     )
     .await?;
@@ -277,16 +261,13 @@ const MAX_INGREDIENTS_CHARS: usize = 20000;
 
 /// Generate a recipe on the fly from an ingredient list and/or photos.
 /// The LLM result is returned as a draft; nothing is persisted here.
-#[instrument(skip(_state))]
+#[instrument(skip(state))]
 pub(crate) async fn generate_meal(
-    State(_state): State<Arc<AppState>>,
+    State(state): State<Arc<AppState>>,
     mut multipart: Multipart,
 ) -> Result<Json<recipe::ImportDraft>, AppError> {
-    let mut model: Option<String> = None;
     let mut ingredients: Option<String> = None;
     let mut images: Vec<crate::llm_import::LlmImage> = Vec::new();
-    let mut base_url: Option<String> = None;
-    let mut api_key: Option<String> = None;
 
     while let Some(field) = multipart
         .next_field()
@@ -294,13 +275,6 @@ pub(crate) async fn generate_meal(
         .map_err(|e| map_multipart_error(e, "invalid multipart data"))?
     {
         match field.name() {
-            Some("model") => {
-                let text = field
-                    .text()
-                    .await
-                    .map_err(|e| map_multipart_error(e, "failed to read model field"))?;
-                model = Some(text);
-            }
             Some("ingredients") => {
                 let text = field
                     .text()
@@ -338,35 +312,11 @@ pub(crate) async fn generate_meal(
                     content_type,
                 });
             }
-            Some("base_url") => {
-                let text = field
-                    .text()
-                    .await
-                    .map_err(|e| map_multipart_error(e, "failed to read base_url field"))?;
-                base_url = Some(text);
-            }
-            Some("api_key") => {
-                let text = field
-                    .text()
-                    .await
-                    .map_err(|e| map_multipart_error(e, "failed to read api_key field"))?;
-                api_key = Some(text);
-            }
             _ => {}
         }
     }
 
-    let model = model
-        .map(|s| s.trim().to_string())
-        .filter(|s| !s.is_empty())
-        .ok_or_else(|| AppError::BadRequest("missing 'model' field".into()))?;
     let ingredients = ingredients
-        .map(|s| s.trim().to_string())
-        .filter(|s| !s.is_empty());
-    let base_url = base_url
-        .map(|s| s.trim().to_string())
-        .filter(|s| !s.is_empty());
-    let api_key = api_key
         .map(|s| s.trim().to_string())
         .filter(|s| !s.is_empty());
 
@@ -397,12 +347,12 @@ pub(crate) async fn generate_meal(
         }
     }
 
+    let ai = effective_ai(&state.pool).await?;
     let draft = crate::llm_import::generate_meal_via_llm(
-        &model,
+        &ai.target(),
+        &ai.model,
         ingredients.as_deref(),
         images,
-        base_url.as_deref(),
-        api_key.as_deref(),
     )
     .await?;
     Ok(Json(draft))
@@ -437,17 +387,14 @@ async fn expand_hint_if_bare_url(hint: Option<String>) -> Result<Option<String>,
 // Polish instructions handler
 // ---------------------------------------------------------------------------
 
-#[instrument(skip(_state))]
+#[instrument(skip(state))]
 pub(crate) async fn polish_instructions(
-    State(_state): State<Arc<AppState>>,
+    State(state): State<Arc<AppState>>,
     mut multipart: Multipart,
 ) -> Result<Json<serde_json::Value>, AppError> {
-    let mut model: Option<String> = None;
     let mut name: Option<String> = None;
     let mut ingredients_json: Option<String> = None;
     let mut instructions: Option<String> = None;
-    let mut base_url: Option<String> = None;
-    let mut api_key: Option<String> = None;
 
     while let Some(field) = multipart
         .next_field()
@@ -455,13 +402,6 @@ pub(crate) async fn polish_instructions(
         .map_err(|e| map_multipart_error(e, "invalid multipart data"))?
     {
         match field.name() {
-            Some("model") => {
-                let text = field
-                    .text()
-                    .await
-                    .map_err(|e| map_multipart_error(e, "failed to read model field"))?;
-                model = Some(text);
-            }
             Some("name") => {
                 let text = field
                     .text()
@@ -483,28 +423,10 @@ pub(crate) async fn polish_instructions(
                     .map_err(|e| map_multipart_error(e, "failed to read instructions field"))?;
                 instructions = Some(text);
             }
-            Some("base_url") => {
-                let text = field
-                    .text()
-                    .await
-                    .map_err(|e| map_multipart_error(e, "failed to read base_url field"))?;
-                base_url = Some(text);
-            }
-            Some("api_key") => {
-                let text = field
-                    .text()
-                    .await
-                    .map_err(|e| map_multipart_error(e, "failed to read api_key field"))?;
-                api_key = Some(text);
-            }
             _ => {}
         }
     }
 
-    let model = model
-        .map(|s| s.trim().to_string())
-        .filter(|s| !s.is_empty())
-        .ok_or_else(|| AppError::BadRequest("missing 'model' field".into()))?;
     let name = name
         .map(|s| s.trim().to_string())
         .filter(|s| !s.is_empty())
@@ -517,23 +439,17 @@ pub(crate) async fn polish_instructions(
         .map(|s| s.trim().to_string())
         .filter(|s| !s.is_empty())
         .ok_or_else(|| AppError::BadRequest("missing 'instructions' field".into()))?;
-    let base_url = base_url
-        .map(|s| s.trim().to_string())
-        .filter(|s| !s.is_empty());
-    let api_key = api_key
-        .map(|s| s.trim().to_string())
-        .filter(|s| !s.is_empty());
 
     let ingredients: Vec<crate::model::NewIngredientLine> = serde_json::from_str(&ingredients_json)
         .map_err(|e| AppError::BadRequest(format!("invalid ingredients JSON: {e}")))?;
 
+    let ai = effective_ai(&state.pool).await?;
     let polished = crate::llm_import::polish_instructions(
-        &model,
+        &ai.target(),
+        &ai.model,
         &name,
         &ingredients,
         &instructions,
-        base_url.as_deref(),
-        api_key.as_deref(),
     )
     .await?;
     Ok(Json(serde_json::json!({ "instructions": polished })))
@@ -666,8 +582,6 @@ pub(crate) fn classify_insert_error(err: &AppError) -> String {
 #[derive(Debug, serde::Deserialize)]
 pub(crate) struct ModelsQuery {
     pub(crate) provider: String,
-    pub(crate) base_url: Option<String>,
-    pub(crate) api_key: Option<String>,
 }
 #[instrument(skip(state))]
 pub(crate) async fn llm_providers(
@@ -682,13 +596,25 @@ pub(crate) async fn llm_providers(
     }))
 }
 
-#[instrument(skip(_state))]
+#[instrument(skip(state))]
 pub(crate) async fn llm_models(
-    State(_state): State<Arc<AppState>>,
+    State(state): State<Arc<AppState>>,
     Query(q): Query<ModelsQuery>,
 ) -> Result<Json<crate::llm_import::LlmModelsResponse>, AppError> {
-    let models =
-        crate::llm_import::list_models(&q.provider, q.base_url.as_deref(), q.api_key.as_deref())
-            .await?;
+    if !crate::llm_import::provider_ids().contains(&q.provider.as_str()) {
+        return Err(AppError::BadRequest(format!(
+            "unknown provider: {}",
+            q.provider
+        )));
+    }
+    let stored = crate::settings::load(&state.pool).await?;
+    let credentials =
+        crate::settings::provider_credentials(&stored, &q.provider, &crate::settings::env_lookup);
+    let target = crate::llm_import::LlmTarget {
+        provider_id: &q.provider,
+        base_url: credentials.base_url.as_deref(),
+        api_key: credentials.api_key.as_deref(),
+    };
+    let models = crate::llm_import::list_models(&target).await?;
     Ok(Json(crate::llm_import::LlmModelsResponse { models }))
 }

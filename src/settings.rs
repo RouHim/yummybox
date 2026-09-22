@@ -11,6 +11,7 @@ use sqlx::SqlitePool;
 
 use crate::db;
 use crate::error::AppError;
+use crate::llm_import::PROVIDER_CUSTOM;
 
 // ---------------------------------------------------------------------------
 // Stored keys and limits
@@ -144,6 +145,78 @@ fn provider_env_key(provider: &str, env: Env<'_>) -> Option<String> {
     let kind = AdapterKind::from_lower_str(provider)?;
     let name = kind.default_key_env_name()?;
     env(name).filter(|value| !value.is_empty())
+}
+
+/// The endpoint and key used when talking to one provider.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct ProviderCredentials {
+    pub base_url: Option<String>,
+    pub api_key: Option<String>,
+}
+
+/// Base URL and API key for `provider`. A stored key only applies to the
+/// provider it was stored for; everything else falls back to that provider's
+/// API-key environment variable.
+pub fn provider_credentials(
+    stored: &StoredSettings,
+    provider: &str,
+    env: Env<'_>,
+) -> ProviderCredentials {
+    let stored_key_applies =
+        stored.provider.as_deref() == Some(provider) && stored.api_key.is_some();
+    let api_key = if stored_key_applies {
+        stored.api_key.clone()
+    } else {
+        provider_env_key(provider, env)
+    };
+    let base_url = if provider == PROVIDER_CUSTOM {
+        stored.base_url.clone()
+    } else {
+        None
+    };
+    ProviderCredentials { base_url, api_key }
+}
+
+/// The AI configuration a flow runs with.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct EffectiveAi {
+    pub provider: String,
+    pub model: String,
+    pub base_url: Option<String>,
+    pub api_key: Option<String>,
+}
+
+impl EffectiveAi {
+    /// Borrow as the target used by `llm_import` calls.
+    pub fn target(&self) -> crate::llm_import::LlmTarget<'_> {
+        crate::llm_import::LlmTarget {
+            provider_id: &self.provider,
+            base_url: self.base_url.as_deref(),
+            api_key: self.api_key.as_deref(),
+        }
+    }
+}
+
+/// Resolve the AI configuration: stored value, then the provider's API-key
+/// environment variable, then unset. `Ok(None)` means the integration is not
+/// configured (no provider or no model) and the caller answers
+/// `llm_not_configured`.
+pub fn resolve_ai(stored: &StoredSettings, env: Env<'_>) -> Result<Option<EffectiveAi>, AppError> {
+    let (Some(provider), Some(model)) = (stored.provider.clone(), stored.model.clone()) else {
+        return Ok(None);
+    };
+    let credentials = provider_credentials(stored, &provider, env);
+    if provider == PROVIDER_CUSTOM && credentials.base_url.is_none() {
+        return Err(AppError::Validation(
+            "customBaseUrl must be set when the provider is custom".to_string(),
+        ));
+    }
+    Ok(Some(EffectiveAi {
+        provider,
+        model,
+        base_url: credentials.base_url,
+        api_key: credentials.api_key,
+    }))
 }
 
 // ---------------------------------------------------------------------------

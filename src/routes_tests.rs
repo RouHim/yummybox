@@ -1197,24 +1197,10 @@ async fn given_import_draft_when_received_then_not_persisted() {
 // LLM import route tests
 // ---------------------------------------------------------------
 
-fn build_llm_multipart(
-    model: Option<&str>,
-    hint: Option<&str>,
-    images: &[&[u8]],
-    base_url: Option<&str>,
-    api_key: Option<&str>,
-) -> (Vec<u8>, String) {
+fn build_llm_multipart(hint: Option<&str>, images: &[&[u8]]) -> (Vec<u8>, String) {
     let boundary = "testboundaryLLM";
     let mut body = Vec::new();
 
-    if let Some(m) = model {
-        body.extend_from_slice(b"--");
-        body.extend_from_slice(boundary.as_bytes());
-        body.extend_from_slice(b"\r\n");
-        body.extend_from_slice(b"Content-Disposition: form-data; name=\"model\"\r\n\r\n");
-        body.extend_from_slice(m.as_bytes());
-        body.extend_from_slice(b"\r\n");
-    }
     if let Some(h) = hint {
         body.extend_from_slice(b"--");
         body.extend_from_slice(boundary.as_bytes());
@@ -1234,22 +1220,6 @@ fn build_llm_multipart(
         body.extend_from_slice(img);
         body.extend_from_slice(b"\r\n");
     }
-    if let Some(b) = base_url {
-        body.extend_from_slice(b"--");
-        body.extend_from_slice(boundary.as_bytes());
-        body.extend_from_slice(b"\r\n");
-        body.extend_from_slice(b"Content-Disposition: form-data; name=\"base_url\"\r\n\r\n");
-        body.extend_from_slice(b.as_bytes());
-        body.extend_from_slice(b"\r\n");
-    }
-    if let Some(k) = api_key {
-        body.extend_from_slice(b"--");
-        body.extend_from_slice(boundary.as_bytes());
-        body.extend_from_slice(b"\r\n");
-        body.extend_from_slice(b"Content-Disposition: form-data; name=\"api_key\"\r\n\r\n");
-        body.extend_from_slice(k.as_bytes());
-        body.extend_from_slice(b"\r\n");
-    }
 
     body.extend_from_slice(b"--");
     body.extend_from_slice(boundary.as_bytes());
@@ -1259,10 +1229,19 @@ fn build_llm_multipart(
     (body, content_type)
 }
 
+/// Point the stored AI configuration at a local mock provider so a route test
+/// can reach the LLM without env vars.
+async fn seed_custom_ai(ctx: &TestCtx, base_url: &str, model: &str) {
+    ctx.seed_setting("llm.provider", "custom").await;
+    ctx.seed_setting("llm.base_url", base_url).await;
+    ctx.seed_setting("llm.model", model).await;
+    ctx.seed_setting("llm.api_key", "test-key").await;
+}
+
 #[tokio::test]
 async fn given_empty_body_when_import_llm_then_400() {
     let ctx = setup().await;
-    let (body, content_type) = build_llm_multipart(None, None, &[], None, None);
+    let (body, content_type) = build_llm_multipart(None, &[]);
     let response = ctx
         .app
         .oneshot(
@@ -1282,35 +1261,15 @@ async fn given_empty_body_when_import_llm_then_400() {
         error["error"]
             .as_str()
             .unwrap()
-            .contains("missing 'model' field")
+            .contains("at least one of image or hint is required")
     );
-}
-
-#[tokio::test]
-async fn given_model_but_no_image_no_hint_when_import_llm_then_400() {
-    let ctx = setup().await;
-    let (body, content_type) = build_llm_multipart(Some("gpt-4o-mini"), None, &[], None, None);
-    let response = ctx
-        .app
-        .oneshot(
-            Request::builder()
-                .method(Method::POST)
-                .uri("/import/llm")
-                .header("content-type", content_type)
-                .body(axum::body::Body::from(body))
-                .unwrap(),
-        )
-        .await
-        .unwrap();
-    assert_eq!(response.status(), StatusCode::BAD_REQUEST);
 }
 
 #[tokio::test]
 async fn given_hint_over_20000_chars_when_import_llm_then_400() {
     let ctx = setup().await;
     let long_hint = "x".repeat(20001);
-    let (body, content_type) =
-        build_llm_multipart(Some("gpt-4o-mini"), Some(&long_hint), &[], None, None);
+    let (body, content_type) = build_llm_multipart(Some(&long_hint), &[]);
     let response = ctx
         .app
         .oneshot(
@@ -1330,8 +1289,7 @@ async fn given_hint_over_20000_chars_when_import_llm_then_400() {
 async fn given_image_over_20mb_when_import_llm_then_413() {
     let ctx = setup().await;
     let oversized = vec![0u8; 21_000_001];
-    let (body, content_type) =
-        build_llm_multipart(Some("gpt-4o-mini"), None, &[&oversized], None, None);
+    let (body, content_type) = build_llm_multipart(None, &[&oversized]);
     let response = ctx
         .app
         .oneshot(
@@ -1358,13 +1316,8 @@ async fn given_image_over_20mb_when_import_llm_then_413() {
 #[tokio::test]
 async fn given_six_images_when_import_llm_then_400_with_limit_message() {
     let ctx = setup().await;
-    let (body, content_type) = build_llm_multipart(
-        Some("gpt-4o-mini"),
-        None,
-        &[&[1u8], &[1u8], &[1u8], &[1u8], &[1u8], &[1u8]],
-        None,
-        None,
-    );
+    let (body, content_type) =
+        build_llm_multipart(None, &[&[1u8], &[1u8], &[1u8], &[1u8], &[1u8], &[1u8]]);
     let response = ctx
         .app
         .oneshot(
@@ -1394,7 +1347,7 @@ async fn given_empty_image_field_when_import_llm_then_skipped() {
     // An empty image field is skipped (0-byte files are tolerated, as in the
     // pre-multipart code), so it must NOT satisfy the image requirement; with
     // no image and no hint the all-empty guard still rejects.
-    let (body, content_type) = build_llm_multipart(Some("gpt-4o-mini"), None, &[&[]], None, None);
+    let (body, content_type) = build_llm_multipart(None, &[&[]]);
     let response = ctx
         .app
         .oneshot(
@@ -1459,15 +1412,10 @@ async fn given_empty_image_field_with_hint_when_import_llm_then_draft_returned()
     });
 
     let base_url = format!("http://127.0.0.1:{port}/v1/");
+    seed_custom_ai(&ctx, &base_url, "test-model").await;
     // A 0-byte file picked alongside a valid hint must still produce a draft
     // (the empty field is skipped rather than rejected).
-    let (body, content_type) = build_llm_multipart(
-        Some("test-model"),
-        Some("flour"),
-        &[&[]],
-        Some(&base_url),
-        Some("test-key"),
-    );
+    let (body, content_type) = build_llm_multipart(Some("flour"), &[&[]]);
     let response = ctx
         .app
         .oneshot(
@@ -1490,13 +1438,7 @@ async fn given_empty_image_field_with_hint_when_import_llm_then_draft_returned()
 async fn given_three_oversized_images_when_import_llm_then_413() {
     let ctx = setup().await;
     let oversized = vec![0u8; 21_000_001];
-    let (body, content_type) = build_llm_multipart(
-        Some("gpt-4o-mini"),
-        None,
-        &[&oversized, &oversized, &oversized],
-        None,
-        None,
-    );
+    let (body, content_type) = build_llm_multipart(None, &[&oversized, &oversized, &oversized]);
     let response = ctx
         .app
         .oneshot(
@@ -1526,13 +1468,7 @@ async fn given_three_oversized_images_when_import_llm_then_413() {
 async fn given_two_images_each_over_20mb_when_import_llm_then_413_with_per_image_message() {
     let ctx = setup().await;
     let oversized = vec![0u8; 21_000_001];
-    let (body, content_type) = build_llm_multipart(
-        Some("gpt-4o-mini"),
-        None,
-        &[&oversized, &oversized],
-        None,
-        None,
-    );
+    let (body, content_type) = build_llm_multipart(None, &[&oversized, &oversized]);
     let response = ctx
         .app
         .oneshot(
@@ -1563,13 +1499,7 @@ async fn given_body_over_50mb_with_images_under_20mb_each_when_import_llm_then_4
  {
     let ctx = setup().await;
     let image = vec![0u8; 19_000_000];
-    let (body, content_type) = build_llm_multipart(
-        Some("gpt-4o-mini"),
-        None,
-        &[&image, &image, &image],
-        None,
-        None,
-    );
+    let (body, content_type) = build_llm_multipart(None, &[&image, &image, &image]);
     let response = ctx
         .app
         .oneshot(
@@ -1659,13 +1589,8 @@ async fn given_two_images_when_import_llm_then_sent_in_order_and_draft_returned(
     });
 
     let base_url = format!("http://127.0.0.1:{port}/v1/");
-    let (body, content_type) = build_llm_multipart(
-        Some("test-model"),
-        None,
-        &[&[0x01, 0x02], &[0x03, 0x04]],
-        Some(&base_url),
-        Some("test-key"),
-    );
+    seed_custom_ai(&ctx, &base_url, "test-model").await;
+    let (body, content_type) = build_llm_multipart(None, &[&[0x01, 0x02], &[0x03, 0x04]]);
     let response = ctx
         .app
         .oneshot(
@@ -1693,9 +1618,9 @@ async fn given_two_images_when_import_llm_then_sent_in_order_and_draft_returned(
 }
 
 #[tokio::test]
-async fn given_no_fields_when_generate_meal_then_400_missing_model() {
+async fn given_no_fields_when_generate_meal_then_400() {
     let ctx = setup().await;
-    let (body, content_type) = build_generate_multipart(None, None, &[]);
+    let (body, content_type) = build_generate_multipart(None, &[]);
     let response = ctx
         .app
         .oneshot(
@@ -1711,24 +1636,41 @@ async fn given_no_fields_when_generate_meal_then_400_missing_model() {
     assert_eq!(response.status(), StatusCode::BAD_REQUEST);
     let bytes = to_bytes(response.into_body(), 4096).await.unwrap();
     let json: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
-    assert!(json["error"].as_str().unwrap().contains("model"));
+    assert!(
+        json["error"]
+            .as_str()
+            .unwrap()
+            .contains("at least one of ingredients or an image")
+    );
 }
-fn build_generate_multipart(
-    model: Option<&str>,
-    ingredients: Option<&str>,
-    images: &[&[u8]],
-) -> (Vec<u8>, String) {
+
+#[tokio::test]
+async fn given_no_stored_ai_config_when_generate_meal_then_400_not_configured() {
+    let ctx = setup().await;
+    let (body, content_type) = build_generate_multipart(Some("flour\neggs"), &[]);
+    let response = ctx
+        .app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method(Method::POST)
+                .uri("/import/generate")
+                .header("content-type", content_type)
+                .body(axum::body::Body::from(body))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+    let bytes = to_bytes(response.into_body(), 4096).await.unwrap();
+    let json: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
+    assert_eq!(json["code"], "llm_not_configured");
+}
+
+fn build_generate_multipart(ingredients: Option<&str>, images: &[&[u8]]) -> (Vec<u8>, String) {
     let boundary = "testboundaryGEN";
     let mut body = Vec::new();
 
-    if let Some(m) = model {
-        body.extend_from_slice(b"--");
-        body.extend_from_slice(boundary.as_bytes());
-        body.extend_from_slice(b"\r\n");
-        body.extend_from_slice(b"Content-Disposition: form-data; name=\"model\"\r\n\r\n");
-        body.extend_from_slice(m.as_bytes());
-        body.extend_from_slice(b"\r\n");
-    }
     if let Some(ing) = ingredients {
         body.extend_from_slice(b"--");
         body.extend_from_slice(boundary.as_bytes());
@@ -1761,7 +1703,6 @@ fn build_generate_multipart(
 /// caller-supplied Content-Type (build_generate_multipart always sends
 /// image/jpeg).
 fn build_generate_multipart_with_image_content_type(
-    model: Option<&str>,
     ingredients: Option<&str>,
     image_bytes: &[u8],
     image_content_type: &str,
@@ -1769,14 +1710,6 @@ fn build_generate_multipart_with_image_content_type(
     let boundary = "testboundaryGEN";
     let mut body = Vec::new();
 
-    if let Some(m) = model {
-        body.extend_from_slice(b"--");
-        body.extend_from_slice(boundary.as_bytes());
-        body.extend_from_slice(b"\r\n");
-        body.extend_from_slice(b"Content-Disposition: form-data; name=\"model\"\r\n\r\n");
-        body.extend_from_slice(m.as_bytes());
-        body.extend_from_slice(b"\r\n");
-    }
     if let Some(ing) = ingredients {
         body.extend_from_slice(b"--");
         body.extend_from_slice(boundary.as_bytes());
@@ -1803,38 +1736,11 @@ fn build_generate_multipart_with_image_content_type(
 }
 
 #[tokio::test]
-async fn given_model_without_input_when_generate_meal_then_400() {
-    let ctx = setup().await;
-    let (body, content_type) = build_generate_multipart(Some("mock-model"), None, &[]);
-    let response = ctx
-        .app
-        .oneshot(
-            Request::builder()
-                .method(Method::POST)
-                .uri("/import/generate")
-                .header("content-type", content_type)
-                .body(axum::body::Body::from(body))
-                .unwrap(),
-        )
-        .await
-        .unwrap();
-    assert_eq!(response.status(), StatusCode::BAD_REQUEST);
-    let bytes = to_bytes(response.into_body(), 4096).await.unwrap();
-    let json: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
-    assert!(
-        json["error"]
-            .as_str()
-            .unwrap()
-            .contains("at least one of ingredients or an image")
-    );
-}
-
-#[tokio::test]
 async fn given_six_images_when_generate_meal_then_400() {
     let ctx = setup().await;
     let imgs: Vec<Vec<u8>> = (0..6).map(|i| vec![i as u8; 16]).collect();
     let refs: Vec<&[u8]> = imgs.iter().map(|v| v.as_slice()).collect();
-    let (body, content_type) = build_generate_multipart(Some("mock-model"), Some("flour"), &refs);
+    let (body, content_type) = build_generate_multipart(Some("flour"), &refs);
     let response = ctx
         .app
         .oneshot(
@@ -1857,8 +1763,7 @@ async fn given_six_images_when_generate_meal_then_400() {
 async fn given_oversized_image_when_generate_meal_then_413() {
     let ctx = setup().await;
     let oversized = vec![0u8; 21_000_001];
-    let (body, content_type) =
-        build_generate_multipart(Some("mock-model"), Some("flour"), &[&oversized]);
+    let (body, content_type) = build_generate_multipart(Some("flour"), &[&oversized]);
     let response = ctx
         .app
         .oneshot(
@@ -1878,7 +1783,7 @@ async fn given_oversized_image_when_generate_meal_then_413() {
 async fn given_long_ingredients_when_generate_meal_then_400() {
     let ctx = setup().await;
     let long = "x".repeat(20001);
-    let (body, content_type) = build_generate_multipart(Some("mock-model"), Some(&long), &[]);
+    let (body, content_type) = build_generate_multipart(Some(&long), &[]);
     let response = ctx
         .app
         .oneshot(
@@ -1900,12 +1805,8 @@ async fn given_long_ingredients_when_generate_meal_then_400() {
 #[tokio::test]
 async fn given_empty_image_when_generate_meal_then_400_image_field_empty() {
     let ctx = setup().await;
-    let (body, content_type) = build_generate_multipart_with_image_content_type(
-        Some("mock-model"),
-        Some("flour"),
-        b"",
-        "image/jpeg",
-    );
+    let (body, content_type) =
+        build_generate_multipart_with_image_content_type(Some("flour"), b"", "image/jpeg");
     let response = ctx
         .app
         .oneshot(
@@ -1933,21 +1834,12 @@ async fn given_empty_image_when_generate_meal_then_400_image_field_empty() {
 /// carries NO Content-Type header at all (simulating a malformed client that
 /// omits it), so the None branch of the generate_meal content-type match runs.
 fn build_generate_multipart_without_image_content_type(
-    model: Option<&str>,
     ingredients: Option<&str>,
     image_bytes: &[u8],
 ) -> (Vec<u8>, String) {
     let boundary = "testboundaryGEN";
     let mut body = Vec::new();
 
-    if let Some(m) = model {
-        body.extend_from_slice(b"--");
-        body.extend_from_slice(boundary.as_bytes());
-        body.extend_from_slice(b"\r\n");
-        body.extend_from_slice(b"Content-Disposition: form-data; name=\"model\"\r\n\r\n");
-        body.extend_from_slice(m.as_bytes());
-        body.extend_from_slice(b"\r\n");
-    }
     if let Some(ing) = ingredients {
         body.extend_from_slice(b"--");
         body.extend_from_slice(boundary.as_bytes());
@@ -1976,7 +1868,6 @@ fn build_generate_multipart_without_image_content_type(
 async fn given_svg_image_when_generate_meal_then_400_unsupported_content_type() {
     let ctx = setup().await;
     let (body, content_type) = build_generate_multipart_with_image_content_type(
-        Some("mock-model"),
         Some("flour"),
         b"<svg xmlns='http://www.w3.org/2000/svg'/>",
         "image/svg+xml",
@@ -2007,11 +1898,8 @@ async fn given_svg_image_when_generate_meal_then_400_unsupported_content_type() 
 #[tokio::test]
 async fn given_image_without_content_type_when_generate_meal_then_400_missing_header() {
     let ctx = setup().await;
-    let (body, content_type) = build_generate_multipart_without_image_content_type(
-        Some("mock-model"),
-        Some("flour"),
-        b"x",
-    );
+    let (body, content_type) =
+        build_generate_multipart_without_image_content_type(Some("flour"), b"x");
     let response = ctx
         .app
         .oneshot(
@@ -2123,6 +2011,55 @@ async fn given_custom_provider_no_base_url_when_list_models_then_400() {
         .await
         .unwrap();
     assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+}
+
+#[tokio::test]
+async fn given_stored_custom_provider_when_list_models_then_uses_stored_endpoint() {
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+
+    let ctx = setup().await;
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let port = listener.local_addr().unwrap().port();
+    tokio::spawn(async move {
+        let (mut stream, _) = listener.accept().await.unwrap();
+        let mut buf = Vec::new();
+        let mut byte = [0u8; 1];
+        while !buf.ends_with(b"\r\n\r\n") {
+            stream.read_exact(&mut byte).await.unwrap();
+            buf.push(byte[0]);
+        }
+        let body = r#"{"object":"list","data":[{"id":"stored-model"}]}"#;
+        let response = format!(
+            "HTTP/1.1 200 OK\r\ncontent-type: application/json\r\ncontent-length: {}\r\nconnection: close\r\n\r\n{body}",
+            body.len()
+        );
+        stream.write_all(response.as_bytes()).await.unwrap();
+        stream.flush().await.unwrap();
+    });
+
+    seed_custom_ai(
+        &ctx,
+        &format!("http://127.0.0.1:{port}/v1/"),
+        "stored-model",
+    )
+    .await;
+
+    let response = ctx
+        .app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method(Method::GET)
+                .uri("/llm/models?provider=custom")
+                .body(axum::body::Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    let bytes = to_bytes(response.into_body(), 4096).await.unwrap();
+    let json: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
+    assert_eq!(json["models"][0], "stored-model");
 }
 // -----------------------------------------------------------------------
 // JSON-LD content-negotiation tests
@@ -2592,7 +2529,7 @@ fn given_not_found_error_when_classify_fetch_then_no_recipe_found() {
 // -----------------------------------------------------------------------
 
 #[tokio::test]
-async fn given_missing_model_when_polish_instructions_then_returns_400() {
+async fn given_missing_ingredients_when_polish_instructions_then_400() {
     let ctx = setup().await;
     let boundary = "testpolishboundary";
     let mut body = Vec::new();
@@ -2602,7 +2539,7 @@ async fn given_missing_model_when_polish_instructions_then_returns_400() {
     body.extend_from_slice(b"\r\n");
     body.extend_from_slice(b"Content-Disposition: form-data; name=\"name\"\r\n\r\n");
     body.extend_from_slice(b"Test Meal\r\n");
-    // closing boundary — no model field
+    // closing boundary — no ingredients field
     body.extend_from_slice(b"--");
     body.extend_from_slice(boundary.as_bytes());
     body.extend_from_slice(b"--\r\n");

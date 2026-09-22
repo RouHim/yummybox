@@ -4,7 +4,8 @@
 use crate::db;
 use crate::settings::{
     KEY_BRING_EMAIL, KEY_BRING_PASSWORD, KEY_LLM_API_KEY, KEY_LLM_BASE_URL, KEY_LLM_MODEL,
-    KEY_LLM_PROVIDER, SecretState, StoredSettings, ValueSource, env_lookup, load, snapshot,
+    KEY_LLM_PROVIDER, SecretState, StoredSettings, ValueSource, env_lookup, load,
+    provider_credentials, resolve_ai, snapshot,
 };
 
 async fn setup_db() -> (sqlx::SqlitePool, tempfile::TempDir) {
@@ -471,4 +472,86 @@ async fn given_existing_values_when_committed_again_then_stored_values_are_repla
     assert_eq!(stored.model.as_deref(), Some("gpt-4o"));
     assert_eq!(stored.bring_email.as_deref(), Some("second@example.com"));
     assert_eq!(stored.bring_password.as_deref(), Some("second-pass"));
+}
+
+#[test]
+fn given_no_provider_or_model_when_resolve_ai_then_not_configured() {
+    let env = empty_env();
+    assert!(
+        resolve_ai(&StoredSettings::default(), &env)
+            .expect("ok")
+            .is_none()
+    );
+
+    let model_only = StoredSettings {
+        model: Some("gpt-4o-mini".to_string()),
+        ..StoredSettings::default()
+    };
+    assert!(resolve_ai(&model_only, &env).expect("ok").is_none());
+}
+
+#[test]
+fn given_stored_ai_when_resolved_then_stored_key_wins_over_environment() {
+    let stored = StoredSettings {
+        provider: Some("openai".to_string()),
+        model: Some("gpt-4o-mini".to_string()),
+        api_key: Some("sk-stored".to_string()),
+        ..StoredSettings::default()
+    };
+    let env = |key: &str| (key == "OPENAI_API_KEY").then(|| "sk-env".to_string());
+
+    let resolved = resolve_ai(&stored, &env).expect("ok").expect("configured");
+
+    assert_eq!(resolved.provider, "openai");
+    assert_eq!(resolved.model, "gpt-4o-mini");
+    assert_eq!(resolved.base_url, None);
+    assert_eq!(resolved.api_key.as_deref(), Some("sk-stored"));
+}
+
+#[test]
+fn given_no_stored_key_when_resolved_then_provider_environment_key_applies() {
+    let stored = StoredSettings {
+        provider: Some("openai".to_string()),
+        model: Some("gpt-4o-mini".to_string()),
+        ..StoredSettings::default()
+    };
+    let env = |key: &str| (key == "OPENAI_API_KEY").then(|| "sk-env".to_string());
+
+    let resolved = resolve_ai(&stored, &env).expect("ok").expect("configured");
+    assert_eq!(resolved.api_key.as_deref(), Some("sk-env"));
+}
+
+#[test]
+fn given_custom_provider_without_base_url_when_resolved_then_rejected() {
+    let stored = StoredSettings {
+        provider: Some("custom".to_string()),
+        model: Some("llama3".to_string()),
+        ..StoredSettings::default()
+    };
+    let err = resolve_ai(&stored, &empty_env()).expect_err("must reject");
+    assert!(
+        err.to_string().contains("customBaseUrl must be set"),
+        "{err}"
+    );
+}
+
+#[test]
+fn given_foreign_stored_key_when_credentials_for_another_provider_then_not_applied() {
+    // The stored key was saved for anthropic; openai must fall back to its own
+    // environment key instead of inheriting a key that belongs to another
+    // provider.
+    let stored = StoredSettings {
+        provider: Some("anthropic".to_string()),
+        model: Some("claude-3-5-sonnet".to_string()),
+        api_key: Some("sk-anthropic-stored".to_string()),
+        ..StoredSettings::default()
+    };
+    let env = |key: &str| (key == "OPENAI_API_KEY").then(|| "sk-openai-env".to_string());
+
+    let foreign = provider_credentials(&stored, "openai", &env);
+    assert_eq!(foreign.api_key.as_deref(), Some("sk-openai-env"));
+
+    // …and the key is still used for the provider it was stored for.
+    let own = provider_credentials(&stored, "anthropic", &env);
+    assert_eq!(own.api_key.as_deref(), Some("sk-anthropic-stored"));
 }

@@ -67,7 +67,7 @@ impl IntoResponse for AppError {
             AppError::BringNoLists => (StatusCode::NOT_FOUND, self.to_string(), None),
             AppError::Llm(msg, code) => {
                 let status = match *code {
-                    "llm_api_key_missing" => StatusCode::BAD_REQUEST,
+                    "llm_api_key_missing" | "llm_not_configured" => StatusCode::BAD_REQUEST,
                     "llm_parse_failed" => StatusCode::UNPROCESSABLE_ENTITY,
                     _ => StatusCode::INTERNAL_SERVER_ERROR,
                 };
