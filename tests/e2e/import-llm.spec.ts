@@ -121,11 +121,15 @@ test.describe('LLM import', () => {
 		});
 
 		// The server resolves the key from the store: the listing only succeeds
-		// once the key has been committed, exactly like the real backend.
+		// once the key has been committed, exactly like the real backend. The
+		// decision uses the key's *source*, not `set`: `set` is also true for an
+		// ambient OPENAI_API_KEY in the environment, which would flip this mock
+		// to 200 before the test has stored anything.
 		await page.route('**/api/llm/models?*', async (route) => {
 			const settings = await page.request.get('/api/settings');
-			const keySet = ((await settings.json()) as { ai: { apiKey: { set: boolean } } }).ai.apiKey.set;
-			if (!keySet) {
+			const keySource = ((await settings.json()) as { ai: { apiKey: { source: string } } }).ai.apiKey
+				.source;
+			if (keySource !== 'settings') {
 				await route.fulfill({
 					status: 400,
 					contentType: 'application/json',
