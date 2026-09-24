@@ -8,6 +8,7 @@
 		secretSourceLabelKey,
 		type SecretState,
 		type SettingsPatch,
+		type SettingsSnapshot,
 	} from '$lib/settings.svelte';
 	import Icon from '$lib/Icon.svelte';
 	import { t } from '$lib/i18n';
@@ -55,14 +56,27 @@
 	// Monotonic sequence for model-list requests: a slow earlier response must
 	// not overwrite the models of a newer provider switch.
 	let modelsRequestSeq = 0;
+	// The same discipline for settings snapshots: the mount-time read takes its
+	// number before the request starts, so an answer that lands after a newer
+	// commit answer is discarded instead of undoing that commit.
+	let appliedSnapshotSeq = 0;
+	let snapshotRequestSeq = 0;
+
+	/** Server-owned snapshot fields, applied from the newest answer only. */
+	function applySnapshot(snapshot: SettingsSnapshot, seq: number) {
+		if (seq <= appliedSnapshotSeq) return;
+		appliedSnapshotSeq = seq;
+		apiKeyState = snapshot.ai.apiKey;
+		configured = isAiConfigured(snapshot);
+		loaded = true;
+	}
 
 	// Commits are serialized: a settings change may only be followed by the
 	// next one once the previous request has been answered, so a slow
 	// provider commit can never land after a newer model commit.
-	const committer = new SettingsCommitter(updateSettings, (snapshot) => {
-		apiKeyState = snapshot.ai.apiKey;
-		configured = isAiConfigured(snapshot);
-	});
+	const committer = new SettingsCommitter(updateSettings, (snapshot) =>
+		applySnapshot(snapshot, ++snapshotRequestSeq),
+	);
 
 	function commit(patch: SettingsPatch): Promise<void> {
 		return committer.commit(patch);
@@ -209,11 +223,18 @@
 	$effect(() => {
 		if (restored) return;
 		restored = true;
+		const seq = ++snapshotRequestSeq;
 		getSettings()
 			.then((snapshot) => {
-				provider = snapshot.ai.provider;
-				model = snapshot.ai.model;
-				customBaseUrl = snapshot.ai.customBaseUrl;
+				// A commit was answered while this read was in flight: that answer
+				// carries the newer state, so the read is dropped whole.
+				if (seq <= appliedSnapshotSeq) return;
+				appliedSnapshotSeq = seq;
+				// A field the user already filled is theirs to keep; the read only
+				// fills what is still empty.
+				if (!provider) provider = snapshot.ai.provider;
+				if (!model) model = snapshot.ai.model;
+				if (!customBaseUrl) customBaseUrl = snapshot.ai.customBaseUrl;
 				apiKeyState = snapshot.ai.apiKey;
 				configured = isAiConfigured(snapshot);
 				loaded = true;

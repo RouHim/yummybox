@@ -19,6 +19,25 @@ async function mockBringStatus(page: Page, body: BringStatus | (() => BringStatu
 	});
 }
 
+/**
+ * Hold every `GET /api/settings` answer until the returned function is called,
+ * so a read that started before the user acted is delivered after it. The body
+ * is fetched up front, which makes the late answer stale by construction.
+ */
+async function holdSettingsReads(page: Page): Promise<() => void> {
+	const gate = Promise.withResolvers<void>();
+	await page.route('**/api/settings*', async (route) => {
+		if (route.request().method() !== 'GET') {
+			await route.continue();
+			return;
+		}
+		const response = await route.fetch();
+		await gate.promise;
+		await route.fulfill({ response });
+	});
+	return gate.resolve;
+}
+
 test.describe('Settings page', () => {
 	test.beforeEach(async ({ request, page }) => {
 		await setLocale(page, 'en');
@@ -96,6 +115,24 @@ test.describe('Settings page', () => {
 		// again, so the restored model is shown in the free-text field. Without a
 		// listing on restore the model control would only offer its placeholder.
 		await expect(page.getByPlaceholder('Model name (e.g. gpt-4o-mini)')).toHaveValue('test-model');
+	});
+
+	test('given_settings_read_answered_late_when_provider_chosen_then_choice_survives', async ({ page }) => {
+		// A user on a slow link picks a provider while the page is still reading
+		// the stored configuration. The late answer is stale, so it must not undo
+		// the choice and must not hide the field the choice revealed.
+		const releaseSettingsReads = await holdSettingsReads(page);
+
+		await page.goto('/settings');
+		const providerSelect = page.locator('select').first();
+		await expect(providerSelect.locator('option[value="custom"]')).toHaveCount(1);
+		await providerSelect.selectOption('custom');
+		await expect(page.getByLabel('Base URL')).toBeVisible();
+
+		releaseSettingsReads();
+
+		await expect(providerSelect).toHaveValue('custom');
+		await expect(page.getByLabel('Base URL')).toBeVisible();
 	});
 
 	test('given_stored_api_key_when_page_loads_then_state_shown_and_value_never_rendered', async ({ page, request }) => {
