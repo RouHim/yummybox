@@ -186,6 +186,14 @@ test.describe('Settings page', () => {
 		await expect(page.getByLabel('Bring! password')).toHaveValue('');
 	});
 
+	test('given_no_stored_password_when_settings_load_then_password_field_asks_for_a_new_one', async ({ page }) => {
+		// Without a stored or inherited password there is nothing to replace, so
+		// the field must not claim there is.
+		await page.goto('/settings');
+
+		await expect(page.getByLabel('Bring! password')).toHaveAttribute('placeholder', 'Enter your Bring! password');
+	});
+
 	test('given_no_ai_configuration_when_generate_page_opened_then_notice_links_to_settings', async ({ page }) => {
 		await page.goto('/spontaneous');
 		const notice = page.locator('.ai-config-notice');

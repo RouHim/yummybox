@@ -75,6 +75,13 @@ export function commitStatusLabelKey(status: CommitStatus): TranslationKey | nul
 	return null;
 }
 
+/** Chip modifier carrying the same commit state, so every surface reads alike. */
+export function commitStatusChipClass(status: CommitStatus): string {
+	if (status === 'error') return 'state-chip--alert';
+	if (status === 'saved') return 'state-chip--ok';
+	return 'state-chip--neutral';
+}
+
 /**
  * Serializes settings commits so a slow earlier request can never land after a
  * newer one and overwrite it, and exposes the shared saving/saved/failed state

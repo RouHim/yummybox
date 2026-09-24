@@ -2,12 +2,14 @@
 	import { listLlmProviders, listLlmModels, getSettings, updateSettings, ApiError } from '$lib/api';
 	import {
 		SettingsCommitter,
+		commitStatusChipClass,
 		isAiConfigured,
 		commitStatusLabelKey,
 		secretSourceLabelKey,
 		type SecretState,
 		type SettingsPatch,
 	} from '$lib/settings.svelte';
+	import Icon from '$lib/Icon.svelte';
 	import { t } from '$lib/i18n';
 	import type { LlmProviderInfo } from '$lib/types';
 
@@ -18,6 +20,8 @@
 		disabled = false,
 		providersReady = $bindable(true),
 		configured = $bindable(false),
+		loaded = $bindable(false),
+		variant = 'panel',
 	}: {
 		provider?: string;
 		providerName?: string;
@@ -25,6 +29,11 @@
 		disabled?: boolean;
 		providersReady?: boolean;
 		configured?: boolean;
+		/** True once the stored configuration has been read, so a caller can
+		 *  tell "not configured" apart from "not known yet". */
+		loaded?: boolean;
+		/** `panel` draws its own surface (import dialogs); `plain` sits in a card that already has one. */
+		variant?: 'panel' | 'plain';
 	} = $props();
 
 	let llmProviders = $state<LlmProviderInfo[]>([]);
@@ -33,6 +42,9 @@
 	let llmModels: string[] = $state([]);
 	let llmModelsLoading = $state(false);
 	let llmModelsError = $state<string | null>(null);
+	// Raw cause behind the actionable sentence: shown only on request, never
+	// as the first thing the user reads.
+	let llmModelsErrorDetail = $state<string | null>(null);
 	let customBaseUrl = $state('');
 	let apiKeyInput = $state('');
 	let apiKeyState = $state<SecretState>({ set: false, source: 'none' });
@@ -61,16 +73,19 @@
 		if (!provider) {
 			llmModelsLoading = false;
 			llmModelsError = null;
+			llmModelsErrorDetail = null;
 			return;
 		}
 		if (provider === 'custom' && !customBaseUrl.trim()) {
 			llmModels = [];
 			llmModelsLoading = false;
 			llmModelsError = null;
+			llmModelsErrorDetail = null;
 			return;
 		}
 		llmModelsLoading = true;
 		llmModelsError = null;
+		llmModelsErrorDetail = null;
 		try {
 			const resp = await listLlmModels(provider);
 			if (seq !== modelsRequestSeq) return;
@@ -81,9 +96,11 @@
 		} catch (err) {
 			if (seq !== modelsRequestSeq) return;
 			llmModels = [];
-			llmModelsError = err instanceof ApiError
-				? (err.code === 'REQUEST_FAILED' ? t('llmModelsLoadError') : `${t('llmModelsLoadError')} (${err.message})`)
-				: t('llmModelsLoadError');
+			llmModelsError = t('llmModelsLoadError');
+			// A transport failure carries no cause worth reading; anything the
+			// provider answered is kept, one disclosure away.
+			llmModelsErrorDetail =
+				err instanceof ApiError && err.code !== 'REQUEST_FAILED' ? err.message : null;
 		} finally {
 			if (seq === modelsRequestSeq) {
 				llmModelsLoading = false;
@@ -199,6 +216,7 @@
 				customBaseUrl = snapshot.ai.customBaseUrl;
 				apiKeyState = snapshot.ai.apiKey;
 				configured = isAiConfigured(snapshot);
+				loaded = true;
 				providerName = llmProviders.find((p) => p.id === provider)?.name ?? provider;
 				// List the restored provider's models straight away, so a stored
 				// model is displayed and stays editable; `loadModels` returns
@@ -231,10 +249,12 @@
 		</button>
 	{/if}
 {:else}
-	<div class="import-subsection">
-		<div class="llm-provider-row">
-			<select bind:value={provider} onchange={onProviderChange}
-				aria-label={t('llmProviderLabel')}
+	<div class="llm-fields" class:import-subsection={variant === 'panel'}>
+		<div class="field">
+			<div class="field__head">
+				<label class="field__label" for="llm-provider">{t('llmProviderLabel')}</label>
+			</div>
+			<select id="llm-provider" bind:value={provider} onchange={onProviderChange}
 				disabled={llmProvidersLoading || disabled}>
 				<option value="">{t('llmProviderPlaceholder')}</option>
 				{#each llmProviders as p}
@@ -246,64 +266,90 @@
 					</option>
 				{/each}
 			</select>
+		</div>
 
-			{#if provider}
-				{#if llmModelsLoading}
-					<span class="import-loading">{t('llmModelLoading')}</span>
-				{:else if llmModelsError}
-					<input type="text" bind:value={model} placeholder={t('importLlmModelPlaceholder')}
+		{#if provider}
+			<div class="field">
+				<div class="field__head">
+					<label class="field__label" for="llm-model">{t('llmModelLabel')}</label>
+					{#if llmModelsLoading}
+						<span class="state-chip state-chip--none">
+							<span class="state-chip__icon" aria-hidden="true"><Icon name="loader-circle" size={12} spin /></span>
+							{t('llmModelLoading')}
+						</span>
+					{/if}
+				</div>
+				{#if llmModelsError}
+					<!-- The listing failed, so the model is entered by hand. -->
+					<input id="llm-model" type="text" bind:value={model} placeholder={t('importLlmModelPlaceholder')}
 						disabled={disabled} onchange={onModelChange}
 						onkeydown={(e) => onEnter(e, onModelChange)} />
 				{:else}
-					<select bind:value={model} aria-label={t('llmModelLabel')} disabled={disabled}
+					<select id="llm-model" bind:value={model} disabled={disabled || llmModelsLoading}
 						onchange={onModelChange}>
-						<option value="">{t('llmModelPlaceholder')}</option>
+						<option value="">{llmModelsLoading ? t('llmModelLoading') : t('llmModelPlaceholder')}</option>
 						{#each llmModels as m}
 							<option value={m}>{m}</option>
 						{/each}
 					</select>
 				{/if}
-			{/if}
-		</div>
+			</div>
+		{/if}
 
 		{#if provider === 'custom'}
-			<p class="import-info">{t('llmCustomHint')}</p>
-			<label class="import-field">
-				<span>{t('llmCustomBaseUrlLabel')}</span>
-				<input type="url" bind:value={customBaseUrl} placeholder={t('llmCustomBaseUrlPlaceholder')}
+			<p class="llm-hint">{t('llmCustomHint')}</p>
+			<div class="field">
+				<div class="field__head">
+					<label class="field__label" for="llm-base-url">{t('llmCustomBaseUrlLabel')}</label>
+				</div>
+				<input id="llm-base-url" type="url" bind:value={customBaseUrl} placeholder={t('llmCustomBaseUrlPlaceholder')}
 					disabled={disabled} onchange={onBaseUrlChange}
 					onkeydown={(e) => onEnter(e, onBaseUrlChange)} />
-			</label>
+			</div>
 		{/if}
 
 		{#if provider}
-			<label class="import-field">
-				<span>{provider === 'custom' ? t('llmCustomApiKeyLabel') : t('settingsApiKeyLabel')}</span>
-				<input type="password" bind:value={apiKeyInput}
+			<div class="field">
+				<div class="field__head">
+					<label class="field__label" for="llm-api-key">
+						{provider === 'custom' ? t('llmCustomApiKeyLabel') : t('settingsApiKeyLabel')}
+					</label>
+					<span class="state-chip state-chip--neutral llm-secret-state">{t(secretSourceLabelKey(apiKeyState.source))}</span>
+					{#if apiKeyState.source === 'settings'}
+						<button type="button" class="btn btn--ghost btn--compact" onclick={onClearApiKey} disabled={disabled}>
+							{t('settingsSecretClear')}
+						</button>
+					{/if}
+				</div>
+				<input id="llm-api-key" type="password" bind:value={apiKeyInput}
 					placeholder={provider === 'custom' ? t('llmCustomApiKeyPlaceholder') : t('settingsApiKeyPlaceholder')}
 					disabled={disabled} onchange={onApiKeyChange}
 					onkeydown={(e) => onEnter(e, onApiKeyChange)} />
-			</label>
-			<p class="llm-secret-state">
-				{t(secretSourceLabelKey(apiKeyState.source))}
-				{#if apiKeyState.source === 'settings'}
-					<button type="button" class="btn btn--ghost" onclick={onClearApiKey} disabled={disabled}>
-						{t('settingsSecretClear')}
-					</button>
-				{/if}
-			</p>
+			</div>
 		{/if}
 
 		{#if llmModelsError}
-			<p class="form-error">{llmModelsError}</p>
+			<div class="llm-error">
+				<p class="form-error" role="alert">{llmModelsError}</p>
+				{#if llmModelsErrorDetail}
+					<details class="llm-error__details">
+						<summary>{t('llmErrorDetails')}</summary>
+						<p>{llmModelsErrorDetail}</p>
+					</details>
+				{/if}
+			</div>
 		{/if}
 		{#if provider === 'ollama' && llmModelsError}
-			<p class="import-info">{t('llmOllamaHint')}</p>
+			<p class="llm-hint">{t('llmOllamaHint')}</p>
 		{/if}
 
-		<p class="llm-commit-state" role="status">
-			{commitStatusLabelKey(committer.state.status) ? t(commitStatusLabelKey(committer.state.status)!) : ''}
-		</p>
+		{#if commitStatusLabelKey(committer.state.status)}
+			<p class="llm-commit-state" role="status">
+				<span class="state-chip {commitStatusChipClass(committer.state.status)}">
+					{t(commitStatusLabelKey(committer.state.status)!)}
+				</span>
+			</p>
+		{/if}
 		{#if committer.state.status === 'error'}
 			<p class="form-error" role="alert">{committer.state.error}</p>
 		{/if}
@@ -311,36 +357,59 @@
 {/if}
 
 <style>
-	.import-subsection {
+	.llm-fields {
 		display: flex;
 		flex-direction: column;
-		gap: var(--space-3);
+		gap: var(--space-4);
+	}
+
+	/* Panel chrome for the import dialogs; the settings page brings its own card. */
+	.import-subsection {
 		padding: var(--space-3) var(--space-4);
 		background: var(--color-surface);
 		border: 1px solid var(--color-border);
 		border-radius: var(--radius-md);
 	}
 
-	.llm-provider-row {
-		display: flex;
-		gap: var(--space-2);
-		align-items: flex-start;
-	}
-	.llm-provider-row > * {
-		flex: 1;
-		min-width: 0;
+	.llm-hint {
+		margin: 0;
+		font-size: var(--text-sm);
+		color: var(--color-text-secondary);
+		line-height: 1.5;
 	}
 
-	.llm-secret-state {
+	.llm-error {
 		display: flex;
-		align-items: center;
+		flex-direction: column;
 		gap: var(--space-2);
+	}
+	.llm-error .form-error {
+		margin: 0;
+		align-items: flex-start;
+	}
+	.llm-error__details {
 		font-size: var(--text-sm);
 		color: var(--color-text-secondary);
 	}
+	.llm-error__details summary {
+		cursor: pointer;
+		color: var(--color-text-secondary);
+	}
+	.llm-error__details p {
+		margin: var(--space-2) 0 0;
+		padding: var(--space-2) var(--space-3);
+		background: var(--color-surface-2);
+		border-radius: var(--radius-sm);
+		font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+		font-size: var(--text-xs);
+		overflow-wrap: anywhere;
+	}
+
+	/* Test hook: the E2E suite pins the provenance of the stored AI key here. */
+	.llm-secret-state {
+		margin: 0;
+	}
 	.llm-commit-state {
-		min-height: 1.2em;
-		font-size: var(--text-sm);
-		color: var(--color-text-muted);
+		margin: 0;
 	}
 </style>

@@ -621,16 +621,14 @@ import { focusTrap } from '$lib/focusTrap';
 										</div>
 									{/if}
 									{#if !llmSettingsCollapsed || !importLlmProvider}
-										<div class="import-subsection">
-											<LlmConfigPicker
-												bind:provider={importLlmProvider}
-												bind:providerName={importLlmProviderName}
-												bind:model={importLlmModel}
-												bind:providersReady={importLlmProvidersReady}
-												bind:configured={importLlmConfigured}
-												disabled={importing}
-											/>
-										</div>
+										<LlmConfigPicker
+											bind:provider={importLlmProvider}
+											bind:providerName={importLlmProviderName}
+											bind:model={importLlmModel}
+											bind:providersReady={importLlmProvidersReady}
+											bind:configured={importLlmConfigured}
+											disabled={importing}
+										/>
 									{/if}
 
 									{#if importLlmProvidersReady}
@@ -874,16 +872,6 @@ import { focusTrap } from '$lib/focusTrap';
 		}
 	}
 
-
-	.import-subsection {
-		display: flex;
-		flex-direction: column;
-		gap: var(--space-3);
-		padding: var(--space-3) var(--space-4);
-		background: var(--color-surface);
-		border: 1px solid var(--color-border);
-		border-radius: var(--radius-md);
-	}
 
     .llm-settings-toggle {
         display: flex;
