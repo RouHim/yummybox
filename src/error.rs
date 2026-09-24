@@ -251,6 +251,17 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn given_llm_not_configured_when_into_response_then_returns_400() {
+        assert_response_code(
+            AppError::Llm("LLM not configured".into(), "llm_not_configured"),
+            StatusCode::BAD_REQUEST,
+            "LLM not configured",
+            "llm_not_configured",
+        )
+        .await;
+    }
+
+    #[tokio::test]
     async fn given_llm_timeout_when_into_response_then_returns_500() {
         assert_response_code(
             AppError::Llm("timed out".into(), "llm_timeout"),

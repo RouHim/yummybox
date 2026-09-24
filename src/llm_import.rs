@@ -96,11 +96,21 @@ impl LlmTarget<'_> {
 
     /// Model spec for chat calls: a fully resolved service target for the
     /// custom endpoint, the provider's adapter otherwise.
+    ///
+    /// The custom endpoint is documented as keyless-capable, but genai's
+    /// OpenAI adapter requires a single key value and fails the whole call
+    /// with `ResolverAuthDataNotSingleValue` for `AuthData::None` before any
+    /// request leaves. A keyless target therefore gets a placeholder, the same
+    /// way genai's own keyless adapters (Ollama) default to one, so the
+    /// request reaches the endpoint instead of surfacing as
+    /// `llm_model_not_found`.
     fn model_spec(&self, model: &str) -> Result<genai::ModelSpec, AppError> {
         if self.provider_id == PROVIDER_CUSTOM {
             return Ok(genai::ServiceTarget {
                 endpoint: self.custom_endpoint()?,
-                auth: self.auth().unwrap_or(genai::resolver::AuthData::None),
+                auth: self
+                    .auth()
+                    .unwrap_or_else(|| genai::resolver::AuthData::from_single("no-key")),
                 model: genai::ModelIden::new(AdapterKind::OpenAI, model),
             }
             .into());
@@ -165,10 +175,10 @@ pub fn list_providers(stored_provider: Option<&str>, stored_key_set: bool) -> Ve
         .map(|(kind, name)| {
             let id = kind.as_lower_str().to_string();
             let env_var = kind.default_key_env_name().unwrap_or("").to_string();
-            // A present-but-empty variable counts as unset, matching
-            // `settings::provider_env_key`, so both endpoints agree.
-            let env_key_set =
-                !env_var.is_empty() && std::env::var(&env_var).is_ok_and(|value| !value.is_empty());
+            // A present-but-empty or whitespace-only variable counts as unset,
+            // matching `settings::provider_env_key`, so both endpoints agree.
+            let env_key_set = !env_var.is_empty()
+                && std::env::var(&env_var).is_ok_and(|value| !value.trim().is_empty());
             let stored_applies = stored_key_set && stored_provider == Some(id.as_str());
             LlmProviderInfo {
                 configured: needs_no_api_key(&id) || env_key_set || stored_applies,
@@ -212,6 +222,7 @@ fn needs_no_api_key(id: &str) -> bool {
 ///
 /// Uses a 15-second timeout to avoid hanging the UI.
 pub async fn list_models(target: &LlmTarget<'_>) -> Result<Vec<String>, AppError> {
+    require_api_key(target)?;
     let client = genai::Client::default();
     let (adapter_kind, provider_config) = target.listing_config()?;
 
@@ -296,6 +307,7 @@ pub async fn import_via_llm(
     images: Vec<LlmImage>,
     skip_image_download: bool,
 ) -> Result<recipe::ImportDraft, AppError> {
+    require_api_key(target)?;
     let client = target.client();
     let user_content = build_user_content(hint, &images);
 
@@ -345,6 +357,7 @@ pub async fn generate_meal_via_llm(
     ingredients: Option<&str>,
     images: Vec<LlmImage>,
 ) -> Result<recipe::ImportDraft, AppError> {
+    require_api_key(target)?;
     let client = target.client();
     let user_content = build_user_content(ingredients, &images);
 
@@ -392,6 +405,7 @@ pub async fn polish_instructions(
     ingredients: &[NewIngredientLine],
     instructions: &str,
 ) -> Result<String, AppError> {
+    require_api_key(target)?;
     let client = target.client();
 
     let mut user_text = format!("Meal: {meal_name}\n\nIngredients:\n");
@@ -446,19 +460,10 @@ fn map_genai_error(err: genai::Error) -> AppError {
     match &err {
         genai::Error::RequiresApiKey { model_iden }
         | genai::Error::NoAuthResolver { model_iden }
-        | genai::Error::NoAuthData { model_iden } => {
-            let env_var = model_iden
-                .adapter_kind
-                .default_key_env_name()
-                .unwrap_or("the provider's API key environment variable");
-            AppError::Llm(
-                format!(
-                    "API key not configured for provider '{}': store one in Settings or set the {} environment variable",
-                    model_iden.adapter_kind, env_var
-                ),
-                "llm_api_key_missing",
-            )
-        }
+        | genai::Error::NoAuthData { model_iden } => api_key_missing_error(
+            &model_iden.adapter_kind.to_string(),
+            model_iden.adapter_kind.default_key_env_name(),
+        ),
         genai::Error::Resolver { model_iden, .. }
         | genai::Error::ModelMapperFailed { model_iden, .. } => AppError::Llm(
             format!("model '{}' could not be resolved: {err}", model_iden),
@@ -466,6 +471,38 @@ fn map_genai_error(err: genai::Error) -> AppError {
         ),
         _ => AppError::Llm(format!("LLM request failed: {err}"), "llm_request_failed"),
     }
+}
+
+/// The actionable error for a provider that needs a key but has none. The
+/// sentence names the provider's API-key environment variable when it has one.
+fn api_key_missing_error(provider: &str, env_var: Option<&str>) -> AppError {
+    let env_var = env_var.unwrap_or("the provider's API key environment variable");
+    AppError::Llm(
+        format!(
+            "API key not configured for provider '{provider}': store one in Settings or set the {env_var} environment variable"
+        ),
+        "llm_api_key_missing",
+    )
+}
+
+/// Refuse to run keyless against a provider that needs a key. genai swallows
+/// the unresolved `FromEnv` key, the request leaves without an Authorization
+/// header, and the provider's 401 would surface as an opaque
+/// `llm_request_failed` (on the chat paths, a resolver error that blames the
+/// model instead). Answering `llm_api_key_missing` up front keeps a keyless
+/// install on the same actionable error whether the key is stored, inherited
+/// or missing, and keeps the request from leaving at all.
+///
+/// Callers that spend something before the LLM call (the bare-URL hint fetch
+/// in `import`) call this themselves, so the missing key is reported before
+/// that cost.
+pub(crate) fn require_api_key(target: &LlmTarget<'_>) -> Result<(), AppError> {
+    if needs_no_api_key(target.provider_id) || target.auth().is_some() {
+        return Ok(());
+    }
+    let env_var = AdapterKind::from_lower_str(target.provider_id)
+        .and_then(|kind| kind.default_key_env_name());
+    Err(api_key_missing_error(target.provider_id, env_var))
 }
 
 // ---------------------------------------------------------------------------
@@ -642,6 +679,38 @@ mod tests {
             api_key: None,
         };
         assert!(target.auth().is_none());
+    }
+
+    #[test]
+    fn given_keyless_ollama_when_require_api_key_then_accepted() {
+        // `require_api_key` is the single gate in front of every AI entry
+        // point, and Ollama is exempt from it: dropping that half would turn
+        // every Ollama flow into a 400 `llm_api_key_missing`.
+        let target = LlmTarget {
+            provider_id: "ollama",
+            base_url: None,
+            api_key: None,
+        };
+        require_api_key(&target).expect("a keyless ollama target needs no key");
+    }
+
+    #[test]
+    fn given_keyless_openai_when_require_api_key_then_llm_api_key_missing() {
+        // The keyless half of the gate: a provider that needs a key must be
+        // refused before the request leaves, with the code the UI acts on.
+        let target = LlmTarget {
+            provider_id: "openai",
+            base_url: None,
+            api_key: None,
+        };
+        let err = require_api_key(&target).expect_err("must reject a keyless openai target");
+        match err {
+            AppError::Llm(message, code) => {
+                assert_eq!(code, "llm_api_key_missing");
+                assert!(message.contains("openai"), "{message}");
+            }
+            other => panic!("expected an Llm error, got {other:?}"),
+        }
     }
 
     #[test]

@@ -15,6 +15,8 @@ import { focusTrap } from '$lib/focusTrap';
 	import MultiImageInput from '$lib/components/MultiImageInput.svelte';
 	import LlmConfigPicker from '$lib/components/LlmConfigPicker.svelte';
 	import AiConfigNotice from '$lib/components/AiConfigNotice.svelte';
+	import { aiConfigNoticeVisible, aiFlowReady } from '$lib/settings.svelte';
+	import { llmErrorMessage } from '$lib/llm-error';
 	let meals = $state<Meal[]>([]);
 
 	let existingMealNames = $derived(
@@ -48,6 +50,9 @@ import { focusTrap } from '$lib/focusTrap';
     let importToken = $state(0);
     let importLlmProvidersReady = $state(true);
     let importLlmConfigured = $state(false);
+    // True once the picker read the stored AI configuration: unknown until
+    // then, so the notice and the import button wait for that answer.
+    let importLlmLoaded = $state(false);
     let llmSettingsCollapsed = $state(false);
 
     let bulkUrls = $state('');
@@ -84,19 +89,9 @@ import { focusTrap } from '$lib/focusTrap';
             importToken++;
             importMode = 'manual';
         } catch (err) {
-            if (err instanceof ApiError) {
-                if (err.code === 'llm_timeout') {
-                    importError = t('llmErrorTimeout');
-                } else if (err.code === 'llm_parse_failed') {
-                    importError = t('llmErrorParseFailed');
-                } else if (err.code) {
-                    importError = t('llmErrorGeneric', { message: err.message });
-                } else {
-                    importError = err.code === 'REQUEST_FAILED' ? t('importErrorFetch') : err.message;
-                }
-            } else {
-                importError = err instanceof Error ? err.message : '';
-            }
+            // One shared mapper with the other AI flows, so a new error code
+            // cannot be handled here and forgotten there.
+            importError = llmErrorMessage(err);
         } finally {
             importing = false;
         }
@@ -231,6 +226,7 @@ import { focusTrap } from '$lib/focusTrap';
         importMode = 'manual';
         importLlmProvider = ''; importLlmProviderName = ''; importLlmModel = ''; importLlmHint = '';
         importLlmConfigured = false;
+        importLlmLoaded = false;
         importLlmImages = [];
         llmSettingsCollapsed = false;
         importing = false; importError = null; importToken++;
@@ -603,7 +599,7 @@ import { focusTrap } from '$lib/focusTrap';
 									</button>
 								{/if}
 								{:else if importMode === 'llm'}
-									{#if !importLlmConfigured}
+									{#if aiConfigNoticeVisible(importLlmLoaded, importLlmConfigured)}
 										<AiConfigNotice />
 									{/if}
 									{#if importLlmProvider}
@@ -627,6 +623,7 @@ import { focusTrap } from '$lib/focusTrap';
 											bind:model={importLlmModel}
 											bind:providersReady={importLlmProvidersReady}
 											bind:configured={importLlmConfigured}
+											bind:loaded={importLlmLoaded}
 											disabled={importing}
 										/>
 									{/if}
@@ -647,7 +644,7 @@ import { focusTrap } from '$lib/focusTrap';
 										/>
 
 										<button type="button" class="btn btn--primary" onclick={onImport}
-											disabled={importing || !importLlmConfigured || (!importLlmHint.trim() && importLlmImages.length === 0)}>
+											disabled={importing || !aiFlowReady(importLlmLoaded, importLlmConfigured) || (!importLlmHint.trim() && importLlmImages.length === 0)}>
 											{importing ? t('importButtonLlmLoading') : t('importButtonLlm')}
 										</button>
 									{/if}

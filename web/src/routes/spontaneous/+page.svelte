@@ -9,6 +9,7 @@
 	import MealForm from '$lib/MealForm.svelte';
 	import LlmConfigPicker from '$lib/components/LlmConfigPicker.svelte';
 	import AiConfigNotice from '$lib/components/AiConfigNotice.svelte';
+	import { aiConfigNoticeVisible, aiFlowReady } from '$lib/settings.svelte';
 	import GenerateImageInput from '$lib/components/GenerateImageInput.svelte';
 
 	let meals = $state<Meal[]>([]);
@@ -21,6 +22,9 @@
 	let model = $state('');
 	let providersReady = $state(true);
 	let configured = $state(false);
+	// True once the picker's read of the stored configuration succeeded; until
+	// then the AI status is unknown, not "unconfigured".
+	let aiLoaded = $state(false);
 	let settingsCollapsed = $state(false);
 
 	let ingredients = $state('');
@@ -175,7 +179,7 @@
 	}
 
 	let hasInput = $derived(ingredients.trim().length > 0 || images.length > 0);
-	let canGenerate = $derived(configured && hasInput && !generating);
+	let canGenerate = $derived(aiFlowReady(aiLoaded, configured) && hasInput && !generating);
 	let ingredientCount = $derived(ingredients.split('\n').filter((l: string) => l.trim().length > 0).length);
 
 	// Collapse the AI settings block once the stored configuration is usable,
@@ -223,7 +227,7 @@
 			{/if}
 		</div>
 
-		{#if !configured}
+		{#if aiConfigNoticeVisible(aiLoaded, configured)}
 			<AiConfigNotice />
 		{/if}
 
@@ -237,6 +241,7 @@
 				bind:model
 				bind:providersReady
 				bind:configured
+				bind:loaded={aiLoaded}
 				disabled={generating}
 			/>
 		</div>

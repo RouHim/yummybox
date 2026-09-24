@@ -3,8 +3,11 @@
 	import {
 		SettingsCommitter,
 		commitStatusChipClass,
+		commitStored,
 		isAiConfigured,
 		commitStatusLabelKey,
+		providerChangePatch,
+		providerChanged,
 		secretSourceLabelKey,
 		type SecretState,
 		type SettingsPatch,
@@ -50,6 +53,13 @@
 	let apiKeyInput = $state('');
 	let apiKeyState = $state<SecretState>({ set: false, source: 'none' });
 	let restored = $state(false);
+	// Whether the mount-time read of the stored configuration has settled
+	// (succeeded or failed). The model listing waits for it, so a remount lists
+	// the provider's models once, on the state the answer establishes.
+	let settingsReadSettled = $state(false);
+	// A failed settings read leaves `loaded` false: the caller must keep
+	// treating the configuration as unknown, never as unconfigured.
+	let settingsLoadFailed = $state(false);
 	// Provider whose models were already loaded this mount; ensures a fresh
 	// model load after the component remounts (collapse/expand, tab switch).
 	let modelsLoadedFor: string | null = null;
@@ -57,18 +67,47 @@
 	// not overwrite the models of a newer provider switch.
 	let modelsRequestSeq = 0;
 	// The same discipline for settings snapshots: the mount-time read takes its
-	// number before the request starts, so an answer that lands after a newer
-	// commit answer is discarded instead of undoing that commit.
+	// number before the request starts, and a commit takes one when it is
+	// issued, so a read that started earlier is superseded from that moment on
+	// instead of refilling a field the commit cleared.
 	let appliedSnapshotSeq = 0;
 	let snapshotRequestSeq = 0;
+
+	/**
+	 * Whether an answer numbered `seq` is still the newest request issued. A
+	 * commit issued after a read takes a higher number, and that read's body -
+	 * the state before the commit - still carries the values the commit
+	 * removed, so only the newest answer may fill a field.
+	 */
+	function isNewest(seq: number): boolean {
+		return seq === snapshotRequestSeq;
+	}
+
+	// The provider the server last confirmed, or `null` while the stored
+	// configuration has not been read (or the read failed). A selection that
+	// matches it changed nothing and must not delete its dependent values.
+	let appliedProvider: string | null = null;
 
 	/** Server-owned snapshot fields, applied from the newest answer only. */
 	function applySnapshot(snapshot: SettingsSnapshot, seq: number) {
 		if (seq <= appliedSnapshotSeq) return;
 		appliedSnapshotSeq = seq;
+		appliedProvider = snapshot.ai.provider;
 		apiKeyState = snapshot.ai.apiKey;
+		// The answer carries the stored model and endpoint: fill them in while
+		// the user has not typed one, so a selection that changed nothing keeps
+		// showing the values it would otherwise have deleted. Only the newest
+		// answer may fill: a body that a newer commit already superseded still
+		// reports the values that commit removed.
+		if (isNewest(seq)) {
+			if (!model) model = snapshot.ai.model;
+			if (!customBaseUrl) customBaseUrl = snapshot.ai.customBaseUrl;
+		}
 		configured = isAiConfigured(snapshot);
 		loaded = true;
+		// An applied snapshot proves the server answered, so a failure reported
+		// by an earlier read must not keep labelling the form as unloaded.
+		settingsLoadFailed = false;
 	}
 
 	// Commits are serialized: a settings change may only be followed by the
@@ -78,7 +117,18 @@
 		applySnapshot(snapshot, ++snapshotRequestSeq),
 	);
 
+	/**
+	 * Queue a commit. It takes its sequence number here, when it is issued, so
+	 * a read that is still in flight is recognized as superseded before this
+	 * commit has even been answered: that read's body predates the commit, and
+	 * filling an emptied field from it would restore the value the commit
+	 * removed (the commit's own answer carries the newer state, but it skips
+	 * that fill, now that the field is no longer empty). The commit's own
+	 * answer is numbered when it is applied, which keeps it newer than every
+	 * answer before it.
+	 */
 	function commit(patch: SettingsPatch): Promise<void> {
+		snapshotRequestSeq++;
 		return committer.commit(patch);
 	}
 
@@ -126,19 +176,31 @@
 		// Invalidate any in-flight model-list request: a stale response must
 		// not repopulate the model select after a provider switch.
 		modelsRequestSeq++;
-		model = '';
-		customBaseUrl = '';
-		apiKeyInput = '';
-		llmModels = [];
+		// Only a selection that really moved off the stored provider invalidates
+		// its dependent values. Re-selecting the stored provider (a user on a
+		// slow link, before the read has answered) must keep them: deleting the
+		// key here would leave the install with a provider and no credentials.
+		const switched = providerChanged(provider, appliedProvider);
+		if (switched) {
+			model = '';
+			customBaseUrl = '';
+			apiKeyInput = '';
+			llmModels = [];
+		}
 		llmModelsError = null;
 		providerName = llmProviders.find((p) => p.id === provider)?.name ?? provider;
-		// A provider switch invalidates the previous provider's model,
-		// endpoint and key: clear them in the same commit.
-		commit({
-			ai: { provider, model: null, customBaseUrl: null, apiKey: null },
-		}).then(() => {
-			modelsLoadedFor = provider;
-			if (provider && provider !== 'custom') loadModels();
+		// Mark the provider as listed before the commit so the remount effect
+		// below does not start a second listing with the pre-commit
+		// configuration; the commit's answer triggers the one listing.
+		modelsLoadedFor = provider;
+		// A provider switch clears the previous provider's model, endpoint and
+		// key in the same commit; a selection that changed nothing sends the
+		// provider alone.
+		commit({ ai: providerChangePatch(provider, appliedProvider) }).then(() => {
+			// List after the commit: a selection that changed nothing lets the
+			// server return the stored endpoint, so even the custom provider
+			// has something to list once its answer has been applied.
+			if (provider) loadModels();
 		});
 	}
 
@@ -159,6 +221,11 @@
 			return;
 		}
 		commit({ ai: { customBaseUrl } }).then(() => {
+			// Nothing is stored unless the commit succeeded: listing now would
+			// query the stored endpoint while the field shows the rejected URL,
+			// and a model chosen from that list would be committed for the
+			// stored endpoint instead.
+			if (!commitStored(committer.state.status)) return;
 			if (provider === 'custom') loadModels();
 		});
 	}
@@ -167,6 +234,10 @@
 		const value = apiKeyInput;
 		if (!value.trim()) return;
 		commit({ ai: { apiKey: value } }).then(() => {
+			// Nothing is stored unless the commit succeeded: a rejected key must
+			// stay in the field so the user can correct and resend it, and no
+			// model listing may run against a key the server does not have.
+			if (!commitStored(committer.state.status)) return;
 			// The value is stored now; never keep it in the DOM. A value typed
 			// while the request was in flight stays untouched.
 			if (apiKeyInput === value) apiKeyInput = '';
@@ -219,10 +290,19 @@
 		}
 	});
 
-	// Load the stored configuration once per mount; never overwrite user edits.
-	$effect(() => {
-		if (restored) return;
-		restored = true;
+	// Read the stored configuration; the caller keeps its state unknown until
+	// this succeeds, and a failure is surfaced with a retry.
+	function loadStoredSettings() {
+		// The read owns the flags that describe what is known. A remount starts
+		// with an empty `apiKeyState`, so until this mount's own answer applies
+		// the caller's `loaded` from an earlier mount would let the chip claim
+		// "Not set" (and hide Clear) for a key the server does have. Reset them
+		// so nothing speaks about the configuration before a snapshot of this
+		// mount has been applied.
+		settingsLoadFailed = false;
+		loaded = false;
+		configured = false;
+		settingsReadSettled = false;
 		const seq = ++snapshotRequestSeq;
 		getSettings()
 			.then((snapshot) => {
@@ -230,31 +310,62 @@
 				// carries the newer state, so the read is dropped whole.
 				if (seq <= appliedSnapshotSeq) return;
 				appliedSnapshotSeq = seq;
+				appliedProvider = snapshot.ai.provider;
 				// A field the user already filled is theirs to keep; the read only
-				// fills what is still empty.
-				if (!provider) provider = snapshot.ai.provider;
-				if (!model) model = snapshot.ai.model;
-				if (!customBaseUrl) customBaseUrl = snapshot.ai.customBaseUrl;
+				// fills what is still empty, and only while it is the newest
+				// answer: a commit issued after this read started holds a higher
+				// number and its body predates that commit, so filling from it
+				// would show the model and the endpoint the commit removed. The
+				// model and the endpoint are also only filled while the local
+				// provider is the one the snapshot reports: a selection made
+				// before this answer moved off that provider, and the server
+				// deleted the model and the endpoint with it, so filling them
+				// here would show a model the server no longer has.
+				const fills = isNewest(seq);
+				if (fills && !provider) provider = snapshot.ai.provider;
+				if (provider === snapshot.ai.provider) {
+					if (fills && !model) model = snapshot.ai.model;
+					if (fills && !customBaseUrl) customBaseUrl = snapshot.ai.customBaseUrl;
+				}
 				apiKeyState = snapshot.ai.apiKey;
 				configured = isAiConfigured(snapshot);
 				loaded = true;
 				providerName = llmProviders.find((p) => p.id === provider)?.name ?? provider;
-				// List the restored provider's models straight away, so a stored
-				// model is displayed and stays editable; `loadModels` returns
-				// early while a custom provider has no stored base URL yet.
-				if (provider) {
-					modelsLoadedFor = provider;
-					loadModels();
-				}
 			})
 			.catch(() => {
-				// A settings read failure leaves the picker empty; the settings
-				// page surfaces the error again on its own load.
+				// The read failed, so the stored configuration stays unknown:
+				// `loaded` remains false instead of reporting the install as
+				// unconfigured, and the retry below is the only way back.
+				if (seq <= appliedSnapshotSeq) return;
+				settingsLoadFailed = true;
+			})
+			.finally(() => {
+				// The listing effect below waits for this: while the read is in
+				// flight its answer may still supply the stored provider and the
+				// stored endpoint, so listing now would only be repeated.
+				settingsReadSettled = true;
 			});
+	}
+
+	// Re-run the read after a failure: clearing `restored` re-triggers the
+	// effect below (the catch above never retries on its own).
+	function retryLoadSettings() {
+		restored = false;
+	}
+
+	// Load the stored configuration once per mount; never overwrite user edits.
+	$effect(() => {
+		if (restored) return;
+		restored = true;
+		loadStoredSettings();
 	});
 
 	// Reload models when the picker remounts with a provider already selected.
+	// Gated on the mount read having settled: that read may still supply the
+	// stored provider (or the stored custom endpoint the listing needs), so
+	// listing before its answer would run twice for the same state change.
 	$effect(() => {
+		if (!settingsReadSettled) return;
 		if (provider && modelsLoadedFor !== provider) {
 			modelsLoadedFor = provider;
 			loadModels();
@@ -294,7 +405,7 @@
 				<div class="field__head">
 					<label class="field__label" for="llm-model">{t('llmModelLabel')}</label>
 					{#if llmModelsLoading}
-						<span class="state-chip state-chip--none">
+						<span class="state-chip state-chip--neutral">
 							<span class="state-chip__icon" aria-hidden="true"><Icon name="loader-circle" size={12} spin /></span>
 							{t('llmModelLoading')}
 						</span>
@@ -335,11 +446,16 @@
 					<label class="field__label" for="llm-api-key">
 						{provider === 'custom' ? t('llmCustomApiKeyLabel') : t('settingsApiKeyLabel')}
 					</label>
-					<span class="state-chip state-chip--neutral llm-secret-state">{t(secretSourceLabelKey(apiKeyState.source))}</span>
-					{#if apiKeyState.source === 'settings'}
-						<button type="button" class="btn btn--ghost btn--compact" onclick={onClearApiKey} disabled={disabled}>
-							{t('settingsSecretClear')}
-						</button>
+					<!-- Only an applied snapshot knows where the key comes from:
+					     before one (and after a read that failed) the chip would
+					     claim "Not set" for a key that may well be stored. -->
+					{#if loaded}
+						<span class="state-chip state-chip--neutral llm-secret-state">{t(secretSourceLabelKey(apiKeyState.source))}</span>
+						{#if apiKeyState.source === 'settings'}
+							<button type="button" class="btn btn--ghost btn--compact" onclick={onClearApiKey} disabled={disabled}>
+								{t('settingsSecretClear')}
+							</button>
+						{/if}
 					{/if}
 				</div>
 				<input id="llm-api-key" type="password" bind:value={apiKeyInput}
@@ -377,6 +493,15 @@
 	</div>
 {/if}
 
+{#if settingsLoadFailed}
+	<div class="llm-settings-error">
+		<p class="form-error" role="alert">{t('settingsLoadFailed')}</p>
+		<button type="button" class="btn btn--ghost" onclick={retryLoadSettings} disabled={disabled}>
+			{t('buttonRetry')}
+		</button>
+	</div>
+{/if}
+
 <style>
 	.llm-fields {
 		display: flex;
@@ -403,6 +528,17 @@
 		display: flex;
 		flex-direction: column;
 		gap: var(--space-2);
+	}
+	/* The stored settings could not be read: the picker stays empty, so the
+	   failure and its retry sit outside the field stack. */
+	.llm-settings-error {
+		display: flex;
+		flex-direction: column;
+		gap: var(--space-2);
+		align-items: flex-start;
+	}
+	.llm-settings-error .form-error {
+		margin: 0;
 	}
 	.llm-error .form-error {
 		margin: 0;

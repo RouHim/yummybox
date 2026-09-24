@@ -1266,6 +1266,47 @@ async fn given_empty_body_when_import_llm_then_400() {
 }
 
 #[tokio::test]
+async fn given_no_stored_ai_config_when_import_llm_with_bare_url_hint_then_not_configured_without_fetching()
+ {
+    let ctx = setup().await;
+    // The listener is bound but never accepts: if the handler fetched the
+    // hint, the connection would land here.
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let port = listener.local_addr().unwrap().port();
+
+    let url = format!("http://127.0.0.1:{port}/recipe");
+    let (body, content_type) = build_llm_multipart(Some(&url), &[]);
+    let response = ctx
+        .app
+        .oneshot(
+            Request::builder()
+                .method(Method::POST)
+                .uri("/import/llm")
+                .header("content-type", content_type)
+                .body(axum::body::Body::from(body))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+    let resp_body = to_bytes(response.into_body(), 4096).await.unwrap();
+    let json: serde_json::Value = serde_json::from_slice(&resp_body).unwrap();
+    assert_eq!(
+        json["code"], "llm_not_configured",
+        "an unconfigured import must answer with the actionable code, not a fetch error: {json}"
+    );
+
+    // The configuration is resolved before the expansion, so nothing may have
+    // connected to the bare-URL page.
+    let accepted =
+        tokio::time::timeout(std::time::Duration::from_millis(200), listener.accept()).await;
+    assert!(
+        accepted.is_err(),
+        "a not-configured import must not fetch the bare-URL hint"
+    );
+}
+
+#[tokio::test]
 async fn given_hint_over_20000_chars_when_import_llm_then_400() {
     let ctx = setup().await;
     let long_hint = "x".repeat(20001);
@@ -1283,6 +1324,70 @@ async fn given_hint_over_20000_chars_when_import_llm_then_400() {
         .await
         .unwrap();
     assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+    let resp_body = to_bytes(response.into_body(), 4096).await.unwrap();
+    let json: serde_json::Value = serde_json::from_slice(&resp_body).unwrap();
+    assert!(
+        json["error"]
+            .as_str()
+            .unwrap()
+            .contains("hint must be at most 20000 characters"),
+        "the hint-length guard must be the one that rejected this request: {json}"
+    );
+}
+
+#[tokio::test]
+async fn given_keyless_provider_when_import_llm_with_bare_url_hint_then_400_without_fetching() {
+    // The process environment decides whether the key is missing, so it is
+    // forced unset for the duration and restored afterwards.
+    let _guard = PROCESS_ENV_LOCK.lock().await;
+    let had_key = std::env::var("OPENAI_API_KEY").ok();
+    unsafe { std::env::remove_var("OPENAI_API_KEY") };
+
+    let ctx = setup().await;
+    ctx.seed_setting("llm.provider", "openai").await;
+    ctx.seed_setting("llm.model", "gpt-4o-mini").await;
+
+    // The listener is bound but never accepts: if the handler fetched the
+    // hint, the connection would land here.
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let port = listener.local_addr().unwrap().port();
+
+    let url = format!("http://127.0.0.1:{port}/recipe");
+    let (body, content_type) = build_llm_multipart(Some(&url), &[]);
+    let response = ctx
+        .app
+        .oneshot(
+            Request::builder()
+                .method(Method::POST)
+                .uri("/import/llm")
+                .header("content-type", content_type)
+                .body(axum::body::Body::from(body))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+    let resp_body = to_bytes(response.into_body(), 4096).await.unwrap();
+    let json: serde_json::Value = serde_json::from_slice(&resp_body).unwrap();
+    assert_eq!(
+        json["code"], "llm_api_key_missing",
+        "a keyless provider must answer the actionable code, not a fetch error: {json}"
+    );
+
+    match had_key {
+        Some(value) => unsafe { std::env::set_var("OPENAI_API_KEY", value) },
+        None => unsafe { std::env::remove_var("OPENAI_API_KEY") },
+    }
+
+    // The key is checked before the expansion, so nothing may have connected
+    // to the bare-URL page.
+    let accepted =
+        tokio::time::timeout(std::time::Duration::from_millis(200), listener.accept()).await;
+    assert!(
+        accepted.is_err(),
+        "a keyless import must not fetch the bare-URL hint"
+    );
 }
 
 #[tokio::test]
@@ -1675,9 +1780,10 @@ async fn given_stored_custom_provider_when_generate_meal_then_draft_returned() {
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
     let port = listener.local_addr().unwrap().port();
 
-    // The mock reports the model the flow asked for, so the assertion below
-    // proves the *stored* model reaches the provider.
-    let (model_tx, model_rx) = tokio::sync::oneshot::channel::<Option<String>>();
+    // The mock reports the model the flow asked for and the Authorization
+    // header it received, so the assertions below prove the *stored* model and
+    // the *stored* key reach the provider.
+    let (model_tx, model_rx) = tokio::sync::oneshot::channel::<(Option<String>, Option<String>)>();
     let mock_body = r#"{"id":"chatcmpl-test","object":"chat.completion","created":0,"model":"test-model","choices":[{"index":0,"message":{"role":"assistant","content":null,"tool_calls":[{"id":"call_1","type":"function","function":{"name":"extract_recipe","arguments":"{\"name\":\"Flour Eggs Pancake\",\"ingredients\":[{\"name\":\"flour\",\"quantity\":\"200 g\"},{\"name\":\"eggs\",\"quantity\":\"2\"}],\"instructions\":\"Whisk and fry.\",\"portion\":2}"}}]},"finish_reason":"tool_calls"}],"usage":{"prompt_tokens":1,"completion_tokens":1,"total_tokens":2}}"#;
     tokio::spawn(async move {
         let (mut stream, _) = listener.accept().await.unwrap();
@@ -1702,7 +1808,12 @@ async fn given_stored_custom_provider_when_generate_meal_then_draft_returned() {
             stream.read_exact(&mut body).await.unwrap();
         }
         let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
-        let _ = model_tx.send(json["model"].as_str().map(String::from));
+        let authorization = headers.lines().find_map(|l| {
+            let (name, value) = l.split_once(':')?;
+            name.eq_ignore_ascii_case("authorization")
+                .then(|| value.trim().to_string())
+        });
+        let _ = model_tx.send((json["model"].as_str().map(String::from), authorization));
         let resp = format!(
             "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
             mock_body.len(),
@@ -1733,11 +1844,153 @@ async fn given_stored_custom_provider_when_generate_meal_then_draft_returned() {
     assert_eq!(draft["name"], "Flour Eggs Pancake");
     assert_eq!(draft["ingredients"][0]["name"], "flour");
     assert_eq!(draft["ingredients"][1]["name"], "eggs");
+    let (model, authorization) = model_rx.await.expect("mock reported the model and header");
     assert_eq!(
-        model_rx.await.expect("mock reported the model").as_deref(),
+        model.as_deref(),
         Some("test-model"),
         "the stored model must reach the provider"
     );
+    assert_eq!(
+        authorization.as_deref(),
+        Some("Bearer test-key"),
+        "the stored key must reach the stored custom endpoint"
+    );
+}
+
+/// A keyless custom provider must still reach its endpoint: genai's OpenAI
+/// adapter requires a single key value, so the exemption the provider list,
+/// the settings page and the README advertise (custom needs no API key) only
+/// holds if the target supplies a placeholder instead of `AuthData::None`.
+#[tokio::test]
+async fn given_keyless_stored_custom_provider_when_generate_meal_then_request_reaches_endpoint() {
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+
+    let ctx = setup().await;
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let port = listener.local_addr().unwrap().port();
+
+    // The mock reports the Authorization header it received, so the assertion
+    // below proves a keyless target still sends a usable credential and the
+    // request was not refused before leaving.
+    let (auth_tx, auth_rx) = tokio::sync::oneshot::channel::<Option<String>>();
+    let mock_body = r#"{"id":"chatcmpl-test","object":"chat.completion","created":0,"model":"test-model","choices":[{"index":0,"message":{"role":"assistant","content":null,"tool_calls":[{"id":"call_1","type":"function","function":{"name":"extract_recipe","arguments":"{\"name\":\"Keyless Pancake\",\"ingredients\":[{\"name\":\"flour\",\"quantity\":\"200 g\"}],\"instructions\":\"Whisk and fry.\",\"portion\":2}"}}]},"finish_reason":"tool_calls"}],"usage":{"prompt_tokens":1,"completion_tokens":1,"total_tokens":2}}"#;
+    tokio::spawn(async move {
+        let (mut stream, _) = listener.accept().await.unwrap();
+        let mut buf = Vec::new();
+        let mut byte = [0u8; 1];
+        while !buf.ends_with(b"\r\n\r\n") {
+            stream.read_exact(&mut byte).await.unwrap();
+            buf.push(byte[0]);
+        }
+        let headers = String::from_utf8_lossy(&buf);
+        let content_length = headers
+            .lines()
+            .find_map(|l| {
+                l.to_ascii_lowercase()
+                    .strip_prefix("content-length:")
+                    .map(|v| v.trim().parse::<usize>().unwrap())
+            })
+            .unwrap_or(0);
+        let mut body = vec![0u8; content_length];
+        if content_length > 0 {
+            stream.read_exact(&mut body).await.unwrap();
+        }
+        let authorization = headers.lines().find_map(|l| {
+            let (name, value) = l.split_once(':')?;
+            name.eq_ignore_ascii_case("authorization")
+                .then(|| value.trim().to_string())
+        });
+        let _ = auth_tx.send(authorization);
+        let resp = format!(
+            "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
+            mock_body.len(),
+            mock_body
+        );
+        let _ = stream.write_all(resp.as_bytes()).await;
+    });
+
+    // Deliberately no llm.api_key row: the custom provider is documented as
+    // usable without one.
+    ctx.seed_setting("llm.provider", "custom").await;
+    ctx.seed_setting("llm.base_url", &format!("http://127.0.0.1:{port}/v1/"))
+        .await;
+    ctx.seed_setting("llm.model", "test-model").await;
+
+    let (body, content_type) = build_generate_multipart(Some("flour"), &[]);
+    let response = ctx
+        .app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method(Method::POST)
+                .uri("/import/generate")
+                .header("content-type", content_type)
+                .body(axum::body::Body::from(body))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(
+        response.status(),
+        StatusCode::OK,
+        "a keyless custom provider must not fail the chat flow"
+    );
+    let bytes = to_bytes(response.into_body(), 4096).await.unwrap();
+    let draft: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
+    assert_eq!(draft["name"], "Keyless Pancake");
+
+    let authorization = auth_rx.await.expect("mock saw the request");
+    assert_eq!(
+        authorization.as_deref(),
+        Some("Bearer no-key"),
+        "the keyless request must carry the placeholder credential, not fail before sending"
+    );
+}
+
+#[tokio::test]
+async fn given_keyless_provider_when_generate_meal_then_400_llm_api_key_missing() {
+    // The standard-provider half of the generate flow, the one entry point
+    // without its own keyless test: a stored provider and model with no key
+    // (and no environment key) must answer the actionable 400 here, instead of
+    // leaving for the provider keyless and surfacing the resolver error as
+    // `llm_model_not_found`. The process environment decides whether the key
+    // is missing, so it is forced unset for the duration and restored after.
+    let _guard = PROCESS_ENV_LOCK.lock().await;
+    let had_key = std::env::var("OPENAI_API_KEY").ok();
+    unsafe { std::env::remove_var("OPENAI_API_KEY") };
+
+    let ctx = setup().await;
+    ctx.seed_setting("llm.provider", "openai").await;
+    ctx.seed_setting("llm.model", "gpt-4o-mini").await;
+
+    let (body, content_type) = build_generate_multipart(Some("flour\neggs"), &[]);
+    let response = ctx
+        .app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method(Method::POST)
+                .uri("/import/generate")
+                .header("content-type", content_type)
+                .body(axum::body::Body::from(body))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+    let bytes = to_bytes(response.into_body(), 4096).await.unwrap();
+    let json: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
+    assert_eq!(json["code"], "llm_api_key_missing");
+    assert!(
+        json["error"].as_str().unwrap().contains("OPENAI_API_KEY"),
+        "the remedy must name the provider's environment variable: {json}"
+    );
+
+    match had_key {
+        Some(value) => unsafe { std::env::set_var("OPENAI_API_KEY", value) },
+        None => unsafe { std::env::remove_var("OPENAI_API_KEY") },
+    }
 }
 
 fn build_generate_multipart(ingredients: Option<&str>, images: &[&[u8]]) -> (Vec<u8>, String) {
@@ -2133,6 +2386,44 @@ async fn given_stored_custom_provider_when_list_models_then_uses_stored_endpoint
     let bytes = to_bytes(response.into_body(), 4096).await.unwrap();
     let json: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
     assert_eq!(json["models"][0], "stored-model");
+}
+
+#[tokio::test]
+async fn given_keyless_provider_when_list_models_then_400_llm_api_key_missing() {
+    let _guard = PROCESS_ENV_LOCK.lock().await;
+    let had_key = std::env::var("OPENAI_API_KEY").ok();
+    unsafe { std::env::remove_var("OPENAI_API_KEY") };
+
+    let ctx = setup().await;
+    let response = ctx
+        .app
+        .oneshot(
+            Request::builder()
+                .method(Method::GET)
+                .uri("/llm/models?provider=openai")
+                .body(axum::body::Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    // Without the up-front guard genai drops the unresolved key and the
+    // request leaves for the real provider, whose 401 would surface as a 500
+    // `llm_request_failed`; the 400 with the actionable code proves no request
+    // was issued.
+    assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+    let bytes = to_bytes(response.into_body(), 4096).await.unwrap();
+    let json: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
+    assert_eq!(json["code"], "llm_api_key_missing");
+    assert!(
+        json["error"].as_str().unwrap().contains("OPENAI_API_KEY"),
+        "the remedy must name the provider's environment variable: {json}"
+    );
+
+    match had_key {
+        Some(value) => unsafe { std::env::set_var("OPENAI_API_KEY", value) },
+        None => unsafe { std::env::remove_var("OPENAI_API_KEY") },
+    }
 }
 // -----------------------------------------------------------------------
 // JSON-LD content-negotiation tests
@@ -2631,6 +2922,15 @@ async fn given_missing_ingredients_when_polish_instructions_then_400() {
         .await
         .unwrap();
     assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+    let bytes = to_bytes(response.into_body(), 8192).await.unwrap();
+    let json: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
+    assert!(
+        json["error"]
+            .as_str()
+            .unwrap()
+            .contains("missing 'ingredients' field"),
+        "the ingredients guard must reject before the AI configuration is resolved: {json}"
+    );
 }
 
 #[tokio::test]
@@ -2679,6 +2979,184 @@ async fn given_body_over_50mb_when_polish_instructions_then_413() {
             .contains("request body exceeds 50 MB limit")
     );
 }
+
+#[tokio::test]
+async fn given_stored_custom_provider_when_polish_instructions_then_stored_model_and_fields_used() {
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+
+    let ctx = setup().await;
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let port = listener.local_addr().unwrap().port();
+
+    // The mock reports the model and the rendered user prompt it received, so
+    // the assertions below pin the polish call's wiring: name, ingredients and
+    // instructions are all `&str` at the call site and could be swapped without
+    // a type error.
+    let (seen_tx, seen_rx) = tokio::sync::oneshot::channel::<(Option<String>, String)>();
+    let mock_body = r#"{"id":"chatcmpl-test","object":"chat.completion","created":0,"model":"test-model","choices":[{"index":0,"message":{"role":"assistant","content":"Stir the batter until smooth."},"finish_reason":"stop"}],"usage":{"prompt_tokens":1,"completion_tokens":1,"total_tokens":2}}"#;
+    tokio::spawn(async move {
+        let (mut stream, _) = listener.accept().await.unwrap();
+        let mut buf = Vec::new();
+        let mut byte = [0u8; 1];
+        while !buf.ends_with(b"\r\n\r\n") {
+            stream.read_exact(&mut byte).await.unwrap();
+            buf.push(byte[0]);
+        }
+        let headers = String::from_utf8_lossy(&buf);
+        let content_length = headers
+            .lines()
+            .find_map(|l| {
+                l.to_ascii_lowercase()
+                    .strip_prefix("content-length:")
+                    .map(|v| v.trim().parse::<usize>().unwrap())
+            })
+            .unwrap_or(0);
+        let mut body = vec![0u8; content_length];
+        if content_length > 0 {
+            stream.read_exact(&mut body).await.unwrap();
+        }
+        let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
+        let user_text = json["messages"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|m| m["role"] == "user")
+            .and_then(|m| m["content"].as_str())
+            .unwrap_or_default()
+            .to_string();
+        let _ = seen_tx.send((json["model"].as_str().map(String::from), user_text));
+        let resp = format!(
+            "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
+            mock_body.len(),
+            mock_body
+        );
+        let _ = stream.write_all(resp.as_bytes()).await;
+    });
+
+    seed_custom_ai(&ctx, &format!("http://127.0.0.1:{port}/v1/"), "test-model").await;
+
+    let boundary = "testpolishmock";
+    let ingredients_json =
+        r#"[{"name":"flour","quantity":"200 g"},{"name":"eggs","quantity":"2"}]"#;
+    let mut body = Vec::new();
+    for (field, value) in [
+        ("name", "Flour Pancake"),
+        ("ingredients", ingredients_json),
+        ("instructions", "mix"),
+    ] {
+        body.extend_from_slice(b"--");
+        body.extend_from_slice(boundary.as_bytes());
+        body.extend_from_slice(b"\r\n");
+        body.extend_from_slice(
+            format!("Content-Disposition: form-data; name=\"{field}\"\r\n\r\n").as_bytes(),
+        );
+        body.extend_from_slice(value.as_bytes());
+        body.extend_from_slice(b"\r\n");
+    }
+    body.extend_from_slice(b"--");
+    body.extend_from_slice(boundary.as_bytes());
+    body.extend_from_slice(b"--\r\n");
+    let content_type = format!("multipart/form-data; boundary={boundary}");
+    let response = ctx
+        .app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method(Method::POST)
+                .uri("/llm/polish")
+                .header("content-type", &content_type)
+                .body(axum::body::Body::from(body))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    let bytes = to_bytes(response.into_body(), 8192).await.unwrap();
+    let json: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
+    assert_eq!(json["instructions"], "Stir the batter until smooth.");
+
+    let (model, user_text) = seen_rx.await.expect("mock saw the request");
+    assert_eq!(
+        model.as_deref(),
+        Some("test-model"),
+        "the stored model must reach the provider"
+    );
+    assert!(
+        user_text.contains("Meal: Flour Pancake"),
+        "the meal name must reach the provider prompt: {user_text}"
+    );
+    assert!(
+        user_text.contains("- flour") && user_text.contains("- eggs"),
+        "the ingredients must reach the provider prompt: {user_text}"
+    );
+    assert!(
+        user_text.contains("Instructions:\nmix"),
+        "the instructions must reach the provider prompt: {user_text}"
+    );
+}
+
+#[tokio::test]
+async fn given_keyless_provider_when_polish_instructions_then_400_llm_api_key_missing() {
+    let _guard = PROCESS_ENV_LOCK.lock().await;
+    let had_key = std::env::var("OPENAI_API_KEY").ok();
+    unsafe { std::env::remove_var("OPENAI_API_KEY") };
+
+    let ctx = setup().await;
+    ctx.seed_setting("llm.provider", "openai").await;
+    ctx.seed_setting("llm.model", "gpt-4o-mini").await;
+
+    let boundary = "testpolishkeyless";
+    let mut body = Vec::new();
+    for (field, value) in [
+        ("name", "Flour Pancake"),
+        ("ingredients", r#"[{"name":"flour","quantity":"200 g"}]"#),
+        ("instructions", "mix"),
+    ] {
+        body.extend_from_slice(b"--");
+        body.extend_from_slice(boundary.as_bytes());
+        body.extend_from_slice(b"\r\n");
+        body.extend_from_slice(
+            format!("Content-Disposition: form-data; name=\"{field}\"\r\n\r\n").as_bytes(),
+        );
+        body.extend_from_slice(value.as_bytes());
+        body.extend_from_slice(b"\r\n");
+    }
+    body.extend_from_slice(b"--");
+    body.extend_from_slice(boundary.as_bytes());
+    body.extend_from_slice(b"--\r\n");
+    let content_type = format!("multipart/form-data; boundary={boundary}");
+    let response = ctx
+        .app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method(Method::POST)
+                .uri("/llm/polish")
+                .header("content-type", &content_type)
+                .body(axum::body::Body::from(body))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    // A stored provider with no key (and no environment key) must answer the
+    // actionable 400 here too, instead of leaving for the provider keyless and
+    // surfacing the resulting resolver error as `llm_model_not_found`.
+    assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+    let bytes = to_bytes(response.into_body(), 4096).await.unwrap();
+    let json: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
+    assert_eq!(json["code"], "llm_api_key_missing");
+    assert!(
+        json["error"].as_str().unwrap().contains("OPENAI_API_KEY"),
+        "the remedy must name the provider's environment variable: {json}"
+    );
+
+    match had_key {
+        Some(value) => unsafe { std::env::set_var("OPENAI_API_KEY", value) },
+        None => unsafe { std::env::remove_var("OPENAI_API_KEY") },
+    }
+}
+
 #[test]
 fn given_other_error_when_classify_fetch_then_includes_detail() {
     let err = AppError::Internal("timeout".into());
@@ -2905,6 +3383,39 @@ async fn given_unknown_field_when_patch_settings_then_400() {
 }
 
 #[tokio::test]
+async fn given_body_over_the_limit_when_patch_settings_then_413_not_400() {
+    // The production limit is 50 MB. A router with a tiny one exercises the
+    // same rejection branch without a 50 MB fixture, and proves the status is
+    // preserved instead of being flattened into the 400 every other rejection
+    // produces.
+    let dir = tempfile::tempdir().expect("tempdir");
+    let pool = init_db(&dir.path().join("test.db")).await.expect("init_db");
+    let state = Arc::new(AppState { pool });
+    let app = Router::new()
+        .route("/settings", get(get_settings).patch(patch_settings))
+        .layer(axum::extract::DefaultBodyLimit::max(64))
+        .with_state(state);
+
+    let body = json!({ "ai": { "model": "m".repeat(200) } }).to_string();
+    let response = app
+        .oneshot(
+            Request::builder()
+                .method(Method::PATCH)
+                .uri("/settings")
+                .header("content-type", "application/json")
+                .body(Body::from(body))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), StatusCode::PAYLOAD_TOO_LARGE);
+    let bytes = to_bytes(response.into_body(), 8192).await.unwrap();
+    let json: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
+    assert_eq!(json["error"], "request body exceeds 50 MB limit");
+}
+
+#[tokio::test]
 async fn given_stored_secret_when_patched_then_response_never_contains_it() {
     let ctx = setup().await;
     let (status, json) = patch_settings_json(
@@ -2921,14 +3432,14 @@ async fn given_stored_secret_when_patched_then_response_never_contains_it() {
 
 #[tokio::test]
 async fn given_credentials_when_cleared_then_settings_fall_back_to_environment() {
-    // The handler resolves the cleared fields through the process environment,
-    // so ambient BRING_EMAIL/BRING_PASSWORD must not leak into this test.
+    // The branch under test is the environment one, so the variables stay set:
+    // with them unset this test would pass even if that branch were deleted.
     let _guard = PROCESS_ENV_LOCK.lock().await;
     let had_email = std::env::var("BRING_EMAIL").ok();
     let had_password = std::env::var("BRING_PASSWORD").ok();
     unsafe {
-        std::env::remove_var("BRING_EMAIL");
-        std::env::remove_var("BRING_PASSWORD");
+        std::env::set_var("BRING_EMAIL", "env@example.com");
+        std::env::set_var("BRING_PASSWORD", "env-pass");
     }
 
     let ctx = setup().await;
@@ -2942,19 +3453,22 @@ async fn given_credentials_when_cleared_then_settings_fall_back_to_environment()
     .await;
 
     assert_eq!(status, StatusCode::OK);
-    assert_eq!(json["bring"]["emailSource"], "none");
-    assert_eq!(json["bring"]["password"]["set"], false);
+    assert_eq!(
+        json["bring"]["email"], "env@example.com",
+        "the cleared email must resolve through the environment"
+    );
+    assert_eq!(json["bring"]["emailSource"], "environment");
+    assert_eq!(json["bring"]["password"]["set"], true);
+    assert_eq!(json["bring"]["password"]["source"], "environment");
 
     // Restore env vars
-    if let Some(value) = had_email {
-        unsafe {
-            std::env::set_var("BRING_EMAIL", value);
-        }
+    match had_email {
+        Some(value) => unsafe { std::env::set_var("BRING_EMAIL", value) },
+        None => unsafe { std::env::remove_var("BRING_EMAIL") },
     }
-    if let Some(value) = had_password {
-        unsafe {
-            std::env::set_var("BRING_PASSWORD", value);
-        }
+    match had_password {
+        Some(value) => unsafe { std::env::set_var("BRING_PASSWORD", value) },
+        None => unsafe { std::env::remove_var("BRING_PASSWORD") },
     }
 }
 
@@ -2971,6 +3485,71 @@ async fn given_overlong_model_when_patch_settings_then_400_names_field() {
             .contains("model must be at most 200 characters"),
         "{json}"
     );
+}
+
+#[tokio::test]
+async fn given_key_without_an_endpoint_when_patch_settings_then_400_names_the_field_and_stores_nothing()
+ {
+    // The settings page reaches this order: select `custom` (the selection
+    // commits the provider alone), paste the key, then enter the endpoint. The
+    // key commit must be rejected while there is no endpoint to bind it to, so
+    // the endpoint commit that follows has no key to silently revoke and the
+    // snapshot never reports one as stored.
+    let ctx = setup().await;
+    let (status, _) = patch_settings_json(&ctx, json!({ "ai": { "provider": "custom" } })).await;
+    assert_eq!(status, StatusCode::OK);
+
+    let (status, json) = patch_settings_json(&ctx, json!({ "ai": { "apiKey": "sk-local" } })).await;
+    assert_eq!(status, StatusCode::BAD_REQUEST);
+    assert!(
+        json["error"]
+            .as_str()
+            .unwrap()
+            .contains("customBaseUrl must be set"),
+        "{json}"
+    );
+
+    // The endpoint commit that follows leaves the install without a key,
+    // exactly as the rejected key commit already reported.
+    let (status, json) = patch_settings_json(
+        &ctx,
+        json!({ "ai": { "customBaseUrl": "http://127.0.0.1:8080/v1/" } }),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(json["ai"]["provider"], "custom");
+    assert_eq!(
+        json["ai"]["apiKey"]["set"], false,
+        "no key may be stored, and none may be reported: {json}"
+    );
+
+    // With no provider stored at all, a key has no endpoint either.
+    let ctx = setup().await;
+    let (status, json) =
+        patch_settings_json(&ctx, json!({ "ai": { "apiKey": "sk-orphan" } })).await;
+    assert_eq!(status, StatusCode::BAD_REQUEST);
+    assert!(
+        json["error"].as_str().unwrap().contains("provider"),
+        "{json}"
+    );
+
+    // Neither rejection stored anything, so the snapshot reports no key.
+    let response = ctx
+        .app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method(Method::GET)
+                .uri("/settings")
+                .body(axum::body::Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    let bytes = to_bytes(response.into_body(), 8192).await.unwrap();
+    let json: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
+    assert_eq!(json["ai"]["provider"], "");
+    assert_eq!(json["ai"]["apiKey"]["set"], false);
 }
 
 #[tokio::test]
@@ -3080,16 +3659,29 @@ async fn given_stored_key_for_provider_when_list_providers_then_provider_configu
 async fn given_blank_env_key_when_list_providers_then_env_key_not_set() {
     let _guard = PROCESS_ENV_LOCK.lock().await;
     let had_key = std::env::var("OPENAI_API_KEY").ok();
-    unsafe { std::env::set_var("OPENAI_API_KEY", "") };
 
-    let ctx = setup().await;
-    let json = get_providers(&ctx).await;
-    let openai = find_provider(&json, "openai");
+    // A present-but-empty variable and one holding only whitespace are both an
+    // unset key, exactly as `settings::provider_env_key` treats them, so the
+    // two endpoints agree. A fresh context per iteration keeps the stored rows
+    // of one case out of the next.
+    for blank in ["", "   "] {
+        unsafe { std::env::set_var("OPENAI_API_KEY", blank) };
 
-    // A present-but-empty variable is an unset key, exactly as
-    // `settings::provider_env_key` treats it, so the two endpoints agree.
-    assert_eq!(openai["envKeySet"], serde_json::Value::Bool(false));
-    assert_eq!(openai["configured"], serde_json::Value::Bool(false));
+        let ctx = setup().await;
+        let json = get_providers(&ctx).await;
+        let openai = find_provider(&json, "openai");
+
+        assert_eq!(
+            openai["envKeySet"],
+            serde_json::Value::Bool(false),
+            "envKeySet for a variable holding {blank:?}"
+        );
+        assert_eq!(
+            openai["configured"],
+            serde_json::Value::Bool(false),
+            "configured for a variable holding {blank:?}"
+        );
+    }
 
     match had_key {
         Some(value) => unsafe { std::env::set_var("OPENAI_API_KEY", value) },

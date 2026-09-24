@@ -83,6 +83,56 @@ export function commitStatusChipClass(status: CommitStatus): string {
 }
 
 /**
+ * Whether a provider selection really moves off the provider the server last
+ * confirmed. While that provider is unknown (`null`: the mount-time read has not
+ * answered yet, or failed) the selection changed nothing definite, so neither
+ * the form nor the commit may delete what may still be this provider's model,
+ * endpoint and key.
+ */
+export function providerChanged(selected: string, storedProvider: string | null): boolean {
+	return storedProvider !== null && storedProvider !== selected;
+}
+
+/**
+ * The patch a provider selection sends: only a genuine switch may delete the
+ * previous provider's dependent values, so the server keeps them for a
+ * selection that changed nothing.
+ */
+export function providerChangePatch(selected: string, storedProvider: string | null): AiPatch {
+	if (!providerChanged(selected, storedProvider)) return { provider: selected };
+	return { provider: selected, model: null, customBaseUrl: null, apiKey: null };
+}
+
+/**
+ * Whether a typed secret may be dropped from the DOM after its commit: only a
+ * stored value is safe to forget. A commit that failed resolves like a stored
+ * one, so the value must stay in the field for a retry.
+ */
+export function commitStored(status: CommitStatus): boolean {
+	return status === 'saved';
+}
+
+/**
+ * Whether the "no AI provider configured" notice belongs on screen: only after
+ * a successful read reported nothing usable. A read that is still pending or
+ * that failed leaves the answer unknown, and an install whose settings hold a
+ * complete configuration must never be reported as unconfigured.
+ */
+export function aiConfigNoticeVisible(loaded: boolean, configured: boolean): boolean {
+	return loaded && !configured;
+}
+
+/**
+ * Whether an AI flow may be attempted: only a successful read that found no
+ * configuration blocks it. While the stored configuration is still unknown the
+ * server stays authoritative and answers a premature request with its own
+ * `llm_not_configured` error.
+ */
+export function aiFlowReady(loaded: boolean, configured: boolean): boolean {
+	return !loaded || configured;
+}
+
+/**
  * Serializes settings commits so a slow earlier request can never land after a
  * newer one and overwrite it, and exposes the shared saving/saved/failed state
  * that every commit must show.

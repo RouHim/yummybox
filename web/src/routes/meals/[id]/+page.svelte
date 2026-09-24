@@ -11,7 +11,7 @@
 import { focusTrap } from '$lib/focusTrap';
 	import CookingView from '$lib/components/CookingView.svelte';
 	import AiConfigNotice from '$lib/components/AiConfigNotice.svelte';
-	import { isAiConfigured, type SettingsSnapshot } from '$lib/settings.svelte';
+	import { isAiConfigured, aiConfigNoticeVisible, aiFlowReady, type SettingsSnapshot } from '$lib/settings.svelte';
 	import MealForm from '$lib/MealForm.svelte';
 
 	let meal = $state<Meal | null>(null);
@@ -35,14 +35,26 @@ import { focusTrap } from '$lib/focusTrap';
 
 	let settings = $state<SettingsSnapshot | null>(null);
 	let hasLlmConfig = $derived(isAiConfigured(settings));
+	// True only once a read answered; until then, and after a failed read, the
+	// AI configuration is unknown and must not be reported as unconfigured.
+	let settingsLoaded = $state(false);
+	let settingsLoadFailed = $state(false);
+	// Bumped by the retry: the effect reads it so a new attempt runs.
+	let settingsAttempt = $state(0);
 
 	$effect(() => {
+		settingsAttempt;
 		let cancelled = false;
+		settingsLoadFailed = false;
 		getSettings()
-			.then((snapshot) => { if (!cancelled) settings = snapshot; })
-			.catch(() => { if (!cancelled) settings = null; });
+			.then((snapshot) => { if (!cancelled) { settings = snapshot; settingsLoaded = true; } })
+			.catch(() => { if (!cancelled) settingsLoadFailed = true; });
 		return () => { cancelled = true; };
 	});
+
+	function retryLoadSettings() {
+		settingsAttempt++;
+	}
 
 	async function loadMeal() {
 		loading = true;
@@ -112,7 +124,7 @@ import { focusTrap } from '$lib/focusTrap';
 
 
 	async function doPolish() {
-		if (!meal || polishing || !hasLlmConfig) return;
+		if (!meal || polishing || !aiFlowReady(settingsLoaded, hasLlmConfig)) return;
 		polishing = true;
 		polishError = null;
 		try {
@@ -130,7 +142,7 @@ import { focusTrap } from '$lib/focusTrap';
 				if (err.code === 'llm_not_configured') polishError = t('llmErrorNotConfigured');
 				else if (err.code === 'llm_timeout') polishError = t('llmErrorTimeout');
 				else if (err.code === 'llm_parse_failed') polishError = t('llmErrorParseFailed');
-				else if (err.code === 'llm_api_key_missing') polishError = t('llmErrorApiKey', { envVar: '' });
+				else if (err.code === 'llm_api_key_missing') polishError = t('llmErrorApiKey');
 				else polishError = t('polishErrorFailed');
 			} else {
 				polishError = t('polishErrorFailed');
@@ -147,7 +159,10 @@ import { focusTrap } from '$lib/focusTrap';
 	{:else if notFound}
 		<p class="cooking-view__not-found">{t('cookingViewNotFound')}</p>
 	{:else if meal}
-		{#if !hasLlmConfig}
+		{#if settingsLoadFailed}
+			<p class="form-error" role="alert">{t('settingsLoadFailed')}</p>
+			<button type="button" class="btn btn--ghost" onclick={retryLoadSettings}>{t('buttonRetry')}</button>
+		{:else if aiConfigNoticeVisible(settingsLoaded, hasLlmConfig)}
 			<AiConfigNotice />
 		{/if}
 		{#key meal.id}
@@ -168,7 +183,7 @@ import { focusTrap } from '$lib/focusTrap';
 					>
 						<Icon name="pen-line" size={16} />
 					</button>
-					{#if hasLlmConfig}
+					{#if aiFlowReady(settingsLoaded, hasLlmConfig)}
 						<button
 							type="button"
 							class="btn btn--ghost cooking-view__action-btn"

@@ -1,7 +1,12 @@
 import { describe, it, expect, vi } from 'vitest';
 import {
 	SettingsCommitter,
+	aiConfigNoticeVisible,
+	aiFlowReady,
+	commitStored,
 	isAiConfigured,
+	providerChangePatch,
+	providerChanged,
 	type SettingsSnapshot,
 } from './settings.svelte';
 
@@ -102,5 +107,112 @@ describe('SettingsCommitter', () => {
 		resolve(snapshot());
 		await pending;
 		expect(committer.state.status).toBe('saved');
+	});
+});
+
+describe('commitStored', () => {
+	it('recognises only a stored commit as safe to forget the typed value', () => {
+		expect(commitStored('idle')).toBe(false);
+		expect(commitStored('saving')).toBe(false);
+		expect(commitStored('error')).toBe(false);
+		expect(commitStored('saved')).toBe(true);
+	});
+
+	it('keeps the typed value in the field when the commit is rejected', async () => {
+		// A rejected commit resolves like a stored one, so the DOM cleanup has to
+		// ask the committer what happened: otherwise the pasted key is destroyed
+		// and has to be fetched from the provider again.
+		const send = vi.fn().mockRejectedValue(new Error('apiKey must be at most 4096 characters'));
+		const committer = new SettingsCommitter(send, () => {});
+		let field = 'sk-typed';
+
+		await committer.commit({ ai: { apiKey: field } }).then(() => {
+			if (commitStored(committer.state.status)) field = '';
+		});
+
+		expect(committer.state.status).toBe('error');
+		expect(field).toBe('sk-typed');
+	});
+
+	it('keeps the typed Bring! password when its commit is rejected', async () => {
+		// Same rule for the settings page's password field: an over-long or
+		// otherwise rejected password must stay typed in for a retry.
+		const send = vi.fn().mockRejectedValue(new Error('password must be at most 256 characters'));
+		const committer = new SettingsCommitter(send, () => {});
+		let field = 'typed-pass';
+
+		await committer.commit({ bring: { password: field } }).then(() => {
+			if (commitStored(committer.state.status)) field = '';
+		});
+
+		expect(committer.state.status).toBe('error');
+		expect(field).toBe('typed-pass');
+	});
+
+	it('clears the typed value once the commit is stored', async () => {
+		const send = vi.fn().mockResolvedValue(snapshot());
+		const committer = new SettingsCommitter(send, () => {});
+		let field = 'sk-typed';
+
+		await committer.commit({ ai: { apiKey: field } }).then(() => {
+			if (commitStored(committer.state.status)) field = '';
+		});
+
+		expect(committer.state.status).toBe('saved');
+		expect(field).toBe('');
+	});
+});
+
+describe('provider selection', () => {
+	it('keeps the stored model, endpoint and key when the selection did not move', () => {
+		// A user on a slow link re-picks the stored provider before the
+		// mount-time read has answered. Nothing may be deleted: the values the
+		// read would have shown are the ones this commit would destroy.
+		expect(providerChangePatch('openai', 'openai')).toEqual({ provider: 'openai' });
+		expect(providerChanged('openai', 'openai')).toBe(false);
+	});
+
+	it('keeps them while the stored provider has not been read', () => {
+		// Unknown stored provider: the selection may well be the stored one, so
+		// only the provider itself is committed.
+		expect(providerChangePatch('openai', null)).toEqual({ provider: 'openai' });
+		expect(providerChanged('openai', null)).toBe(false);
+	});
+
+	it('clears them when the selection really moves off the stored provider', () => {
+		expect(providerChangePatch('anthropic', 'openai')).toEqual({
+			provider: 'anthropic',
+			model: null,
+			customBaseUrl: null,
+			apiKey: null,
+		});
+		expect(providerChanged('anthropic', 'openai')).toBe(true);
+	});
+
+	it('clears them when the provider is removed altogether', () => {
+		expect(providerChangePatch('', 'openai')).toEqual({
+			provider: '',
+			model: null,
+			customBaseUrl: null,
+			apiKey: null,
+		});
+		expect(providerChanged('', 'openai')).toBe(true);
+	});
+});
+
+describe('unknown stored configuration', () => {
+	it('never reports an unread configuration as unconfigured', () => {
+		// A pending read and a failed read both leave `loaded` false: neither may
+		// render the "no provider configured" notice, and neither may block a
+		// flow the server is still able to answer.
+		expect(aiConfigNoticeVisible(false, false)).toBe(false);
+		expect(aiFlowReady(false, false)).toBe(true);
+	});
+
+	it('reports the notice and blocks the flow only once a read found no configuration', () => {
+		expect(aiConfigNoticeVisible(true, false)).toBe(true);
+		expect(aiFlowReady(true, false)).toBe(false);
+		expect(aiConfigNoticeVisible(true, true)).toBe(false);
+		expect(aiFlowReady(true, true)).toBe(true);
 	});
 });

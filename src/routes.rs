@@ -457,6 +457,8 @@ pub async fn get_settings(
 
 /// Commit stored AI and Bring! settings, returning the new effective snapshot.
 /// A malformed or unknown-field body, and any rejected field, change nothing.
+/// A body over the limit keeps its own status instead of turning into a 400,
+/// exactly as the multipart routes report it.
 /// The payload is skipped: it carries the plaintext API key and Bring!
 /// password, which must never be formatted into a span.
 #[instrument(skip(state, payload))]
@@ -464,7 +466,16 @@ pub async fn patch_settings(
     State(state): State<Arc<AppState>>,
     payload: Result<Json<crate::settings::SettingsPatch>, JsonRejection>,
 ) -> Result<Json<crate::settings::SettingsSnapshot>, AppError> {
-    let Json(patch) = payload.map_err(|rejection| AppError::BadRequest(rejection.body_text()))?;
+    let Json(patch) = payload.map_err(|rejection| {
+        if rejection.status() == StatusCode::PAYLOAD_TOO_LARGE {
+            AppError::PayloadTooLarge(format!(
+                "request body exceeds {} MB limit",
+                crate::MAX_BODY_BYTES / (1024 * 1024)
+            ))
+        } else {
+            AppError::BadRequest(rejection.body_text())
+        }
+    })?;
     crate::settings::apply(&state.pool, &patch).await?;
     let stored = crate::settings::load(&state.pool).await?;
     Ok(Json(crate::settings::snapshot(

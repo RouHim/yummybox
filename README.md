@@ -162,11 +162,11 @@ The ingredient summary merges identical ingredients across all planned meals and
 
 **From paste**: drop in raw HTML or JSON-LD markup if you already have the source.
 
-**From photo or text (AI)**: attach a photo of a dish or recipe card, optionally add a text hint, and a vision-capable LLM parses it into a structured recipe. This requires an API key from a supported provider (see [Configuration](#configuration)).
+**From photo or text (AI)**: attach a photo of a dish or recipe card, optionally add a text hint, and a vision-capable LLM parses it into a structured recipe. This requires an API key from a supported provider: store it on the [settings page](#settings-page), or set the provider's environment variable (see [Configuration](#configuration)).
 
 #### Using AI recipe import
 
-1. Select your provider from the dropdown; only providers with a configured API key are selectable.
+1. Select your provider from the dropdown. Every provider is selectable; one that needs an API key and had neither a stored nor an inherited one when the provider list was loaded carries a `(not configured)` note.
 2. Choose a model from the list fetched live from the provider's API.
 3. Either describe the dish in text, attach a photo, or both.
 4. Vision-capable models (e.g., `gpt-4o-mini`, `gemini-2.5-flash`, `llama3.2-vision`) are needed for photo input.
@@ -186,8 +186,8 @@ Paste a list of recipe URLs (one per line) to import multiple recipes at once. E
 
 #### Troubleshooting AI import
 
-- **"No providers available"**: set an API key env var (e.g., `OPENAI_API_KEY`) or start a local Ollama server.
-- **"API key not configured"**: the env var was empty when the server started; restart after setting it.
+- **"No providers available"**: the provider list could not be loaded; reload the page or use **Retry**.
+- **"API key not configured"**: store the provider's API key on the settings page; it takes effect immediately, with no server restart.
 - **"Could not load models"**: check API key validity and network connection; for Ollama, ensure `ollama serve` is running on port 11434.
 - **"Request timed out"**: use a faster model, check your network, or try a local model.
 - **"Could not extract a recipe"**: use a clearer photo or a more descriptive text hint.
@@ -214,6 +214,10 @@ After generating a weekly plan, send ingredients to your [Bring!](https://getbri
 ### Settings page
 
 Open `/settings` (top-bar gear) to configure the AI provider and your Bring! account. Values entered there are stored in the SQLite database and take precedence over environment variables; a value cleared on the page falls back to the environment variable, or is reported as not configured when the environment provides none.
+
+Only the API key and the Bring! credentials have environment variables: the provider, the model and the custom base URL are stored-only. An environment-only deployment therefore has to open this page once to pick provider and model.
+
+A stored API key belongs to the endpoint it was stored for: changing the provider, or changing the custom base URL while the provider is `custom`, deletes it unless the same commit supplies a new key, and a commit that changes the provider without a model deletes the stored model with it. Storing a key requires that endpoint to exist first: a key committed with no provider, or for `custom` before its base URL exists, is rejected with the missing field named, so the typed key stays in the form instead of being stored and dropped again by the next commit.
 
 API keys and the Bring! password are never sent back to the browser: the page only shows whether a value is set and whether it comes from the settings or from the environment.
 

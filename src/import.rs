@@ -226,9 +226,17 @@ pub(crate) async fn import_from_llm(
         .map(|h| h.trim().to_string())
         .filter(|s| recipe::is_bare_url(s));
 
+    // Resolve the AI configuration before the bare-URL expansion, which is an
+    // outbound fetch: an unconfigured install must answer llm_not_configured
+    // instead of spending a request on a fetch that cannot be used. The key is
+    // checked here for the same reason: `import_via_llm` checks it too, but by
+    // then the fetch would already have run (and a failed fetch would hide the
+    // real reason).
+    let ai = effective_ai(&state.pool).await?;
+    crate::llm_import::require_api_key(&ai.target())?;
+
     let hint = expand_hint_if_bare_url(hint).await?;
 
-    let ai = effective_ai(&state.pool).await?;
     let skip_image_download = !llm_images.is_empty();
 
     let mut draft = crate::llm_import::import_via_llm(

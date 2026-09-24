@@ -2,8 +2,11 @@
 //!
 //! Values live in the `settings` key/value table (migration 006). Every
 //! effective value resolves as: stored value, then environment variable, then
-//! unset. Secrets are never returned by the API — only their set state and
-//! their origin.
+//! unset. Only the API key and the Bring! email and password have environment
+//! variables; the provider, the model and the custom base URL are stored-only,
+//! so an environment-only deployment has to pick provider and model once on
+//! the settings page. Secrets are never returned by the API: only their set
+//! state and their origin.
 
 use genai::adapter::AdapterKind;
 use serde::{Deserialize, Serialize};
@@ -80,7 +83,8 @@ impl StoredSettings {
         Self {
             provider,
             model: take_text(&mut map, KEY_LLM_MODEL, MAX_MODEL_LEN),
-            base_url: take_text(&mut map, KEY_LLM_BASE_URL, MAX_BASE_URL_LEN),
+            base_url: take_text(&mut map, KEY_LLM_BASE_URL, MAX_BASE_URL_LEN)
+                .filter(|value| validate_base_url(value).is_ok()),
             api_key: take_text(&mut map, KEY_LLM_API_KEY, MAX_API_KEY_LEN),
             bring_email: take_text(&mut map, KEY_BRING_EMAIL, MAX_BRING_EMAIL_LEN),
             bring_password: take_secret(&mut map, KEY_BRING_PASSWORD, MAX_BRING_PASSWORD_LEN),
@@ -102,8 +106,8 @@ fn take_text(
     Some(value.to_string())
 }
 
-/// Remove a secret value. Secrets are stored verbatim (surrounding spaces may
-/// be part of the value); only an empty value counts as absent.
+/// Remove the stored Bring! password. It is kept verbatim (surrounding spaces
+/// may be part of the value); only an empty value counts as absent.
 fn take_secret(
     map: &mut std::collections::HashMap<String, String>,
     key: &str,
@@ -145,7 +149,10 @@ pub struct SecretState {
 fn provider_env_key(provider: &str, env: Env<'_>) -> Option<String> {
     let kind = AdapterKind::from_lower_str(provider)?;
     let name = kind.default_key_env_name()?;
-    env(name).filter(|value| !value.is_empty())
+    // A whitespace-only value is an unset key: `LlmTarget::auth` trims and
+    // drops blanks, so treating it as configured would report a key in the
+    // snapshot and the provider list that no flow can actually use.
+    env(name).filter(|value| !value.trim().is_empty())
 }
 
 /// The endpoint and key used when talking to one provider.
@@ -221,16 +228,18 @@ pub fn resolve_ai(stored: &StoredSettings, env: Env<'_>) -> Result<Option<Effect
 }
 
 /// Resolve the Bring! credentials: stored value, then environment variable,
-/// then unset.
+/// then unset. A whitespace-only environment value is an unset one, like the
+/// API-key lookup: a blank credential would send a login that cannot succeed
+/// instead of reporting the not-configured state.
 pub fn resolve_bring(stored: &StoredSettings, env: Env<'_>) -> Option<BringCredentials> {
     let email = stored
         .bring_email
         .clone()
-        .or_else(|| env(BRING_EMAIL_ENV).filter(|value| !value.is_empty()))?;
+        .or_else(|| env(BRING_EMAIL_ENV).filter(|value| !value.trim().is_empty()))?;
     let password = stored
         .bring_password
         .clone()
-        .or_else(|| env(BRING_PASSWORD_ENV).filter(|value| !value.is_empty()))?;
+        .or_else(|| env(BRING_PASSWORD_ENV).filter(|value| !value.trim().is_empty()))?;
     Some(BringCredentials { email, password })
 }
 
@@ -275,7 +284,7 @@ pub fn snapshot(stored: &StoredSettings, env: Env<'_>) -> SettingsSnapshot {
     let env_key_set = provider_env_key(&provider, env).is_some();
     let (email, email_source) = match &stored.bring_email {
         Some(value) => (value.clone(), ValueSource::Settings),
-        None => match env(BRING_EMAIL_ENV).filter(|value| !value.is_empty()) {
+        None => match env(BRING_EMAIL_ENV).filter(|value| !value.trim().is_empty()) {
             Some(value) => (value, ValueSource::Environment),
             None => (String::new(), ValueSource::None),
         },
@@ -292,7 +301,7 @@ pub fn snapshot(stored: &StoredSettings, env: Env<'_>) -> SettingsSnapshot {
             email_source,
             password: secret_state(
                 stored.bring_password.is_some(),
-                env(BRING_PASSWORD_ENV).is_some_and(|value| !value.is_empty()),
+                env(BRING_PASSWORD_ENV).is_some_and(|value| !value.trim().is_empty()),
             ),
         },
     }
@@ -511,8 +520,139 @@ fn validate_base_url(value: &str) -> Result<(), AppError> {
 }
 
 /// Apply a commit: validate, then write every change in one transaction, so a
-/// rejected or failing commit leaves the previous values in place.
+/// rejected or failing commit leaves the previous values in place. A commit
+/// that would store a key with no endpoint to bind it to is rejected; one that
+/// moves the key's endpoint drops the stored key with it, and one that moves
+/// the provider drops the stored model unless the same commit supplies one.
+/// Every decision that needs the stored rows is taken from the rows read
+/// inside the same transaction, so it cannot be separated from the write it
+/// guards by an overlapping commit.
 pub async fn apply(pool: &SqlitePool, patch: &SettingsPatch) -> Result<(), AppError> {
-    let writes = plan_writes(patch)?;
-    db::apply_setting_writes(pool, &writes.set, &writes.delete).await
+    let mut writes = plan_writes(patch)?;
+    db::apply_setting_writes(pool, |rows| {
+        if let Some(ai) = &patch.ai {
+            let stored = StoredSettings::from_pairs(rows.to_vec());
+            reject_key_without_endpoint(ai, &stored)?;
+            revoke_key_when_endpoint_moves(&mut writes, ai, &stored);
+            revoke_model_when_provider_moves(&mut writes, ai, &stored);
+        }
+        Ok((
+            std::mem::take(&mut writes.set),
+            std::mem::take(&mut writes.delete),
+        ))
+    })
+    .await
+}
+
+/// Whether a commit moves the stored provider: clearing it (`null`) moves it
+/// when one was stored, a value moves it when it differs from the stored one,
+/// and an absent field never moves it. Re-sending the stored provider is not a
+/// move, so a selection that changed nothing keeps its dependent values.
+fn provider_moved(ai: &AiPatch, stored: &StoredSettings) -> bool {
+    match &ai.provider {
+        None => false,
+        Some(None) => stored.provider.is_some(),
+        Some(Some(value)) => stored.provider.as_deref() != Some(value.trim()),
+    }
+}
+
+/// A stored model belongs to the provider it was chosen for: a commit that
+/// moves the provider without supplying a model drops it, so the snapshot
+/// cannot hand one provider's model to another. A model sent with the same
+/// commit is the new provider's, and a provider re-sent unchanged is not a
+/// move at all, so both keep it.
+fn revoke_model_when_provider_moves(
+    writes: &mut SettingWrites,
+    ai: &AiPatch,
+    stored: &StoredSettings,
+) {
+    if ai.model.is_some() || !provider_moved(ai, stored) {
+        return;
+    }
+    writes.delete.push(KEY_LLM_MODEL);
+}
+
+/// A stored API key belongs to the endpoint it was stored for: a commit that
+/// moves the provider, or moves the custom base URL while the provider is
+/// `custom`, drops it unless the same commit supplies a new key. Without that
+/// binding, one unauthenticated commit could point the custom endpoint at a
+/// host of the caller's choosing and have the next model listing deliver the
+/// user's stored key there.
+fn revoke_key_when_endpoint_moves(
+    writes: &mut SettingWrites,
+    ai: &AiPatch,
+    stored: &StoredSettings,
+) {
+    // A key sent with this commit re-binds itself to the new endpoint.
+    if ai.api_key.is_some() {
+        return;
+    }
+    let moved = provider_moved(ai, stored);
+    // The base URL only carries the key while the key's provider is `custom`;
+    // for any other provider the stored URL never reaches a request, so
+    // changing it cannot move the key's endpoint.
+    let base_url_moved = stored.provider.as_deref() == Some(PROVIDER_CUSTOM)
+        && match &ai.custom_base_url {
+            None => false,
+            Some(None) => stored.base_url.is_some(),
+            Some(Some(value)) => stored.base_url.as_deref() != Some(value.trim()),
+        };
+    if moved || base_url_moved {
+        writes.delete.push(KEY_LLM_API_KEY);
+    }
+}
+
+/// The provider a commit leaves in place: the value the patch sends when it
+/// carries one, the stored one otherwise. A cleared or blank provider is no
+/// provider, exactly as [`plan_text`] stores it.
+fn effective_provider(ai: &AiPatch, stored: &StoredSettings) -> Option<String> {
+    match &ai.provider {
+        None => stored.provider.clone(),
+        Some(None) => None,
+        Some(Some(value)) => {
+            let value = value.trim();
+            (!value.is_empty()).then(|| value.to_string())
+        }
+    }
+}
+
+/// The custom base URL a commit leaves in place, resolved like the provider.
+fn effective_base_url(ai: &AiPatch, stored: &StoredSettings) -> Option<String> {
+    match &ai.custom_base_url {
+        None => stored.base_url.clone(),
+        Some(None) => None,
+        Some(Some(value)) => {
+            let value = value.trim();
+            (!value.is_empty()).then(|| value.to_string())
+        }
+    }
+}
+
+/// Reject a commit that would store an API key without an endpoint to bind it
+/// to. A stored key only reaches a request through the provider it was stored
+/// for, and for `custom` through the stored base URL as well; a key committed
+/// before either exists is bound to nothing, so the very next commit that
+/// supplies them makes [`revoke_key_when_endpoint_moves`] delete it. The
+/// settings page reaches that order (select `custom`, paste the key, then
+/// enter the endpoint), and the key commit is reported as stored before the
+/// endpoint commit silently drops it. Rejecting it instead names the missing
+/// field, so the form shows the error and keeps the typed key for a resend.
+fn reject_key_without_endpoint(ai: &AiPatch, stored: &StoredSettings) -> Result<(), AppError> {
+    // A cleared or blank key stores nothing - `plan_text` trims and treats a
+    // blank value as a clear - so only a real value needs an endpoint.
+    if !matches!(&ai.api_key, Some(Some(value)) if !value.trim().is_empty()) {
+        return Ok(());
+    }
+    let Some(provider) = effective_provider(ai, stored) else {
+        return Err(AppError::BadRequest(
+            "provider must be set before an apiKey is stored".to_string(),
+        ));
+    };
+    if provider == PROVIDER_CUSTOM && effective_base_url(ai, stored).is_none() {
+        return Err(AppError::BadRequest(
+            "customBaseUrl must be set before an apiKey is stored for the custom provider"
+                .to_string(),
+        ));
+    }
+    Ok(())
 }

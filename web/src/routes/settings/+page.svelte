@@ -5,8 +5,10 @@
 		SettingsCommitter,
 		commitStatusChipClass,
 		commitStatusLabelKey,
+		commitStored,
 		secretSourceLabelKey,
 		type SecretState,
+		type SettingsPatch,
 		type SettingsSnapshot,
 		type ValueSource,
 	} from '$lib/settings.svelte';
@@ -26,8 +28,21 @@
 	let bringEmailSource = $state<ValueSource>('none');
 	let bringPasswordInput = $state('');
 	let bringPasswordState = $state<SecretState>({ set: false, source: 'none' });
-	let bringStatus = $state<'idle' | 'checking' | 'connected' | 'error'>('idle');
+	// `unknown` covers the probe that never answered: reporting it as "Not
+	// connected" would assert a connection check that did not run.
+	let bringStatus = $state<'unknown' | 'unconfigured' | 'checking' | 'connected' | 'error'>('checking');
 	let bringStatusError = $state<string | null>(null);
+	// The stored Bring! credentials are known only once the settings read has
+	// answered: until then the provenance chips stay hidden instead of claiming
+	// the fields are "Not set".
+	let bringLoaded = $state(false);
+	// The page's own read can fail while the picker's succeeds, so the card
+	// needs a failure of its own with its own retry.
+	let bringLoadFailed = $state(false);
+	// Not reactive on purpose: the re-read effect must not retrigger when a
+	// read settles, or a failed mount read would start an endless retry loop.
+	// It only has to be read at the moment the effect runs.
+	let bringReadInFlight = false;
 
 	// Snapshots are applied in request order. The mount-time load captures its
 	// sequence number before the request starts, so a stale response that lands
@@ -44,15 +59,37 @@
 		appliedSeq = seq;
 		bringEmailSource = snapshot.bring.emailSource;
 		bringPasswordState = snapshot.bring.password;
+		bringLoaded = true;
+		// An applied snapshot proves the server answered, so a failure reported
+		// by an earlier read must not keep labelling the card as unloaded,
+		// exactly as the AI picker's applySnapshot clears its own failure.
+		bringLoadFailed = false;
 		// Only refill the email when the field is empty: that is the case after
 		// a clear, where the environment value becomes effective again. A value
-		// the user is typing is never overwritten by an older response.
-		if (!bringEmail.trim()) bringEmail = snapshot.bring.email;
+		// the user is typing is never overwritten, and neither is an answer a
+		// newer request has already superseded: a read issued before a clear
+		// still carries the value that clear removed, so refilling from it
+		// would show an email the server no longer has while the chip reports
+		// the cleared state.
+		if (!bringEmail.trim() && seq === requestSeq) bringEmail = snapshot.bring.email;
 	}
 
 	// Commits are serialized, exactly like in the AI picker: the newest value
 	// always wins, regardless of how long an earlier request takes.
 	const committer = new SettingsCommitter(updateSettings, applyBringSnapshot);
+
+	/**
+	 * Queue a commit. It takes its sequence number here, when it is sent, so a
+	 * read that is still in flight is recognized as superseded even before this
+	 * commit has been answered: without that, the read's answer would match the
+	 * current sequence and refill the email with the value the commit removes.
+	 * The commit's own answer is numbered when it is applied, which keeps it
+	 * newer than every answer before it.
+	 */
+	function commitBring(patch: SettingsPatch): Promise<void> {
+		requestSeq++;
+		return committer.commit(patch);
+	}
 
 	// Section status: the one thing a user opens this page to check.
 	let aiChip = $derived(
@@ -68,20 +105,32 @@
 		if (bringStatus === 'connected') {
 			return { key: 'settingsStatusConnected' as TranslationKey, chipClass: 'state-chip--ok', dot: true };
 		}
-		return {
-			key: 'settingsStatusNotConnected' as TranslationKey,
-			chipClass: bringStatus === 'error' ? 'state-chip--alert' : 'state-chip--neutral',
-			dot: false,
-		};
+		// No credentials anywhere is a different answer from credentials that
+		// the Bring! endpoint rejected: only the latter is "Not connected".
+		if (bringStatus === 'unconfigured') {
+			return { key: 'settingsStatusNotConfigured' as TranslationKey, chipClass: 'state-chip--neutral', dot: false };
+		}
+		// The probe never answered: neither answer was observed.
+		if (bringStatus === 'unknown') {
+			return { key: 'settingsStatusUnknown' as TranslationKey, chipClass: 'state-chip--neutral', dot: false };
+		}
+		return { key: 'settingsStatusNotConnected' as TranslationKey, chipClass: 'state-chip--alert', dot: false };
 	});
 
+	// Probes are not serialized: a commit re-probes as soon as it lands, so a
+	// slow mount probe could otherwise resolve last and overwrite the verdict
+	// the commit just produced. Only the newest probe may write.
+	let bringProbeSeq = 0;
+
 	async function refreshBringStatus() {
+		const seq = ++bringProbeSeq;
 		bringStatus = 'checking';
 		bringStatusError = null;
 		try {
 			const res = await checkBringStatus();
+			if (seq !== bringProbeSeq) return;
 			if (!res.configured) {
-				bringStatus = 'idle';
+				bringStatus = 'unconfigured';
 			} else if (res.connected) {
 				bringStatus = 'connected';
 			} else {
@@ -89,21 +138,28 @@
 				bringStatusError = res.error;
 			}
 		} catch (err) {
-			bringStatus = 'error';
+			if (seq !== bringProbeSeq) return;
+			// The probe itself failed: the connection state was never observed,
+			// so it stays unknown and only the cause is reported.
+			bringStatus = 'unknown';
 			bringStatusError = err instanceof Error ? err.message : String(err);
 		}
 	}
 
 	function onBringEmailChange() {
-		committer
-			.commit({ bring: { email: bringEmail.trim() ? bringEmail : null } })
-			.then(refreshBringStatus);
+		commitBring({ bring: { email: bringEmail.trim() ? bringEmail : null } }).then(
+			refreshBringStatus
+		);
 	}
 
 	function onBringPasswordChange() {
 		const value = bringPasswordInput;
 		if (!value) return;
-		committer.commit({ bring: { password: value } }).then(() => {
+		commitBring({ bring: { password: value } }).then(() => {
+			// A rejected commit stored nothing: the typed password stays in the
+			// field for a retry instead of vanishing, and the stored value (which
+			// is unchanged) is not re-probed.
+			if (!commitStored(committer.state.status)) return;
 			if (bringPasswordInput === value) bringPasswordInput = '';
 			refreshBringStatus();
 		});
@@ -111,7 +167,7 @@
 
 	function onClearBringPassword() {
 		bringPasswordInput = '';
-		committer.commit({ bring: { password: null } }).then(refreshBringStatus);
+		commitBring({ bring: { password: null } }).then(refreshBringStatus);
 	}
 
 	function onEnter(event: KeyboardEvent, commitField: () => void) {
@@ -120,16 +176,48 @@
 		commitField();
 	}
 
-	$effect(() => {
-		refreshBringStatus();
+	function readBringSettings() {
+		bringLoadFailed = false;
+		bringReadInFlight = true;
 		const seq = ++requestSeq;
 		getSettings()
 			.then((snapshot) => applyBringSnapshot(snapshot, seq))
-			.catch((err) => {
-				if (seq <= appliedSeq) return;
-				bringStatus = 'error';
-				bringStatusError = err instanceof Error ? err.message : String(err);
+			.catch(() => {
+				// A newer answer already landed: this read is stale, so its
+				// failure must not report an error for state that is loaded.
+				// The same holds once a commit answer has loaded the half: its
+				// sequence number is newer than this read's, so this failure
+				// was superseded by state the card already shows.
+				if (seq <= appliedSeq || bringLoaded) return;
+				// The stored credentials were never read: `bringLoaded` stays
+				// false so the field chips keep showing nothing rather than
+				// "Not set", and the section keeps reporting the probe's own
+				// answer instead of turning a failed settings read into "Not
+				// connected". The failure is still reported on the card, with
+				// its own retry, because the picker's Retry only covers its own
+				// (AI) read.
+				bringLoadFailed = true;
+			})
+			.finally(() => {
+				bringReadInFlight = false;
 			});
+	}
+
+	$effect(() => {
+		refreshBringStatus();
+		readBringSettings();
+	});
+
+	// This page reads the Bring! half and the picker reads the AI half, so a
+	// failed mount-time read leaves the Bring! fields unloaded. Re-read them
+	// once the picker reports a successful load (its Retry is the only retry
+	// control on the page), so one retry restores both sections. A read that is
+	// still on its way is the same read: the picker's answer can arrive first
+	// (the picker issues its request first), and starting a second GET for the
+	// same page load would only add a newer sequence number whose failure can
+	// no longer be told apart from a real one.
+	$effect(() => {
+		if (aiLoaded && !bringLoaded && !bringReadInFlight) readBringSettings();
 	});
 </script>
 
@@ -180,7 +268,9 @@
 		<div class="field">
 			<div class="field__head">
 				<label class="field__label" for="bring-email">{t('settingsBringEmailLabel')}</label>
-				<span class="state-chip state-chip--neutral">{t(secretSourceLabelKey(bringEmailSource))}</span>
+				{#if bringLoaded}
+					<span class="state-chip state-chip--neutral">{t(secretSourceLabelKey(bringEmailSource))}</span>
+				{/if}
 			</div>
 			<input id="bring-email" type="email" bind:value={bringEmail} onchange={onBringEmailChange}
 				onkeydown={(e) => onEnter(e, onBringEmailChange)} />
@@ -189,11 +279,13 @@
 		<div class="field">
 			<div class="field__head">
 				<label class="field__label" for="bring-password">{t('settingsBringPasswordLabel')}</label>
-				<span class="state-chip state-chip--neutral">{t(secretSourceLabelKey(bringPasswordState.source))}</span>
-				{#if bringPasswordState.source === 'settings'}
-					<button type="button" class="btn btn--ghost btn--compact" onclick={onClearBringPassword}>
-						{t('settingsSecretClear')}
-					</button>
+				{#if bringLoaded}
+					<span class="state-chip state-chip--neutral">{t(secretSourceLabelKey(bringPasswordState.source))}</span>
+					{#if bringPasswordState.source === 'settings'}
+						<button type="button" class="btn btn--ghost btn--compact" onclick={onClearBringPassword}>
+							{t('settingsSecretClear')}
+						</button>
+					{/if}
 				{/if}
 			</div>
 			<input id="bring-password" type="password" bind:value={bringPasswordInput}
@@ -216,6 +308,12 @@
 		{/if}
 		{#if bringStatusError}
 			<p class="form-error" role="alert">{bringStatusError}</p>
+		{/if}
+		{#if bringLoadFailed}
+			<p class="form-error" role="alert">{t('settingsLoadFailed')}</p>
+			<button type="button" class="btn btn--ghost btn--compact" onclick={readBringSettings}>
+				{t('buttonRetry')}
+			</button>
 		{/if}
 	</section>
 
