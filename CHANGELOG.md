@@ -1,3 +1,10 @@
+# [1.23.0](https://github.com/RouHim/yummybox/compare/v1.22.2...v1.23.0) (2026-09-25)
+
+
+### Features
+
+* central settings page for AI and Bring! ([#12](https://github.com/RouHim/yummybox/issues/12)) ([f0444e7](https://github.com/RouHim/yummybox/commit/f0444e75fcc74fc305e80e174e31b5b3c620c3e7))
+
 ## [1.22.2](https://github.com/RouHim/yummybox/compare/v1.22.1...v1.22.2) (2026-09-21)
 
 
