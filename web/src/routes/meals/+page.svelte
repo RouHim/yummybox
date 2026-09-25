@@ -53,7 +53,22 @@ import { focusTrap } from '$lib/focusTrap';
     // True once the picker read the stored AI configuration: unknown until
     // then, so the notice and the import button wait for that answer.
     let importLlmLoaded = $state(false);
+    // A locally complete picker (provider and model both set) counts as ready
+    // even while its commit is in flight, so the click that completes the
+    // configuration on blur is not dropped by a still-disabled button.
+    let importLlmLocallyReady = $derived(!!importLlmProvider && importLlmModel.trim().length > 0);
     let llmSettingsCollapsed = $state(false);
+    // Every picker mount of this dialog hands over its settle closure, so the
+    // import click can wait for a commit the same click issued: the click that
+    // hides the settings block also blurs the field it edits and issues that
+    // field's commit, and a tab switch unmounts the instance that issued one.
+    // Only the live instance could be reached through `bind:this`, and it is
+    // gone by the time those clicks need it.
+    let importLlmSettlers: Array<() => Promise<void>> = [];
+
+    function registerImportLlmSettle(settle: () => Promise<void>) {
+        importLlmSettlers.push(settle);
+    }
 
     let bulkUrls = $state('');
     let bulkImporting = $state(false);
@@ -71,6 +86,14 @@ import { focusTrap } from '$lib/focusTrap';
         importError = null;
         importing = true;
         try {
+            // The click that completes the configuration also blurs the field
+            // and issues its commit; wait for that write to be answered, so the
+            // request runs against the configuration this click stored instead
+            // of racing it (a request that beats the commit is answered
+            // `llm_not_configured`). Every picker mount registered its settle
+            // closure, so a write issued by an instance the collapse or a tab
+            // switch has already unmounted is awaited too.
+            await Promise.all(importLlmSettlers.map((settle) => settle()));
             const draft = await importFromLlm(importLlmHint || null, importLlmImages);
             formName = draft.name;
             formIngredients = draft.ingredients.length > 0
@@ -229,6 +252,7 @@ import { focusTrap } from '$lib/focusTrap';
         importLlmLoaded = false;
         importLlmImages = [];
         llmSettingsCollapsed = false;
+        importLlmSettlers = [];
         importing = false; importError = null; importToken++;
         bulkUrls = ''; bulkImporting = false; bulkResult = null; bulkError = null;
         zipFile = null; zipImporting = false; zipResult = null; zipError = null;
@@ -616,7 +640,13 @@ import { focusTrap } from '$lib/focusTrap';
 											</button>
 										</div>
 									{/if}
-									{#if !llmSettingsCollapsed || !importLlmProvider}
+									<!-- Kept mounted while collapsed and hidden instead of being
+									     unmounted: the click that hides this block also blurs
+									     the field it edits and issues that field's commit, whose
+									     answer the parse click below waits for. Destroying the
+									     instance here would drop the closure that wait goes
+									     through, and the import would overtake the write. -->
+									<div hidden={llmSettingsCollapsed && !!importLlmProvider}>
 										<LlmConfigPicker
 											bind:provider={importLlmProvider}
 											bind:providerName={importLlmProviderName}
@@ -625,8 +655,9 @@ import { focusTrap } from '$lib/focusTrap';
 											bind:configured={importLlmConfigured}
 											bind:loaded={importLlmLoaded}
 											disabled={importing}
+											onsettle={registerImportLlmSettle}
 										/>
-									{/if}
+									</div>
 
 									{#if importLlmProvidersReady}
 										<textarea
@@ -644,7 +675,7 @@ import { focusTrap } from '$lib/focusTrap';
 										/>
 
 										<button type="button" class="btn btn--primary" onclick={onImport}
-											disabled={importing || !aiFlowReady(importLlmLoaded, importLlmConfigured) || (!importLlmHint.trim() && importLlmImages.length === 0)}>
+											disabled={importing || !(aiFlowReady(importLlmLoaded, importLlmConfigured) || importLlmLocallyReady) || (!importLlmHint.trim() && importLlmImages.length === 0)}>
 											{importing ? t('importButtonLlmLoading') : t('importButtonLlm')}
 										</button>
 									{/if}

@@ -105,8 +105,9 @@ export function providerChangePatch(selected: string, storedProvider: string | n
 
 /**
  * Whether a typed secret may be dropped from the DOM after its commit: only a
- * stored value is safe to forget. A commit that failed resolves like a stored
- * one, so the value must stay in the field for a retry.
+ * stored value is safe to forget. A commit resolves with its own outcome
+ * without rejecting, so the value must be asked of that resolved status rather
+ * than assumed from the commit having finished.
  */
 export function commitStored(status: CommitStatus): boolean {
 	return status === 'saved';
@@ -144,7 +145,10 @@ export class SettingsCommitter {
 	});
 	/** Commits accepted but not answered yet; the chain runs one at a time. */
 	#pending = 0;
-	#tail: Promise<void> = Promise.resolve();
+	// The last queued request, carrying the outcome it resolved to: a queued
+	// successor hands its own result on, so the chain's value belongs to the
+	// newest commit while `settle` only needs its completion.
+	#tail: Promise<CommitStatus> = Promise.resolve('idle');
 	#send: (patch: SettingsPatch) => Promise<SettingsSnapshot>;
 	#apply: (snapshot: SettingsSnapshot) => void;
 
@@ -156,18 +160,28 @@ export class SettingsCommitter {
 		this.#apply = apply;
 	}
 
-	commit(patch: SettingsPatch): Promise<void> {
-		const run = async () => {
+	/**
+	 * Queue a commit and resolve with its own outcome: `saved` only when this
+	 * request was answered with a snapshot, `error` when it was rejected. The
+	 * shared `state` is not a substitute for that value - a successor queued
+	 * behind this one sets it back to `saving` before this caller's callback
+	 * runs, so a callback that re-read the state would mistake its own success
+	 * for a rejection.
+	 */
+	commit(patch: SettingsPatch): Promise<CommitStatus> {
+		const run = async (): Promise<CommitStatus> => {
 			this.state = { status: 'saving', error: null };
 			try {
 				const snapshot = await this.#send(patch);
 				this.#apply(snapshot);
 				this.state = { status: 'saved', error: null };
+				return 'saved';
 			} catch (err) {
 				this.state = {
 					status: 'error',
 					error: err instanceof Error ? err.message : String(err),
 				};
+				return 'error';
 			} finally {
 				this.#pending--;
 			}
@@ -178,5 +192,15 @@ export class SettingsCommitter {
 		const queued = this.#pending === 1 ? run() : this.#tail.then(run);
 		this.#tail = queued;
 		return queued;
+	}
+
+	/**
+	 * Resolves once every commit accepted so far has been answered, so a caller
+	 * that is about to act on the stored state can wait for a write its own
+	 * click just issued instead of racing it. Never rejects: `commit` turns
+	 * every failure into the `error` state rather than a rejection.
+	 */
+	settle(): Promise<void> {
+		return this.#tail.then(() => {});
 	}
 }

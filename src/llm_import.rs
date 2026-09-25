@@ -647,6 +647,29 @@ mod tests {
     }
 
     #[test]
+    fn given_keyless_custom_provider_when_model_spec_then_placeholder_key() {
+        // A keyless custom endpoint still needs an auth value: genai's OpenAI
+        // adapter fails the whole call with `ResolverAuthDataNotSingleValue` for
+        // `AuthData::None`, before any request leaves, so the placeholder is what
+        // makes a local endpoint usable at all. Removing the fallback would
+        // silently break every keyless endpoint, so it is pinned here.
+        let target = LlmTarget {
+            provider_id: PROVIDER_CUSTOM,
+            base_url: Some("http://localhost:8080/v1"),
+            api_key: None,
+        };
+        let genai::ModelSpec::Target(service_target) =
+            target.model_spec("local-model").expect("model spec")
+        else {
+            panic!("custom provider must produce a fully resolved service target");
+        };
+        assert_eq!(
+            service_target.auth.single_key_value().expect("single key"),
+            "no-key"
+        );
+    }
+
+    #[test]
     fn given_custom_provider_without_base_url_when_model_spec_then_rejected() {
         let target = LlmTarget {
             provider_id: PROVIDER_CUSTOM,
@@ -727,6 +750,95 @@ mod tests {
             .single_key_value()
             .expect("single key");
         assert_eq!(key, "sk-stored");
+    }
+
+    #[tokio::test]
+    async fn given_key_when_client_then_resolver_installs_it_on_resolved_target() {
+        // A standard provider's stored key reaches the request only through
+        // the resolver `client()` installs; every mocked route test seeds the
+        // `custom` provider, whose fully resolved `ServiceTarget` bypasses
+        // auth resolution. Resolve a `ModelIden` through the real client so
+        // dropping the resolver (or returning `Ok(None)`) fails here instead
+        // of silently sending a stored-key install's requests unauthenticated.
+        let target = LlmTarget {
+            provider_id: "openai",
+            base_url: None,
+            api_key: Some("sk-stored"),
+        };
+        let service_target = target
+            .client()
+            .resolve_service_target(genai::ModelIden::new(AdapterKind::OpenAI, "gpt-4o-mini"))
+            .await
+            .expect("service target");
+        assert_eq!(
+            service_target.auth.single_key_value().expect("single key"),
+            "sk-stored"
+        );
+    }
+
+    #[test]
+    fn given_stored_key_when_listing_config_then_config_carries_it() {
+        // A standard provider's stored key reaches model listing only through
+        // `listing_config`; every mocked route test seeds the `custom` provider,
+        // whose arm carries the key through its endpoint. Dropping the
+        // `from_auth` arm would list a stored-key install's models with the
+        // environment key or with no key at all while the suite stayed green.
+        let target = LlmTarget {
+            provider_id: "openai",
+            base_url: None,
+            api_key: Some("sk-stored"),
+        };
+        let (adapter, config) = target.listing_config().expect("listing config");
+        assert_eq!(adapter, AdapterKind::OpenAI);
+        assert_eq!(
+            config
+                .auth
+                .expect("auth data")
+                .single_key_value()
+                .expect("single key"),
+            "sk-stored"
+        );
+    }
+
+    #[test]
+    fn given_keyless_ollama_when_listing_config_then_no_auth_data() {
+        // Ollama is the standard provider that reaches the listing without a
+        // key (`require_api_key` exempts it), so this is the arm a keyless
+        // install really takes: carrying no auth leaves genai's own
+        // environment/default resolution in charge instead of sending a
+        // placeholder or another provider's key.
+        let target = LlmTarget {
+            provider_id: "ollama",
+            base_url: None,
+            api_key: None,
+        };
+        let (_, config) = target.listing_config().expect("listing config");
+        assert!(config.auth.is_none());
+    }
+
+    #[test]
+    fn given_stored_custom_key_when_listing_config_then_config_carries_it() {
+        // The custom arm builds its config from the endpoint and the resolved
+        // auth. Nothing else pins it: every mocked listing answers a canned
+        // body, so dropping the auth from that tuple would list a
+        // key-protected endpoint with no `Authorization` header (or with the
+        // ambient `OPENAI_API_KEY`) while the chat path, which resolves its
+        // key separately, still authenticated.
+        let target = LlmTarget {
+            provider_id: PROVIDER_CUSTOM,
+            base_url: Some("http://localhost:8080/v1"),
+            api_key: Some("sk-stored"),
+        };
+        let (adapter, config) = target.listing_config().expect("listing config");
+        assert_eq!(adapter, AdapterKind::OpenAI);
+        assert_eq!(
+            config
+                .auth
+                .expect("auth data")
+                .single_key_value()
+                .expect("single key"),
+            "sk-stored"
+        );
     }
 
     #[tokio::test]

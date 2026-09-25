@@ -2,6 +2,7 @@
 	import { getMeal, updateMeal, deleteMeal, mealImageUrl, polishInstructions, ApiError, listMeals, getSettings } from '$lib/api';
 	import Icon from '$lib/Icon.svelte';
 	import { t } from '$lib/i18n';
+	import { llmErrorMessage } from '$lib/llm-error';
 	import { page } from '$app/state';
 	import { goto } from '$app/navigation';
 	import type { Meal, NewIngredientLine } from '$lib/types';
@@ -138,15 +139,14 @@ import { focusTrap } from '$lib/focusTrap';
 			});
 			await loadMeal();
 		} catch (err) {
-			if (err instanceof ApiError) {
-				if (err.code === 'llm_not_configured') polishError = t('llmErrorNotConfigured');
-				else if (err.code === 'llm_timeout') polishError = t('llmErrorTimeout');
-				else if (err.code === 'llm_parse_failed') polishError = t('llmErrorParseFailed');
-				else if (err.code === 'llm_api_key_missing') polishError = t('llmErrorApiKey');
-				else polishError = t('polishErrorFailed');
-			} else {
-				polishError = t('polishErrorFailed');
-			}
+			// The shared mapper speaks for the import flow (`REQUEST_FAILED` →
+			// "Failed to import recipe") and falls back to raw response text for
+			// a code-less fault (`AppError::Database`/`Internal` answer with
+			// `code: null`); a polish failure keeps its own sentence there.
+			polishError =
+				err instanceof ApiError && err.code && err.code !== 'REQUEST_FAILED'
+					? llmErrorMessage(err)
+					: t('polishErrorFailed');
 		} finally {
 			polishing = false;
 		}

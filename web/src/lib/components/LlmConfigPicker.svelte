@@ -9,6 +9,7 @@
 		providerChangePatch,
 		providerChanged,
 		secretSourceLabelKey,
+		type CommitStatus,
 		type SecretState,
 		type SettingsPatch,
 		type SettingsSnapshot,
@@ -26,6 +27,7 @@
 		configured = $bindable(false),
 		loaded = $bindable(false),
 		variant = 'panel',
+		onsettle,
 	}: {
 		provider?: string;
 		providerName?: string;
@@ -38,6 +40,11 @@
 		loaded?: boolean;
 		/** `panel` draws its own surface (import dialogs); `plain` sits in a card that already has one. */
 		variant?: 'panel' | 'plain';
+		/** Handed the same wait the `settle` export offers, so a caller keeps it
+		 *  when it destroys this instance (a tab switch): a commit still in
+		 *  flight stays awaitable through the write it issued instead of being
+		 *  lost with the component that issued it. */
+		onsettle?: (settle: () => Promise<void>) => void;
 	} = $props();
 
 	let llmProviders = $state<LlmProviderInfo[]>([]);
@@ -72,10 +79,25 @@
 	// instead of refilling a field the commit cleared.
 	let appliedSnapshotSeq = 0;
 	let snapshotRequestSeq = 0;
+	// Commits are serialized, so their answers arrive in the order they were
+	// issued. Counting both ends tells an answer apart from the newest one
+	// issued: an answer that is not the last one predates a commit the user has
+	// already made, and filling an emptied field from it would restore the value
+	// that newer edit removed. Both ends count every commit, a rejected one
+	// included: a rejection is answered like any other write, so the counters
+	// keep their relation after a failed commit instead of drifting apart.
+	let commitIssueSeq = 0;
+	let commitAnswerSeq = 0;
+	// Whether the dependent fields were already empty when the latest commit
+	// was issued. An answer may fill a field only when it was empty then too: a
+	// field the user emptied while the commit was in flight was not empty at
+	// issue, and filling it would restore the value that edit removed.
+	let modelEmptyAtCommit = false;
+	let baseUrlEmptyAtCommit = false;
 
 	/**
-	 * Whether an answer numbered `seq` is still the newest request issued. A
-	 * commit issued after a read takes a higher number, and that read's body -
+	 * Whether a read numbered `seq` is still the newest request issued. A
+	 * commit issued after the read takes a higher number, and that read's body -
 	 * the state before the commit - still carries the values the commit
 	 * removed, so only the newest answer may fill a field.
 	 */
@@ -86,7 +108,9 @@
 	// The provider the server last confirmed, or `null` while the stored
 	// configuration has not been read (or the read failed). A selection that
 	// matches it changed nothing and must not delete its dependent values.
-	let appliedProvider: string | null = null;
+	// Reactive: the remount effect and the rejected-commit retry read it, and
+	// both have to see the provider an answer confirmed.
+	let appliedProvider = $state<string | null>(null);
 
 	/** Server-owned snapshot fields, applied from the newest answer only. */
 	function applySnapshot(snapshot: SettingsSnapshot, seq: number) {
@@ -96,12 +120,24 @@
 		apiKeyState = snapshot.ai.apiKey;
 		// The answer carries the stored model and endpoint: fill them in while
 		// the user has not typed one, so a selection that changed nothing keeps
-		// showing the values it would otherwise have deleted. Only the newest
-		// answer may fill: a body that a newer commit already superseded still
-		// reports the values that commit removed.
-		if (isNewest(seq)) {
-			if (!model) model = snapshot.ai.model;
-			if (!customBaseUrl) customBaseUrl = snapshot.ai.customBaseUrl;
+		// showing the values it would otherwise have deleted. Only an answer of
+		// the commit last issued may fill: the body of an earlier commit already
+		// reports the values a newer commit removed. That rule is the counters
+		// below: this apply callback runs before `commit` counts the answer, so
+		// the commit being applied is the next answer and the two agree exactly
+		// when it is the last one issued. Its field must also have been empty at
+		// issue: a field the user emptied while the commit was in flight is a
+		// newer local edit, and filling it here would undo that edit. The
+		// snapshot must also report the provider the select shows, exactly as
+		// the mount read requires: an answer can carry another provider's
+		// values - a rejected switch leaves the server holding the previous
+		// provider while the select shows the new one - and filling them would
+		// put a model into a control for a provider the server does not have it
+		// for, which the next commit would then store against the stored
+		// provider.
+		if (commitAnswerSeq + 1 === commitIssueSeq && snapshot.ai.provider === provider) {
+			if (!model && modelEmptyAtCommit) model = snapshot.ai.model;
+			if (!customBaseUrl && baseUrlEmptyAtCommit) customBaseUrl = snapshot.ai.customBaseUrl;
 		}
 		configured = isAiConfigured(snapshot);
 		loaded = true;
@@ -113,9 +149,9 @@
 	// Commits are serialized: a settings change may only be followed by the
 	// next one once the previous request has been answered, so a slow
 	// provider commit can never land after a newer model commit.
-	const committer = new SettingsCommitter(updateSettings, (snapshot) =>
-		applySnapshot(snapshot, ++snapshotRequestSeq),
-	);
+	const committer = new SettingsCommitter(updateSettings, (snapshot) => {
+		applySnapshot(snapshot, ++snapshotRequestSeq);
+	});
 
 	/**
 	 * Queue a commit. It takes its sequence number here, when it is issued, so
@@ -123,14 +159,49 @@
 	 * commit has even been answered: that read's body predates the commit, and
 	 * filling an emptied field from it would restore the value the commit
 	 * removed (the commit's own answer carries the newer state, but it skips
-	 * that fill, now that the field is no longer empty). The commit's own
-	 * answer is numbered when it is applied, which keeps it newer than every
-	 * answer before it.
+	 * that fill, now that the field is no longer empty). The answer counter is
+	 * incremented when the commit settles, rejected or not - a rejection must
+	 * consume an answer just as it consumed an issue number - and it is a
+	 * `then` on the committer's promise: the apply callback has run by then, and
+	 * a queued successor's request starts after it, so the count still tells the
+	 * last issued commit apart from an earlier one. It resolves with this
+	 * commit's own outcome, because the shared state is already back to
+	 * `saving` by the time a callback on this promise runs behind a successor.
 	 */
-	function commit(patch: SettingsPatch): Promise<void> {
+	function commit(patch: SettingsPatch): Promise<CommitStatus> {
 		snapshotRequestSeq++;
-		return committer.commit(patch);
+		commitIssueSeq++;
+		modelEmptyAtCommit = !model;
+		baseUrlEmptyAtCommit = !customBaseUrl;
+		return committer.commit(patch).then((status) => {
+			commitAnswerSeq++;
+			// Hand the commit's own outcome to the caller: the shared state is
+			// already `saving` again by the time this callback runs whenever a
+			// successor was queued behind this commit, so re-reading it there
+			// would report a rejection for a write that was stored.
+			return status;
+		});
 	}
+
+	/**
+	 * Resolves once every settings commit this picker issued has been answered.
+	 * A caller that sends an AI request on the same click that completed the
+	 * configuration awaits this first, so the request runs against the values
+	 * that click stored instead of racing the write (a request that beats it is
+	 * answered `llm_not_configured`). Public instance API: reachable through
+	 * `bind:this`, and optional at the call site because a caller may unmount
+	 * the picker while its settings block is collapsed.
+	 */
+	export function settle(): Promise<void> {
+		return committer.settle();
+	}
+
+	// Hand the caller the same wait, so it survives this instance: the import
+	// dialog's picker is unmounted on a tab switch, and a commit issued just
+	// before it must stay awaitable when no live instance can answer for it.
+	$effect(() => {
+		onsettle?.(() => committer.settle());
+	});
 
 	async function loadModels() {
 		const seq = ++modelsRequestSeq;
@@ -172,20 +243,28 @@
 		}
 	}
 
-	function onProviderChange() {
+	/**
+	 * Store the current provider selection. `retry` re-sends a selection whose
+	 * commit was rejected, so it keeps the dependent fields exactly as shown:
+	 * the switch that failed already emptied them, and only a key typed while
+	 * the failure was on screen could still hold something to keep.
+	 */
+	function commitProviderSelection(retry = false) {
 		// Invalidate any in-flight model-list request: a stale response must
 		// not repopulate the model select after a provider switch.
-		modelsRequestSeq++;
-		// Only a selection that really moved off the stored provider invalidates
-		// its dependent values. Re-selecting the stored provider (a user on a
-		// slow link, before the read has answered) must keep them: deleting the
-		// key here would leave the install with a provider and no credentials.
-		const switched = providerChanged(provider, appliedProvider);
-		if (switched) {
-			model = '';
-			customBaseUrl = '';
-			apiKeyInput = '';
-			llmModels = [];
+		const seq = ++modelsRequestSeq;
+		if (!retry) {
+			// Only a selection that really moved off the stored provider invalidates
+			// its dependent values. Re-selecting the stored provider (a user on a
+			// slow link, before the read has answered) must keep them: deleting the
+			// key here would leave the install with a provider and no credentials.
+			const switched = providerChanged(provider, appliedProvider);
+			if (switched) {
+				model = '';
+				customBaseUrl = '';
+				apiKeyInput = '';
+				llmModels = [];
+			}
 		}
 		llmModelsError = null;
 		providerName = llmProviders.find((p) => p.id === provider)?.name ?? provider;
@@ -196,7 +275,19 @@
 		// A provider switch clears the previous provider's model, endpoint and
 		// key in the same commit; a selection that changed nothing sends the
 		// provider alone.
-		commit({ ai: providerChangePatch(provider, appliedProvider) }).then(() => {
+		commit({ ai: providerChangePatch(provider, appliedProvider) }).then((status) => {
+			// A rejected commit stored nothing: listing now would query the
+			// stored provider while the select shows the rejected one, and a
+			// model chosen from that list would be committed for the stored
+			// provider instead.
+			if (!commitStored(status)) {
+				// This rejection is the invalidation above with no successor: the
+				// listing it superseded no longer owns the flag, and nothing else
+				// clears it, so the model control would stay a disabled
+				// "Loading models..." until the selection is committed again.
+				if (seq === modelsRequestSeq) llmModelsLoading = false;
+				return;
+			}
 			// List after the commit: a selection that changed nothing lets the
 			// server return the stored endpoint, so even the custom provider
 			// has something to list once its answer has been applied.
@@ -220,12 +311,12 @@
 			commit({ ai: { customBaseUrl: null, model: null } });
 			return;
 		}
-		commit({ ai: { customBaseUrl } }).then(() => {
+		commit({ ai: { customBaseUrl } }).then((status) => {
 			// Nothing is stored unless the commit succeeded: listing now would
 			// query the stored endpoint while the field shows the rejected URL,
 			// and a model chosen from that list would be committed for the
 			// stored endpoint instead.
-			if (!commitStored(committer.state.status)) return;
+			if (!commitStored(status)) return;
 			if (provider === 'custom') loadModels();
 		});
 	}
@@ -233,11 +324,11 @@
 	function onApiKeyChange() {
 		const value = apiKeyInput;
 		if (!value.trim()) return;
-		commit({ ai: { apiKey: value } }).then(() => {
+		commit({ ai: { apiKey: value } }).then((status) => {
 			// Nothing is stored unless the commit succeeded: a rejected key must
 			// stay in the field so the user can correct and resend it, and no
 			// model listing may run against a key the server does not have.
-			if (!commitStored(committer.state.status)) return;
+			if (!commitStored(status)) return;
 			// The value is stored now; never keep it in the DOM. A value typed
 			// while the request was in flight stays untouched.
 			if (apiKeyInput === value) apiKeyInput = '';
@@ -364,9 +455,24 @@
 	// Gated on the mount read having settled: that read may still supply the
 	// stored provider (or the stored custom endpoint the listing needs), so
 	// listing before its answer would run twice for the same state change.
+	// Gated on the same predicate as the commit path: a shown provider whose
+	// commit was rejected is not the stored one, so listing it would query the
+	// environment's credentials while the server still holds another provider -
+	// and a model picked from that list would be committed for the provider the
+	// server has, not the one on screen. The `Retry` below stores the rejected
+	// selection again and lists it then. The provider must also be confirmed by
+	// a snapshot (`appliedProvider !== null`): after a failed settings read
+	// nothing names the stored provider, and listing the bound one would
+	// contact the environment for a provider the server may not hold - the
+	// read's retry lists once an answer names the provider.
 	$effect(() => {
 		if (!settingsReadSettled) return;
-		if (provider && modelsLoadedFor !== provider) {
+		if (
+			provider &&
+			appliedProvider !== null &&
+			!providerChanged(provider, appliedProvider) &&
+			modelsLoadedFor !== provider
+		) {
 			modelsLoadedFor = provider;
 			loadModels();
 		}
@@ -386,7 +492,11 @@
 			<div class="field__head">
 				<label class="field__label" for="llm-provider">{t('llmProviderLabel')}</label>
 			</div>
-			<select id="llm-provider" bind:value={provider} onchange={onProviderChange}
+			<!-- Enter retries the selection: a rejected commit leaves a provider
+			     the server does not have, and a select cannot re-fire `change`
+			     for the value it already shows. -->
+			<select id="llm-provider" bind:value={provider} onchange={() => commitProviderSelection()}
+				onkeydown={(e) => onEnter(e, () => commitProviderSelection(true))}
 				disabled={llmProvidersLoading || disabled}>
 				<option value="">{t('llmProviderPlaceholder')}</option>
 				{#each llmProviders as p}
@@ -418,7 +528,7 @@
 						onkeydown={(e) => onEnter(e, onModelChange)} />
 				{:else}
 					<select id="llm-model" bind:value={model} disabled={disabled || llmModelsLoading}
-						onchange={onModelChange}>
+						onchange={onModelChange} onkeydown={(e) => onEnter(e, onModelChange)}>
 						<option value="">{llmModelsLoading ? t('llmModelLoading') : t('llmModelPlaceholder')}</option>
 						{#each llmModels as m}
 							<option value={m}>{m}</option>
@@ -489,6 +599,15 @@
 		{/if}
 		{#if committer.state.status === 'error'}
 			<p class="form-error" role="alert">{committer.state.error}</p>
+			{#if provider && providerChanged(provider, appliedProvider)}
+				<!-- The shown provider is the one whose commit was rejected, so it
+				     is not stored and its models are not listed: resending the
+				     selection is the way back to a usable state. -->
+				<button type="button" class="btn btn--ghost" onclick={() => commitProviderSelection(true)}
+					disabled={disabled}>
+					{t('buttonRetry')}
+				</button>
+			{/if}
 		{/if}
 	</div>
 {/if}

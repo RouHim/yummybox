@@ -22,6 +22,9 @@
 	let model = $state('');
 	let providersReady = $state(true);
 	let configured = $state(false);
+	// The picker instance, so the generate click can wait for a commit the same
+	// click issued (the field's blur) before sending its request.
+	let picker = $state<ReturnType<typeof LlmConfigPicker> | null>(null);
 	// True once the picker's read of the stored configuration succeeded; until
 	// then the AI status is unknown, not "unconfigured".
 	let aiLoaded = $state(false);
@@ -58,6 +61,12 @@
 		cookError = null;
 		generating = true;
 		try {
+			// The click that completes the configuration also blurs the field and
+			// issues its commit; wait for that write to be answered, so the
+			// request runs against the configuration this click stored instead of
+			// racing it (a request that beats the commit is answered
+			// `llm_not_configured`).
+			await picker?.settle();
 			const d = await generateMeal(ingredients, images);
 			draft = {
 				name: d.name,
@@ -179,7 +188,15 @@
 	}
 
 	let hasInput = $derived(ingredients.trim().length > 0 || images.length > 0);
-	let canGenerate = $derived(aiFlowReady(aiLoaded, configured) && hasInput && !generating);
+	// A locally complete draft (provider and model both set) counts as ready
+	// even while its commit is in flight: the button is disabled until the
+	// stored snapshot flips, and the click that completes the configuration on
+	// blur would then land on a disabled button and be dropped whole.
+	let canGenerate = $derived(
+		(aiFlowReady(aiLoaded, configured) || (!!provider && model.trim().length > 0)) &&
+			hasInput &&
+			!generating
+	);
 	let ingredientCount = $derived(ingredients.split('\n').filter((l: string) => l.trim().length > 0).length);
 
 	// Collapse the AI settings block once the stored configuration is usable,
@@ -236,6 +253,7 @@
 			class:spontan-config__picker--hidden={settingsCollapsed && !!provider}
 		>
 			<LlmConfigPicker
+				bind:this={picker}
 				bind:provider
 				bind:providerName
 				bind:model

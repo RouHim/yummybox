@@ -108,6 +108,69 @@ describe('SettingsCommitter', () => {
 		await pending;
 		expect(committer.state.status).toBe('saved');
 	});
+
+	it('resolves each queued commit with its own outcome, not the state a successor re-enters', async () => {
+		// The picker's post-commit callbacks branch on the outcome of their own
+		// write. A successor queued behind one sets the shared state back to
+		// `saving` before the earlier callback runs, so an outcome read off the
+		// state would report the stored write as rejected. The resolved value
+		// has to be the commit's own answer.
+		const resolvers: Array<(value: SettingsSnapshot) => void> = [];
+		const send = vi.fn(() => new Promise<SettingsSnapshot>((resolve) => resolvers.push(resolve)));
+		const committer = new SettingsCommitter(send, () => {});
+
+		const storedWrite = committer.commit({ ai: { provider: 'openai' } });
+		const successor = committer.commit({ ai: { provider: null } });
+
+		resolvers[0](snapshot());
+		expect(await storedWrite).toBe('saved');
+		// The successor is in flight, so the shared state has already moved on:
+		// this is exactly the value that must not stand in for the outcome.
+		expect(committer.state.status).toBe('saving');
+
+		resolvers[1](snapshot({ provider: '' }));
+		expect(await successor).toBe('saved');
+	});
+
+	it('settle waits for every queued commit and never rejects on a failure', async () => {
+		// The AI flows await this before sending a request that depends on the
+		// configuration a click just stored: a settle that resolved early (or
+		// rejected on a failed commit) would send the request against the
+		// pre-commit state, or skip it entirely.
+		const resolvers: Array<(value: SettingsSnapshot) => void> = [];
+		const send = vi.fn(
+			() => new Promise<SettingsSnapshot>((resolve) => resolvers.push(resolve)),
+		);
+		const committer = new SettingsCommitter(send, () => {});
+
+		// Nothing queued: settle resolves at once.
+		await committer.settle();
+
+		const first = committer.commit({ ai: { model: 'a' } });
+		committer.commit({ ai: { model: 'b' } });
+		let settled = false;
+		const waited = committer.settle().then(() => {
+			settled = true;
+		});
+		await Promise.resolve();
+		expect(settled).toBe(false);
+
+		resolvers[0](snapshot({ model: 'a' }));
+		await first;
+		expect(settled).toBe(false);
+
+		resolvers[1](snapshot({ model: 'b' }));
+		await waited;
+		expect(settled).toBe(true);
+		expect(committer.state.status).toBe('saved');
+
+		// A rejected commit is an answer like any other: settle resolves, so the
+		// caller's request still runs and the server reports the real problem.
+		send.mockRejectedValueOnce(new Error('boom'));
+		committer.commit({ ai: { model: 'c' } });
+		await expect(committer.settle()).resolves.toBeUndefined();
+		expect(committer.state.status).toBe('error');
+	});
 });
 
 describe('commitStored', () => {
@@ -119,17 +182,17 @@ describe('commitStored', () => {
 	});
 
 	it('keeps the typed value in the field when the commit is rejected', async () => {
-		// A rejected commit resolves like a stored one, so the DOM cleanup has to
-		// ask the committer what happened: otherwise the pasted key is destroyed
-		// and has to be fetched from the provider again.
+		// A rejected commit resolves too (it never rejects), and its resolved
+		// value is `error`: the DOM cleanup has to ask that outcome, or the
+		// pasted key is destroyed and has to be fetched from the provider again.
 		const send = vi.fn().mockRejectedValue(new Error('apiKey must be at most 4096 characters'));
 		const committer = new SettingsCommitter(send, () => {});
 		let field = 'sk-typed';
 
-		await committer.commit({ ai: { apiKey: field } }).then(() => {
-			if (commitStored(committer.state.status)) field = '';
-		});
+		const outcome = await committer.commit({ ai: { apiKey: field } });
+		if (commitStored(outcome)) field = '';
 
+		expect(outcome).toBe('error');
 		expect(committer.state.status).toBe('error');
 		expect(field).toBe('sk-typed');
 	});
@@ -141,10 +204,10 @@ describe('commitStored', () => {
 		const committer = new SettingsCommitter(send, () => {});
 		let field = 'typed-pass';
 
-		await committer.commit({ bring: { password: field } }).then(() => {
-			if (commitStored(committer.state.status)) field = '';
-		});
+		const outcome = await committer.commit({ bring: { password: field } });
+		if (commitStored(outcome)) field = '';
 
+		expect(outcome).toBe('error');
 		expect(committer.state.status).toBe('error');
 		expect(field).toBe('typed-pass');
 	});
@@ -154,10 +217,10 @@ describe('commitStored', () => {
 		const committer = new SettingsCommitter(send, () => {});
 		let field = 'sk-typed';
 
-		await committer.commit({ ai: { apiKey: field } }).then(() => {
-			if (commitStored(committer.state.status)) field = '';
-		});
+		const outcome = await committer.commit({ ai: { apiKey: field } });
+		if (commitStored(outcome)) field = '';
 
+		expect(outcome).toBe('saved');
 		expect(committer.state.status).toBe('saved');
 		expect(field).toBe('');
 	});

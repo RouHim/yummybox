@@ -501,6 +501,286 @@ test.describe('Settings page', () => {
 		await expect(email).toHaveValue(afterEmail);
 	});
 
+	test('given_a_held_password_commit_when_the_email_field_is_emptied_then_it_is_not_refilled', async ({ page, request }) => {
+		// The password commit is in flight while the user selects the stored
+		// email and deletes it without blurring. The answer the server returns
+		// still carries that stored email, so the field must not be refilled
+		// from it: the field was not empty when the commit was issued, so its
+		// emptiness is a newer local edit rather than the clear the answer might
+		// report. Emptying the field back is exactly the mirror of the stale
+		// endpoint the picker refuses to restore.
+		const storedEmail = 'held-patch@example.com';
+		const stored = await request.patch('/api/settings', {
+			data: { bring: { email: storedEmail } },
+		});
+		expect(stored.ok()).toBe(true);
+
+		// Only the password commit is held: the mount reads answer normally, so
+		// the stored email is on screen before the user acts.
+		const patchSent = Promise.withResolvers<void>();
+		const patchGate = Promise.withResolvers<void>();
+		await page.route('**/api/settings*', async (route) => {
+			const body = route.request().postData() ?? '';
+			if (route.request().method() !== 'PATCH' || !body.includes('"password"')) {
+				await route.continue();
+				return;
+			}
+			patchSent.resolve();
+			await patchGate.promise;
+			await route.continue();
+		});
+
+		await page.goto('/settings');
+		const email = page.getByLabel('Bring! email');
+		await expect(email).toHaveValue(storedEmail);
+		const password = page.getByLabel('Bring! password');
+
+		// Blurring the password sends its PATCH, which is held unanswered.
+		await password.fill('held-patch-pass');
+		await password.blur();
+		await patchSent.promise;
+
+		// The user then empties the email field without blurring it, so no clear
+		// is committed: the field is empty while the answer is still on its way.
+		await email.click();
+		await email.press('Control+a');
+		await email.press('Delete');
+		await expect(email).toHaveValue('');
+		patchGate.resolve();
+
+		// The commit is reported saved, and the field keeps the value the user
+		// left in it instead of the stored address the answer carries.
+		await expect(page.locator('.settings-commit')).toHaveText('Saved');
+		await expect(email).toHaveValue('');
+
+		// The deletion was a local edit only: the server still holds the address.
+		const after = await request.get('/api/settings');
+		const afterSnapshot = (await after.json()) as { bring: { email: string } };
+		expect(afterSnapshot.bring.email).toBe(storedEmail);
+	});
+
+	test('given_a_read_answered_before_a_held_password_commit_then_the_emptied_email_is_not_refilled', async ({ page, request }) => {
+		// The interleaving the per-request capture exists for: the password
+		// commit is issued while the field still holds an address, then the user
+		// empties the field and triggers a read (the card's Retry, the only
+		// control left while the mount reads failed). That read is issued after
+		// the commit and answers before it, so when the commit's answer lands it
+		// is the last outstanding one and passes the gate - but its own
+		// emptiness is false, the field held the address when it was issued. The
+		// read's capture (true) must not lend itself to the older commit's
+		// answer and refill the field the user just emptied.
+		const storedEmail = 'held-reread@example.com';
+		const stored = await request.patch('/api/settings', {
+			data: { bring: { email: storedEmail } },
+		});
+		expect(stored.ok()).toBe(true);
+
+		// The mount reads fail, so the card shows its own Retry: that is the read
+		// the user can fire after the commit has been issued. Email writes fail
+		// too, so no applied snapshot loads the card (which would hide the Retry)
+		// before the interleaving this test needs.
+		let readsFail = true;
+		const patchSent = Promise.withResolvers<void>();
+		const patchGate = Promise.withResolvers<void>();
+		await page.route('**/api/settings*', async (route) => {
+			if (route.request().method() === 'GET') {
+				if (readsFail) {
+					await route.fulfill({
+						status: 500,
+						contentType: 'application/json',
+						body: JSON.stringify({ error: 'read failed' }),
+					});
+					return;
+				}
+				await route.continue();
+				return;
+			}
+			const body = route.request().postData() ?? '';
+			if (body.includes('"password"')) {
+				patchSent.resolve();
+				await patchGate.promise;
+				await route.continue();
+				return;
+			}
+			// Email commits fail: answered, so the issue/answer counters keep
+			// their relation, without applying a snapshot that would load the
+			// card and hide the Retry this test needs.
+			await route.fulfill({
+				status: 500,
+				contentType: 'application/json',
+				body: JSON.stringify({ error: 'email write failed' }),
+			});
+		});
+
+		await page.goto('/settings');
+		const email = page.getByLabel('Bring! email');
+		const bringRetry = page.locator('.settings-card').nth(1).getByRole('button', { name: 'Retry' });
+		await expect(bringRetry).toBeVisible();
+
+		// The user types an address (no successful commit is behind it), so the
+		// field is not empty when the password commit is issued.
+		await email.fill(storedEmail);
+
+		// Focusing the password blurs the email, committing the address; the
+		// password commit that follows is issued while the field still holds it,
+		// so that commit's own emptiness is false. It is held unanswered.
+		const password = page.getByLabel('Bring! password');
+		await password.fill('held-reread-pass');
+		await password.blur();
+		await patchSent.promise;
+
+		// The user empties the address without blurring it: a newer local edit,
+		// not a clear, because the field was not empty when the commit was
+		// issued.
+		await email.click();
+		await email.press('Control+a');
+		await email.press('Delete');
+		await expect(email).toHaveValue('');
+
+		// The Retry read is issued after the commit and answers first, so the
+		// in-flight commit's answer is the last outstanding one when it lands.
+		// The button is clicked programmatically: a real click would blur the
+		// email and commit a clear, and that newer commit would make the gate
+		// reject this answer on its own, hiding the interleaving under test.
+		readsFail = false;
+		await bringRetry.evaluate((el: HTMLElement) => el.click());
+		// The provenance chip renders only once a snapshot has been applied, so
+		// its appearance proves the read landed before the commit is released.
+		await expect(
+			page
+				.locator('.settings-card')
+				.nth(1)
+				.locator('.field')
+				.filter({ has: page.getByLabel('Bring! email') })
+				.locator('.state-chip')
+		).toHaveCount(1);
+		patchGate.resolve();
+
+		// The commit is reported saved, and the field keeps the emptiness the
+		// user left: an answer of an older request must be judged against that
+		// request's own emptiness, never against the newer read's.
+		await expect(page.locator('.settings-commit')).toHaveText('Saved');
+		await expect(email).toHaveValue('');
+
+		// The deletion was a local edit only: the server still holds the address.
+		const after = await request.get('/api/settings');
+		const afterSnapshot = (await after.json()) as { bring: { email: string } };
+		expect(afterSnapshot.bring.email).toBe(storedEmail);
+	});
+
+	test('given_a_read_still_in_flight_when_a_commit_is_answered_then_the_empty_email_field_is_refilled', async ({ page, request }) => {
+		// A commit's answer is the state its own write produced, so a field that
+		// was empty when the commit was issued may take the address that answer
+		// carries - even while an older read is still unanswered. Judging the
+		// commit's answer by the read counters refuses exactly that: the mount
+		// read is outstanding (no answer applied yet) when the commit's answer
+		// lands, so the refill was skipped and the field stayed blank although
+		// the server reports the stored address, and the late read could not
+		// repair it either because the commit answer superseded it.
+		//
+		// The commit is the password one so the answer carries an address
+		// without an inherited `BRING_EMAIL`: the field is empty because the
+		// held read never delivered the stored address, and the password write
+		// leaves that address untouched.
+		const storedEmail = 'commit-refill@example.com';
+		const stored = await request.patch('/api/settings', {
+			data: { bring: { email: storedEmail } },
+		});
+		expect(stored.ok()).toBe(true);
+
+		// Both mount reads hang unanswered, so the stored address never reaches
+		// the field: it is still empty when the user commits.
+		const readGate = Promise.withResolvers<void>();
+		let heldReads = 0;
+		await page.route('**/api/settings*', async (route) => {
+			if (route.request().method() !== 'GET') {
+				await route.continue();
+				return;
+			}
+			heldReads++;
+			await readGate.promise;
+			await route.continue();
+		});
+
+		await page.goto('/settings');
+		await expect.poll(() => heldReads).toBe(2);
+		const email = page.getByLabel('Bring! email');
+		await expect(email).toHaveValue('');
+
+		// Enter commits the password while both reads are still outstanding.
+		const password = page.getByLabel('Bring! password');
+		await password.fill('commit-refill-pass');
+		await password.press('Enter');
+
+		// The commit is answered, and its snapshot fills the empty email field
+		// with the address the server holds - the one the held read has not
+		// delivered yet.
+		await expect(page.locator('.settings-commit')).toHaveText('Saved');
+		await expect(email).toHaveValue(storedEmail);
+
+		// The late read answer is superseded by the commit's, so releasing it
+		// must not undo what the commit just showed.
+		readGate.resolve();
+		await expect(email).toHaveValue(storedEmail);
+
+		// The address was never typed into the field, so the server still holds
+		// exactly the stored one.
+		const afterCommit = await request.get('/api/settings');
+		const afterCommitSnapshot = (await afterCommit.json()) as { bring: { email: string } };
+		expect(afterCommitSnapshot.bring.email).toBe(storedEmail);
+	});
+
+	test('given_a_loaded_email_when_the_field_is_emptied_without_blurring_then_no_read_is_issued', async ({ page, request }) => {
+		// Invariant: a local edit that neither blurs nor commits issues no
+		// request at all, so nothing can later refill the field with the address
+		// the user just deleted. The refill tests above empty the field while a
+		// request is outstanding, which the counter gate already blocks, so only
+		// this test pins the field's own trigger: a read wired to the input
+		// would show up here as a third GET.
+		const storedEmail = 'pinned-empty@example.com';
+		const stored = await request.patch('/api/settings', {
+			data: { bring: { email: storedEmail } },
+		});
+		expect(stored.ok()).toBe(true);
+
+		let reads = 0;
+		await page.route('**/api/settings*', async (route) => {
+			if (route.request().method() !== 'GET') {
+				await route.continue();
+				return;
+			}
+			reads++;
+			await route.continue();
+		});
+
+		await page.goto('/settings');
+		const email = page.getByLabel('Bring! email');
+		await expect(email).toHaveValue(storedEmail);
+		// Both halves of this page load are read: the AI chip needs the
+		// picker's answer, the email value the page's own.
+		await expect(
+			page.locator('.settings-card').first().locator('.state-chip').first()
+		).toBeVisible();
+		expect(reads).toBe(2);
+
+		// Select-all/Delete without blurring: a local edit only, no commit.
+		await email.click();
+		await email.press('Control+a');
+		await email.press('Delete');
+		await expect(email).toHaveValue('');
+
+		// A request window passes, then the deletion is judged: it issued no
+		// read, so nothing can refill the field the user just emptied.
+		await page.waitForTimeout(300);
+		expect(reads).toBe(2);
+		await expect(email).toHaveValue('');
+
+		// The deletion was a local edit only: the server still holds the address.
+		const afterDelete = await request.get('/api/settings');
+		const afterDeleteSnapshot = (await afterDelete.json()) as { bring: { email: string } };
+		expect(afterDeleteSnapshot.bring.email).toBe(storedEmail);
+	});
+
 	test('given_settings_read_answered_late_when_the_stored_provider_chosen_then_its_config_survives', async ({ page, request }) => {
 		// A user on a slow link picks the provider that turns out to be the stored
 		// one while the page is still reading it. A selection that did not move

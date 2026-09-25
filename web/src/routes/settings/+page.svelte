@@ -7,6 +7,7 @@
 		commitStatusLabelKey,
 		commitStored,
 		secretSourceLabelKey,
+		type CommitStatus,
 		type SecretState,
 		type SettingsPatch,
 		type SettingsSnapshot,
@@ -15,6 +16,7 @@
 	import { t } from '$lib/i18n';
 	import type { TranslationKey } from '$lib/i18n/types';
 	import Icon from '$lib/Icon.svelte';
+	import { untrack } from 'svelte';
 
 	let provider = $state('');
 	let providerName = $state('');
@@ -47,14 +49,53 @@
 	// Snapshots are applied in request order. The mount-time load captures its
 	// sequence number before the request starts, so a stale response that lands
 	// after a newer commit response is discarded instead of overwriting the
-	// state that commit just showed (the commit response carries a higher
-	// number because its request started later).
+	// state that commit just showed (the commit response is numbered when it is
+	// applied, which keeps it above every request issued before it).
 	let appliedSeq = 0;
 	let requestSeq = 0;
 
+	// How many requests were issued and how many were answered. A commit's
+	// answer takes no issue number of its own (its request already did), so
+	// these two counts are what says whether an answer being applied is the
+	// answer of the newest request with every earlier request already answered.
+	let requestIssueSeq = 0;
+	let requestAnswerSeq = 0;
+	// Commit-only counters, exactly as in the AI picker: a commit's snapshot is
+	// the state its own write produced, so it may refill without waiting for the
+	// reads it shares the request counters with. Both ends count every commit, a
+	// rejected one included, so the counters keep their relation after a failed
+	// write instead of drifting apart.
+	let commitIssueSeq = 0;
+	let commitAnswerSeq = 0;
+	// The emptiness the newest commit was issued with. A read never writes this:
+	// each read carries its own captured emptiness into its answer. A commit
+	// queued before an earlier answer lands overwrites the capture, so an answer
+	// may only read it while its commit is still the newest issued - the
+	// `newestCommit` counter check in applyBringSnapshot, not this variable
+	// alone, is what keeps a superseded answer from refilling.
+	let commitEmailEmptyAtIssue = false;
+
+	// Count an issued request and return the field's state at that moment: the
+	// caller keeps the value with its own request, so an answer is judged
+	// against the emptiness its own request saw rather than the newest
+	// request's, which one shared variable could not tell apart.
+	function noteBringIssue(): boolean {
+		requestIssueSeq++;
+		// Untracked on purpose: this runs inside the effects that issue the
+		// reads, and a tracked read would make the field's value a dependency of
+		// those effects - every keystroke would re-run them and issue another
+		// read, whose answer would then refill the field the user just emptied.
+		return untrack(() => !bringEmail.trim());
+	}
+
 	// Shared by the initial load and by every commit response: the snapshot is
 	// the only source of truth for where a value comes from.
-	function applyBringSnapshot(snapshot: SettingsSnapshot, seq = ++requestSeq) {
+	function applyBringSnapshot(
+		snapshot: SettingsSnapshot,
+		seq: number,
+		emptyAtIssue: boolean,
+		fromCommit: boolean
+	) {
 		if (seq <= appliedSeq) return;
 		appliedSeq = seq;
 		bringEmailSource = snapshot.bring.emailSource;
@@ -66,29 +107,48 @@
 		bringLoadFailed = false;
 		// Only refill the email when the field is empty: that is the case after
 		// a clear, where the environment value becomes effective again. A value
-		// the user is typing is never overwritten, and neither is an answer a
-		// newer request has already superseded: a read issued before a clear
-		// still carries the value that clear removed, so refilling from it
-		// would show an email the server no longer has while the chip reports
-		// the cleared state.
-		if (!bringEmail.trim() && seq === requestSeq) bringEmail = snapshot.bring.email;
+		// the user is typing is never overwritten, and neither is a field the
+		// user emptied while the request behind this answer was in flight: that
+		// emptiness was not there when that request was issued (`emptyAtIssue`
+		// belongs to the answer being applied, not to the newest request), so
+		// it is a newer local edit rather than the clear this answer reports.
+		// A commit's answer is the state its own write produced and carries the
+		// capture it was issued with: only an older commit's answer could be
+		// mistaken for it, and the commit counters tell them apart. A read's body
+		// can predate a commit that is still on its way, so a read may only
+		// refill once every other request has been answered.
+		const newestCommit = commitAnswerSeq + 1 === commitIssueSeq;
+		const settledRead = requestAnswerSeq + 1 === requestIssueSeq;
+		if (!bringEmail.trim() && emptyAtIssue && (fromCommit ? newestCommit : settledRead)) {
+			bringEmail = snapshot.bring.email;
+		}
 	}
 
 	// Commits are serialized, exactly like in the AI picker: the newest value
 	// always wins, regardless of how long an earlier request takes.
-	const committer = new SettingsCommitter(updateSettings, applyBringSnapshot);
+	const committer = new SettingsCommitter(updateSettings, (snapshot) =>
+		applyBringSnapshot(snapshot, ++requestSeq, commitEmailEmptyAtIssue, true)
+	);
 
 	/**
-	 * Queue a commit. It takes its sequence number here, when it is sent, so a
-	 * read that is still in flight is recognized as superseded even before this
-	 * commit has been answered: without that, the read's answer would match the
-	 * current sequence and refill the email with the value the commit removes.
-	 * The commit's own answer is numbered when it is applied, which keeps it
-	 * newer than every answer before it.
+	 * Queue a commit. Its answer is numbered when it is applied, which keeps it
+	 * newer than every request issued before it, so no sequence bump is needed
+	 * here. The issue count is bumped at issue and the answer count once the
+	 * answer has been applied: a rejected commit is answered like any other
+	 * write, so the counters keep their relation after a failure instead of
+	 * drifting apart. The emptiness captured here belongs to this commit, but a
+	 * later commit overwrites it before an earlier answer lands, so an answer
+	 * reads it only while its commit is still the newest issued - the counter
+	 * check in applyBringSnapshot.
 	 */
-	function commitBring(patch: SettingsPatch): Promise<void> {
-		requestSeq++;
-		return committer.commit(patch);
+	function commitBring(patch: SettingsPatch): Promise<CommitStatus> {
+		commitEmailEmptyAtIssue = noteBringIssue();
+		commitIssueSeq++;
+		return committer.commit(patch).then((status) => {
+			requestAnswerSeq++;
+			commitAnswerSeq++;
+			return status;
+		});
 	}
 
 	// Section status: the one thing a user opens this page to check.
@@ -155,11 +215,11 @@
 	function onBringPasswordChange() {
 		const value = bringPasswordInput;
 		if (!value) return;
-		commitBring({ bring: { password: value } }).then(() => {
+		commitBring({ bring: { password: value } }).then((status) => {
 			// A rejected commit stored nothing: the typed password stays in the
 			// field for a retry instead of vanishing, and the stored value (which
 			// is unchanged) is not re-probed.
-			if (!commitStored(committer.state.status)) return;
+			if (!commitStored(status)) return;
 			if (bringPasswordInput === value) bringPasswordInput = '';
 			refreshBringStatus();
 		});
@@ -180,8 +240,9 @@
 		bringLoadFailed = false;
 		bringReadInFlight = true;
 		const seq = ++requestSeq;
+		const emptyAtIssue = noteBringIssue();
 		getSettings()
-			.then((snapshot) => applyBringSnapshot(snapshot, seq))
+			.then((snapshot) => applyBringSnapshot(snapshot, seq, emptyAtIssue, false))
 			.catch(() => {
 				// A newer answer already landed: this read is stale, so its
 				// failure must not report an error for state that is loaded.
@@ -200,6 +261,10 @@
 			})
 			.finally(() => {
 				bringReadInFlight = false;
+				// The read is answered (with a snapshot or with a failure); the
+				// answer count keeps the issue/answer relation the refill rule
+				// reads, whether or not a snapshot was applied.
+				requestAnswerSeq++;
 			});
 	}
 
