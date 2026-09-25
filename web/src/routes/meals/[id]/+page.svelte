@@ -1,7 +1,8 @@
 <script lang="ts">
-	import { getMeal, updateMeal, deleteMeal, mealImageUrl, polishInstructions, ApiError, listMeals } from '$lib/api';
+	import { getMeal, updateMeal, deleteMeal, mealImageUrl, polishInstructions, ApiError, listMeals, getSettings } from '$lib/api';
 	import Icon from '$lib/Icon.svelte';
 	import { t } from '$lib/i18n';
+	import { llmErrorMessage } from '$lib/llm-error';
 	import { page } from '$app/state';
 	import { goto } from '$app/navigation';
 	import type { Meal, NewIngredientLine } from '$lib/types';
@@ -10,7 +11,8 @@
 	import DeleteConfirmDialog from '$lib/DeleteConfirmDialog.svelte';
 import { focusTrap } from '$lib/focusTrap';
 	import CookingView from '$lib/components/CookingView.svelte';
-	import { readStoredLlmConfig } from '$lib/llm-config.svelte';
+	import AiConfigNotice from '$lib/components/AiConfigNotice.svelte';
+	import { isAiConfigured, aiConfigNoticeVisible, aiFlowReady, type SettingsSnapshot } from '$lib/settings.svelte';
 	import MealForm from '$lib/MealForm.svelte';
 
 	let meal = $state<Meal | null>(null);
@@ -32,10 +34,28 @@ import { focusTrap } from '$lib/focusTrap';
 	let polishing = $state(false);
 	let polishError = $state<string | null>(null);
 
-	let hasLlmConfig = $derived.by(() => {
-		const config = readStoredLlmConfig();
-		return !!config && !!config.model;
+	let settings = $state<SettingsSnapshot | null>(null);
+	let hasLlmConfig = $derived(isAiConfigured(settings));
+	// True only once a read answered; until then, and after a failed read, the
+	// AI configuration is unknown and must not be reported as unconfigured.
+	let settingsLoaded = $state(false);
+	let settingsLoadFailed = $state(false);
+	// Bumped by the retry: the effect reads it so a new attempt runs.
+	let settingsAttempt = $state(0);
+
+	$effect(() => {
+		settingsAttempt;
+		let cancelled = false;
+		settingsLoadFailed = false;
+		getSettings()
+			.then((snapshot) => { if (!cancelled) { settings = snapshot; settingsLoaded = true; } })
+			.catch(() => { if (!cancelled) settingsLoadFailed = true; });
+		return () => { cancelled = true; };
 	});
+
+	function retryLoadSettings() {
+		settingsAttempt++;
+	}
 
 	async function loadMeal() {
 		loading = true;
@@ -105,20 +125,11 @@ import { focusTrap } from '$lib/focusTrap';
 
 
 	async function doPolish() {
-		if (!meal || polishing) return;
-		const config = readStoredLlmConfig();
-		if (!config || !config.model) return;
+		if (!meal || polishing || !aiFlowReady(settingsLoaded, hasLlmConfig)) return;
 		polishing = true;
 		polishError = null;
 		try {
-			const polished = await polishInstructions(
-				config.model,
-				meal.name,
-				meal.ingredients,
-				meal.instructions,
-				config.provider === 'custom' ? config.customBaseUrl : undefined,
-				config.provider === 'custom' ? config.customApiKey : undefined,
-			);
+			const polished = await polishInstructions(meal.name, meal.ingredients, meal.instructions);
 			await updateMeal(meal.id, {
 				name: meal.name,
 				ingredients: meal.ingredients,
@@ -128,14 +139,14 @@ import { focusTrap } from '$lib/focusTrap';
 			});
 			await loadMeal();
 		} catch (err) {
-			if (err instanceof ApiError) {
-				if (err.code === 'llm_timeout') polishError = t('llmErrorTimeout');
-				else if (err.code === 'llm_parse_failed') polishError = t('llmErrorParseFailed');
-				else if (err.code === 'llm_api_key_missing') polishError = t('llmErrorApiKey', { envVar: '' });
-				else polishError = t('polishErrorFailed');
-			} else {
-				polishError = t('polishErrorFailed');
-			}
+			// The shared mapper speaks for the import flow (`REQUEST_FAILED` →
+			// "Failed to import recipe") and falls back to raw response text for
+			// a code-less fault (`AppError::Database`/`Internal` answer with
+			// `code: null`); a polish failure keeps its own sentence there.
+			polishError =
+				err instanceof ApiError && err.code && err.code !== 'REQUEST_FAILED'
+					? llmErrorMessage(err)
+					: t('polishErrorFailed');
 		} finally {
 			polishing = false;
 		}
@@ -148,6 +159,12 @@ import { focusTrap } from '$lib/focusTrap';
 	{:else if notFound}
 		<p class="cooking-view__not-found">{t('cookingViewNotFound')}</p>
 	{:else if meal}
+		{#if settingsLoadFailed}
+			<p class="form-error" role="alert">{t('settingsLoadFailed')}</p>
+			<button type="button" class="btn btn--ghost" onclick={retryLoadSettings}>{t('buttonRetry')}</button>
+		{:else if aiConfigNoticeVisible(settingsLoaded, hasLlmConfig)}
+			<AiConfigNotice />
+		{/if}
 		{#key meal.id}
 			<CookingView
 				{meal}
@@ -166,7 +183,7 @@ import { focusTrap } from '$lib/focusTrap';
 					>
 						<Icon name="pen-line" size={16} />
 					</button>
-					{#if hasLlmConfig}
+					{#if aiFlowReady(settingsLoaded, hasLlmConfig)}
 						<button
 							type="button"
 							class="btn btn--ghost cooking-view__action-btn"

@@ -1,7 +1,6 @@
 <script lang="ts">
-    import { listMeals, updateMeal, deleteMeal, mealImageUrl, createMeal, importFromLlm, importBulk, importZip, importMealie, exportMealsUrl, listLlmProviders, listLlmModels, ApiError } from '$lib/api';
+    import { listMeals, updateMeal, deleteMeal, mealImageUrl, createMeal, importFromLlm, importBulk, importZip, importMealie, exportMealsUrl, ApiError } from '$lib/api';
 	import type { Meal, NewIngredientLine } from '$lib/types';
-import { readStoredLlmConfig, persistLlmConfig } from '$lib/llm-config.svelte';
 	import { t, formatDate } from '$lib/i18n';
 	import { page } from '$app/state';
 	import { goto } from '$app/navigation';
@@ -14,6 +13,10 @@ import { readStoredLlmConfig, persistLlmConfig } from '$lib/llm-config.svelte';
 import { focusTrap } from '$lib/focusTrap';
 	import MealForm from '$lib/MealForm.svelte';
 	import MultiImageInput from '$lib/components/MultiImageInput.svelte';
+	import LlmConfigPicker from '$lib/components/LlmConfigPicker.svelte';
+	import AiConfigNotice from '$lib/components/AiConfigNotice.svelte';
+	import { aiConfigNoticeVisible, aiFlowReady } from '$lib/settings.svelte';
+	import { llmErrorMessage } from '$lib/llm-error';
 	let meals = $state<Meal[]>([]);
 
 	let existingMealNames = $derived(
@@ -36,24 +39,36 @@ import { focusTrap } from '$lib/focusTrap';
 	let formImage = $state<File | null>(null);
 	let removeImage = $state(false);
 	let submitting = $state(false);
-	let importMode = $state<'manual' | 'urls' | 'llm' | 'zip'>('urls');
+    let importMode = $state<'manual' | 'urls' | 'llm' | 'zip'>('urls');
     let importLlmProvider = $state('');
+    let importLlmProviderName = $state('');
     let importLlmModel = $state('');
     let importLlmHint = $state('');
     let importLlmImages = $state<File[]>([]);
     let importing = $state(false);
     let importError = $state<string | null>(null);
     let importToken = $state(0);
-    let llmProviders = $state<import('$lib/types').LlmProviderInfo[]>([]);
-    let llmProvidersLoading = $state(false);
-    let llmProvidersLoaded = $state(false);
-    let llmModels: string[] = $state([]);
-    let llmModelsLoading = $state(false);
-    let llmModelsError = $state<string | null>(null);
-    let importLlmCustomBaseUrl = $state('');
-    let llmConfigRestored = false;
-    let importLlmCustomApiKey = $state('');
+    let importLlmProvidersReady = $state(true);
+    let importLlmConfigured = $state(false);
+    // True once the picker read the stored AI configuration: unknown until
+    // then, so the notice and the import button wait for that answer.
+    let importLlmLoaded = $state(false);
+    // A locally complete picker (provider and model both set) counts as ready
+    // even while its commit is in flight, so the click that completes the
+    // configuration on blur is not dropped by a still-disabled button.
+    let importLlmLocallyReady = $derived(!!importLlmProvider && importLlmModel.trim().length > 0);
     let llmSettingsCollapsed = $state(false);
+    // Every picker mount of this dialog hands over its settle closure, so the
+    // import click can wait for a commit the same click issued: the click that
+    // hides the settings block also blurs the field it edits and issues that
+    // field's commit, and a tab switch unmounts the instance that issued one.
+    // Only the live instance could be reached through `bind:this`, and it is
+    // gone by the time those clicks need it.
+    let importLlmSettlers: Array<() => Promise<void>> = [];
+
+    function registerImportLlmSettle(settle: () => Promise<void>) {
+        importLlmSettlers.push(settle);
+    }
 
     let bulkUrls = $state('');
     let bulkImporting = $state(false);
@@ -71,11 +86,15 @@ import { focusTrap } from '$lib/focusTrap';
         importError = null;
         importing = true;
         try {
-            const draft = await importFromLlm(
-                importLlmModel, importLlmHint || null, importLlmImages,
-                importLlmProvider === 'custom' ? importLlmCustomBaseUrl : undefined,
-                importLlmProvider === 'custom' ? importLlmCustomApiKey : undefined,
-            );
+            // The click that completes the configuration also blurs the field
+            // and issues its commit; wait for that write to be answered, so the
+            // request runs against the configuration this click stored instead
+            // of racing it (a request that beats the commit is answered
+            // `llm_not_configured`). Every picker mount registered its settle
+            // closure, so a write issued by an instance the collapse or a tab
+            // switch has already unmounted is awaited too.
+            await Promise.all(importLlmSettlers.map((settle) => settle()));
+            const draft = await importFromLlm(importLlmHint || null, importLlmImages);
             formName = draft.name;
             formIngredients = draft.ingredients.length > 0
                 ? draft.ingredients.map(i => ({ name: i.name, quantity: i.quantity }))
@@ -88,30 +107,14 @@ import { focusTrap } from '$lib/focusTrap';
                 formImage = new File([bytes], 'imported.jpg', { type: 'image/jpeg' });
                 removeImage = false;
             }
-            persistLlmConfig({
-                provider: importLlmProvider,
-                model: importLlmModel,
-                customBaseUrl: importLlmCustomBaseUrl,
-                customApiKey: importLlmCustomApiKey,
-            });
             importLlmHint = '';
             importLlmImages = [];
             importToken++;
             importMode = 'manual';
         } catch (err) {
-            if (err instanceof ApiError) {
-                if (err.code === 'llm_timeout') {
-                    importError = t('llmErrorTimeout');
-                } else if (err.code === 'llm_parse_failed') {
-                    importError = t('llmErrorParseFailed');
-                } else if (err.code) {
-                    importError = t('llmErrorGeneric', { message: err.message });
-                } else {
-                    importError = err.code === 'REQUEST_FAILED' ? t('importErrorFetch') : err.message;
-                }
-            } else {
-                importError = err instanceof Error ? err.message : '';
-            }
+            // One shared mapper with the other AI flows, so a new error code
+            // cannot be handled here and forgotten there.
+            importError = llmErrorMessage(err);
         } finally {
             importing = false;
         }
@@ -122,46 +125,6 @@ import { focusTrap } from '$lib/focusTrap';
         importLlmImages = files;
     }
 
-
-    async function loadLlmModels() {
-        if (!importLlmProvider) return;
-        if (importLlmProvider === 'custom' && !importLlmCustomBaseUrl.trim()) return;
-        llmModelsLoading = true;
-        llmModelsError = null;
-        try {
-            const resp = await listLlmModels(
-                importLlmProvider,
-                importLlmProvider === 'custom' ? importLlmCustomBaseUrl : undefined,
-                importLlmProvider === 'custom' ? importLlmCustomApiKey || undefined : undefined,
-            );
-            llmModels = resp.models;
-            if (importLlmModel && !resp.models.includes(importLlmModel)) {
-                llmModelsError = t('llmModelsLoadError');
-            }
-        } catch (err) {
-            llmModels = [];
-            if (err instanceof ApiError) {
-                llmModelsError = err.code === 'REQUEST_FAILED'
-                    ? t('llmModelsLoadError')
-                    : `${t('llmModelsLoadError')} (${err.message})`;
-            } else {
-                llmModelsError = t('llmModelsLoadError');
-            }
-        } finally {
-            llmModelsLoading = false;
-        }
-    }
-
-    function onProviderChange() {
-        importLlmModel = '';
-        llmModels = [];
-        llmModelsError = null;
-        importLlmCustomBaseUrl = '';
-        importLlmCustomApiKey = '';
-        if (importLlmProvider && importLlmProvider !== 'custom') {
-            loadLlmModels();
-        }
-    }
     function bulkReasonLabel(reason: string): string {
         if (reason === 'fetch failed') return t('importBulkReasonFetch');
         if (reason === 'no recipe found') return t('importBulkReasonNoRecipe');
@@ -263,64 +226,6 @@ import { focusTrap } from '$lib/focusTrap';
         }
     }
 
-    // Restore stored LLM config when opening the import card
-    $effect(() => {
-        if (importMode === 'llm' && !llmConfigRestored) {
-            llmConfigRestored = true;
-            const stored = readStoredLlmConfig();
-            if (stored) {
-                importLlmProvider = stored.provider;
-                importLlmModel = stored.model;
-                importLlmCustomBaseUrl = stored.customBaseUrl;
-                importLlmCustomApiKey = stored.customApiKey;
-                // Trigger model loading for standard providers;
-                // custom providers are picked up by the debounce effect below.
-                if (stored.provider && stored.provider !== 'custom') {
-                    loadLlmModels();
-                }
-                if (stored.provider && stored.model) {
-                    llmSettingsCollapsed = true;
-                }
-            }
-        }
-    });
-
-    // Load providers when LLM tab is first activated
-    $effect(() => {
-        if (importMode === 'llm' && !llmProvidersLoaded && !llmProvidersLoading) {
-            llmProvidersLoading = true;
-            listLlmProviders().then(p => {
-                llmProviders = p;
-                llmProvidersLoaded = true;
-                llmProvidersLoading = false;
-                // Reconcile restored provider against live list
-                if (importLlmProvider && !p.some(pp => pp.id === importLlmProvider)) {
-                    importLlmProvider = '';
-                    importLlmModel = '';
-                }
-            }).catch(() => {
-                llmProvidersLoading = false;
-            });
-        }
-    });
-
-    // Debounced model loading for custom endpoint URL / API key changes
-    let _customDebounceTimer: ReturnType<typeof setTimeout> | undefined;
-    $effect(() => {
-        // Read both so the effect re-fires on either change
-        importLlmCustomBaseUrl;
-        importLlmCustomApiKey;
-        if (importLlmProvider === 'custom' && importLlmCustomBaseUrl.trim()) {
-            if (_customDebounceTimer) clearTimeout(_customDebounceTimer);
-            _customDebounceTimer = setTimeout(() => {
-                loadLlmModels();
-            }, 500);
-        }
-        return () => {
-            if (_customDebounceTimer) clearTimeout(_customDebounceTimer);
-        };
-    });
-
 	async function onSubmitAdd(payload: {
 		name: string; ingredients: NewIngredientLine[]; instructions: string;
 		portions: number | null; source_url: string | null; image: File | null; removeImage: boolean;
@@ -340,11 +245,14 @@ import { focusTrap } from '$lib/focusTrap';
 
     function openAdd() {
         formName = ''; formIngredients = [{ name: '', quantity: null }]; formInstructions = '';
-        formPortions = null; formSourceUrl = null; formImage = null; removeImage = false; submitting = false; llmConfigRestored = false;
+        formPortions = null; formSourceUrl = null; formImage = null; removeImage = false; submitting = false;
         importMode = 'manual';
-        importLlmProvider = ''; importLlmModel = ''; importLlmHint = '';
+        importLlmProvider = ''; importLlmProviderName = ''; importLlmModel = ''; importLlmHint = '';
+        importLlmConfigured = false;
+        importLlmLoaded = false;
         importLlmImages = [];
         llmSettingsCollapsed = false;
+        importLlmSettlers = [];
         importing = false; importError = null; importToken++;
         bulkUrls = ''; bulkImporting = false; bulkResult = null; bulkError = null;
         zipFile = null; zipImporting = false; zipResult = null; zipError = null;
@@ -715,14 +623,14 @@ import { focusTrap } from '$lib/focusTrap';
 									</button>
 								{/if}
 								{:else if importMode === 'llm'}
-								{#if llmProviders.length === 0 && !llmProvidersLoading}
-									<p class="form-error">{t('llmNoProviders')}</p>
-								{:else}
+									{#if aiConfigNoticeVisible(importLlmLoaded, importLlmConfigured)}
+										<AiConfigNotice />
+									{/if}
 									{#if importLlmProvider}
 										<div class="llm-settings-toggle">
 											{#if llmSettingsCollapsed}
 												<span class="llm-settings-summary">
-													{t('llmProviderLabel')}: {llmProviders.find(p => p.id === importLlmProvider)?.name ?? importLlmProvider}
+													{t('llmProviderLabel')}: {importLlmProviderName}
 													· {t('llmModelLabel')}: {importLlmModel}
 												</span>
 											{/if}
@@ -732,75 +640,45 @@ import { focusTrap } from '$lib/focusTrap';
 											</button>
 										</div>
 									{/if}
-									{#if !llmSettingsCollapsed || !importLlmProvider}
-										<div class="import-subsection" transition:fly={{ y: -4, duration: 150 }}>
-											<div class="llm-provider-row">
-												<select bind:value={importLlmProvider} onchange={onProviderChange}
-													disabled={llmProvidersLoading || importing}>
-													<option value="">{t('llmProviderPlaceholder')}</option>
-													{#each llmProviders as p}
-														<option value={p.id} disabled={!p.configured && p.id !== 'ollama'}>
-															{p.name}{p.configured ? '' : ` (${t('notConfigured')})`}
-														</option>
-													{/each}
-												</select>
+									<!-- Kept mounted while collapsed and hidden instead of being
+									     unmounted: the click that hides this block also blurs
+									     the field it edits and issues that field's commit, whose
+									     answer the parse click below waits for. Destroying the
+									     instance here would drop the closure that wait goes
+									     through, and the import would overtake the write. -->
+									<div hidden={llmSettingsCollapsed && !!importLlmProvider}>
+										<LlmConfigPicker
+											bind:provider={importLlmProvider}
+											bind:providerName={importLlmProviderName}
+											bind:model={importLlmModel}
+											bind:providersReady={importLlmProvidersReady}
+											bind:configured={importLlmConfigured}
+											bind:loaded={importLlmLoaded}
+											disabled={importing}
+											onsettle={registerImportLlmSettle}
+										/>
+									</div>
 
-												{#if importLlmProvider}
-													{#if llmModelsLoading}
-														<span class="import-loading">{t('llmModelLoading')}</span>
-													{:else if llmModelsError}
-														<input type="text" bind:value={importLlmModel} placeholder={t('importLlmModelPlaceholder')} />
-													{:else}
-														<select bind:value={importLlmModel} disabled={importing}>
-															<option value="">{t('llmModelPlaceholder')}</option>
-															{#each llmModels as m}
-																<option value={m}>{m}</option>
-															{/each}
-														</select>
-													{/if}
-												{/if}
-											</div>
+									{#if importLlmProvidersReady}
+										<textarea
+											bind:value={importLlmHint}
+											placeholder={t('importLlmHintPlaceholder')}
+											rows="6"
+											maxlength={20000}
+											class="llm-hint-input"
+										></textarea>
 
-											{#if importLlmProvider === 'custom'}
-												<p class="import-info">{t('llmCustomHint')}</p>
-												<label class="import-field">
-													<span>{t('llmCustomBaseUrlLabel')}</span>
-													<input type="url" bind:value={importLlmCustomBaseUrl} placeholder={t('llmCustomBaseUrlPlaceholder')} />
-												</label>
-												<label class="import-field">
-													<span>{t('llmCustomApiKeyLabel')}</span>
-													<input type="password" bind:value={importLlmCustomApiKey} placeholder={t('llmCustomApiKeyPlaceholder')} />
-												</label>
-											{/if}
+										<p class="import-info">{t('importLlmImageLabel')}</p>
+										<MultiImageInput
+											onchange={onLlmImagesChange}
+											onerror={(msg) => (importError = msg)}
+										/>
 
-											{#if llmModelsError}
-												<p class="form-error">{llmModelsError}</p>
-											{/if}
-											{#if importLlmProvider === 'ollama' && llmModelsError}
-												<p class="import-info">{t('llmOllamaHint')}</p>
-											{/if}
-										</div>
+										<button type="button" class="btn btn--primary" onclick={onImport}
+											disabled={importing || !(aiFlowReady(importLlmLoaded, importLlmConfigured) || importLlmLocallyReady) || (!importLlmHint.trim() && importLlmImages.length === 0)}>
+											{importing ? t('importButtonLlmLoading') : t('importButtonLlm')}
+										</button>
 									{/if}
-
-									<textarea
-										bind:value={importLlmHint}
-										placeholder={t('importLlmHintPlaceholder')}
-										rows="6"
-										maxlength={20000}
-										class="llm-hint-input"
-									></textarea>
-
-									<p class="import-info">{t('importLlmImageLabel')}</p>
-									<MultiImageInput
-										onchange={onLlmImagesChange}
-										onerror={(msg) => (importError = msg)}
-									/>
-
-									<button type="button" class="btn btn--primary" onclick={onImport}
-										disabled={importing || !importLlmModel.trim() || (!importLlmHint.trim() && importLlmImages.length === 0)}>
-										{importing ? t('importButtonLlmLoading') : t('importButtonLlm')}
-									</button>
-								{/if}
 								{/if}
 								{#if (importMode === 'llm' && importError) || (importMode === 'urls' && bulkError) || (importMode === 'zip' && zipError)}
 									<p class="form-error" role="alert">
@@ -1023,16 +901,6 @@ import { focusTrap } from '$lib/focusTrap';
 	}
 
 
-	.import-subsection {
-		display: flex;
-		flex-direction: column;
-		gap: var(--space-3);
-		padding: var(--space-3) var(--space-4);
-		background: var(--color-surface);
-		border: 1px solid var(--color-border);
-		border-radius: var(--radius-md);
-	}
-
     .llm-settings-toggle {
         display: flex;
         align-items: center;
@@ -1046,15 +914,6 @@ import { focusTrap } from '$lib/focusTrap';
         text-wrap: pretty;
     }
 
-    .llm-provider-row {
-        display: flex;
-        gap: var(--space-2);
-        align-items: flex-start;
-    }
-    .llm-provider-row > * {
-        flex: 1;
-        min-width: 0;
-    }
     .llm-hint-input {
         width: 100%;
         min-height: 140px;

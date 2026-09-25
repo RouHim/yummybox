@@ -1,19 +1,21 @@
-import { test, expect } from '@playwright/test';
-import { resetMeals, setLocale } from './_helpers';
+import { test, expect, type Page } from '@playwright/test';
+import { resetMeals, resetSettings, setLocale } from './_helpers';
 
 const TINY_PNG = Buffer.from(
 	'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==',
 	'base64',
 );
 
-async function configureMockProvider(page: import('@playwright/test').Page) {
+async function configureMockProvider(page: Page) {
 	// Provider select is the first select in the picker.
 	await page.locator('select').first().selectOption('custom');
 	await page.getByLabel('Base URL').fill('http://127.0.0.1:18999/v1/');
 	// genai's OpenAI adapter requires a key value even for keyless endpoints;
 	// the mock ignores the Authorization header.
 	await page.getByLabel('API Key (optional)').fill('mock-key');
-	// Model list loads from the mock after the 500 ms debounce.
+	// Blurring commits the base URL and the key, which is what triggers the
+	// model list request against the now stored configuration.
+	await page.getByLabel('API Key (optional)').blur();
 	await expect(page.locator('select').nth(1)).toBeVisible({ timeout: 10_000 });
 	await page.locator('select').nth(1).selectOption('mock-model');
 }
@@ -22,6 +24,18 @@ test.describe('Generate meal page', () => {
 	test.beforeEach(async ({ request, page }) => {
 		await setLocale(page, 'en');
 		await resetMeals(request);
+		await resetSettings(request);
+		// The app bar probes the Bring! status on every mount, and the server
+		// resolves the stored-then-environment credentials for it: on a shell
+		// that exports BRING_EMAIL/BRING_PASSWORD that probe would log in to the
+		// real Bring! API. Answer it locally so the suite stays hermetic.
+		await page.route('**/api/bring/status', (route) =>
+			route.fulfill({
+				status: 200,
+				contentType: 'application/json',
+				body: JSON.stringify({ configured: false, connected: false, error: null }),
+			})
+		);
 	});
 
 	test('top bar button opens the generate page', async ({ page }) => {
@@ -64,6 +78,54 @@ test.describe('Generate meal page', () => {
 		await expect(saved).toBeVisible();
 		// The saved meal shows its ingredient preview in the list.
 		await expect(saved).toContainText('flour');
+	});
+
+	test('waits for the configuration commit its own click issued before generating', async ({ page }) => {
+		// Choosing the model is part of the same click that completes the
+		// configuration, and that click also sends the generate request. The
+		// request must wait for the model's commit to be answered: one that
+		// overtakes it is refused with `llm_not_configured`, so the user who just
+		// chose a model reads "AI is not configured" and has to click twice.
+		await page.goto('/spontaneous');
+		// Configure the provider but leave the model unset, so the selection
+		// below is the one that completes the configuration.
+		await page.locator('select').first().selectOption('custom');
+		await page.getByLabel('Base URL').fill('http://127.0.0.1:18999/v1/');
+		await page.getByLabel('API Key (optional)').fill('mock-key');
+		await page.getByLabel('API Key (optional)').blur();
+		const modelSelect = page.locator('#llm-model');
+		await expect(modelSelect).toBeVisible({ timeout: 10_000 });
+		await page.getByLabel(/ingredients/i).fill('flour\neggs');
+
+		// Hold the model's commit, and count the generate requests: without the
+		// wait the request leaves while that commit is still unanswered.
+		const storedModel = Promise.withResolvers<void>();
+		await page.route('**/api/settings', async (route) => {
+			const body = route.request().postData() ?? '';
+			if (route.request().method() !== 'PATCH' || !body.includes('"model":"mock-model"')) {
+				await route.continue();
+				return;
+			}
+			await storedModel.promise;
+			await route.continue();
+		});
+		let generates = 0;
+		await page.route('**/api/import/generate', async (route) => {
+			generates++;
+			await route.continue();
+		});
+
+		await modelSelect.selectOption('mock-model');
+		const generateBtn = page.getByRole('button', { name: /^Generate recipe$/ });
+		await expect(generateBtn).toBeEnabled();
+		await generateBtn.click();
+
+		await page.waitForTimeout(300);
+		expect(generates).toBe(0);
+
+		storedModel.resolve();
+		await expect(page.getByLabel('Name', { exact: true })).toHaveValue('Mock Pasta');
+		expect(generates).toBe(1);
 	});
 
 	test('generates from photos only', async ({ page }) => {

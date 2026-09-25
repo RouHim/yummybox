@@ -3,6 +3,7 @@ use std::sync::Arc;
 
 use axum::Json;
 use axum::extract::multipart::Field;
+use axum::extract::rejection::JsonRejection;
 use axum::extract::{Multipart, Path, Query, State};
 use axum::http::{HeaderMap, HeaderValue, StatusCode, header};
 use axum::response::{IntoResponse, Response};
@@ -402,21 +403,29 @@ impl From<bring::BringStatus> for BringStatusResponse {
     }
 }
 
-#[instrument(skip(_state))]
+/// Reported when neither the settings nor the environment hold credentials.
+pub(crate) const BRING_NOT_CONFIGURED: &str = "Bring! credentials not configured: set them in Settings or via the BRING_EMAIL and BRING_PASSWORD environment variables";
+
+#[instrument(skip(state))]
 pub async fn add_bring_item(
-    State(_state): State<Arc<AppState>>,
+    State(state): State<Arc<AppState>>,
     Json(req): Json<BringItemRequest>,
 ) -> Result<Json<serde_json::Value>, AppError> {
-    bring::push_item_to_bring(&req.name, req.spec.as_deref()).await?;
+    let stored = crate::settings::load(&state.pool).await?;
+    let creds = crate::settings::resolve_bring(&stored, &crate::settings::env_lookup)
+        .ok_or_else(|| AppError::BadRequest(BRING_NOT_CONFIGURED.to_string()))?;
+    bring::push_item_to_bring(&creds, &req.name, req.spec.as_deref()).await?;
     Ok(Json(serde_json::json!({"sent": true})))
 }
 
-#[instrument(skip(_state))]
+#[instrument(skip(state))]
 pub async fn get_bring_status(
-    State(_state): State<Arc<AppState>>,
+    State(state): State<Arc<AppState>>,
 ) -> Result<Json<BringStatusResponse>, AppError> {
+    let stored = crate::settings::load(&state.pool).await?;
+    let creds = crate::settings::resolve_bring(&stored, &crate::settings::env_lookup);
     Ok(Json(BringStatusResponse::from(
-        bring::check_bring_status().await,
+        bring::check_bring_status(creds.as_ref()).await,
     )))
 }
 
@@ -428,4 +437,49 @@ pub async fn get_version(State(_state): State<Arc<AppState>>) -> Json<crate::mod
     Json(crate::model::AppVersion {
         version: option_env!("YUMMYBOX_VERSION").unwrap_or(env!("CARGO_PKG_VERSION")),
     })
+}
+
+// ---------------------------------------------------------------------------
+// Settings handler
+// ---------------------------------------------------------------------------
+
+/// The stored AI and Bring! settings, with secrets reduced to their set state.
+#[instrument(skip(state))]
+pub async fn get_settings(
+    State(state): State<Arc<AppState>>,
+) -> Result<Json<crate::settings::SettingsSnapshot>, AppError> {
+    let stored = crate::settings::load(&state.pool).await?;
+    Ok(Json(crate::settings::snapshot(
+        &stored,
+        &crate::settings::env_lookup,
+    )))
+}
+
+/// Commit stored AI and Bring! settings, returning the new effective snapshot.
+/// A malformed or unknown-field body, and any rejected field, change nothing.
+/// A body over the limit keeps its own status instead of turning into a 400,
+/// exactly as the multipart routes report it.
+/// The payload is skipped: it carries the plaintext API key and Bring!
+/// password, which must never be formatted into a span.
+#[instrument(skip(state, payload))]
+pub async fn patch_settings(
+    State(state): State<Arc<AppState>>,
+    payload: Result<Json<crate::settings::SettingsPatch>, JsonRejection>,
+) -> Result<Json<crate::settings::SettingsSnapshot>, AppError> {
+    let Json(patch) = payload.map_err(|rejection| {
+        if rejection.status() == StatusCode::PAYLOAD_TOO_LARGE {
+            AppError::PayloadTooLarge(format!(
+                "request body exceeds {} MB limit",
+                crate::MAX_BODY_BYTES / (1024 * 1024)
+            ))
+        } else {
+            AppError::BadRequest(rejection.body_text())
+        }
+    })?;
+    crate::settings::apply(&state.pool, &patch).await?;
+    let stored = crate::settings::load(&state.pool).await?;
+    Ok(Json(crate::settings::snapshot(
+        &stored,
+        &crate::settings::env_lookup,
+    )))
 }

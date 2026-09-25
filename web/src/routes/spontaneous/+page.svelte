@@ -1,7 +1,6 @@
 <script lang="ts">
 	import { listMeals, createMeal, generateMeal } from '$lib/api';
 	import type { Meal, MealFormPayload, NewIngredientLine } from '$lib/types';
-	import { persistLlmConfig } from '$lib/llm-config.svelte';
 	import { llmErrorMessage } from '$lib/llm-error';
 	import { t } from '$lib/i18n';
 	import { goto } from '$app/navigation';
@@ -9,6 +8,8 @@
 	import Icon from '$lib/Icon.svelte';
 	import MealForm from '$lib/MealForm.svelte';
 	import LlmConfigPicker from '$lib/components/LlmConfigPicker.svelte';
+	import AiConfigNotice from '$lib/components/AiConfigNotice.svelte';
+	import { aiConfigNoticeVisible, aiFlowReady } from '$lib/settings.svelte';
 	import GenerateImageInput from '$lib/components/GenerateImageInput.svelte';
 
 	let meals = $state<Meal[]>([]);
@@ -19,9 +20,14 @@
 	let provider = $state('');
 	let providerName = $state('');
 	let model = $state('');
-	let customBaseUrl = $state('');
-	let customApiKey = $state('');
 	let providersReady = $state(true);
+	let configured = $state(false);
+	// The picker instance, so the generate click can wait for a commit the same
+	// click issued (the field's blur) before sending its request.
+	let picker = $state<ReturnType<typeof LlmConfigPicker> | null>(null);
+	// True once the picker's read of the stored configuration succeeded; until
+	// then the AI status is unknown, not "unconfigured".
+	let aiLoaded = $state(false);
 	let settingsCollapsed = $state(false);
 
 	let ingredients = $state('');
@@ -55,13 +61,13 @@
 		cookError = null;
 		generating = true;
 		try {
-			const d = await generateMeal(
-				model,
-				ingredients,
-				images,
-				provider === 'custom' ? customBaseUrl : undefined,
-				provider === 'custom' ? customApiKey : undefined,
-			);
+			// The click that completes the configuration also blurs the field and
+			// issues its commit; wait for that write to be answered, so the
+			// request runs against the configuration this click stored instead of
+			// racing it (a request that beats the commit is answered
+			// `llm_not_configured`).
+			await picker?.settle();
+			const d = await generateMeal(ingredients, images);
 			draft = {
 				name: d.name,
 				ingredients: d.ingredients.length > 0
@@ -77,7 +83,6 @@
 			} else {
 				draftImage = null;
 			}
-			persistLlmConfig({ provider, model, customBaseUrl, customApiKey });
 			settingsCollapsed = true;
 			// A freshly generated draft supersedes any previously stored cook draft;
 			// otherwise a direct visit to /spontaneous/cook would render stale data.
@@ -183,8 +188,26 @@
 	}
 
 	let hasInput = $derived(ingredients.trim().length > 0 || images.length > 0);
-	let canGenerate = $derived(!!model.trim() && hasInput && !generating);
+	// A locally complete draft (provider and model both set) counts as ready
+	// even while its commit is in flight: the button is disabled until the
+	// stored snapshot flips, and the click that completes the configuration on
+	// blur would then land on a disabled button and be dropped whole.
+	let canGenerate = $derived(
+		(aiFlowReady(aiLoaded, configured) || (!!provider && model.trim().length > 0)) &&
+			hasInput &&
+			!generating
+	);
 	let ingredientCount = $derived(ingredients.split('\n').filter((l: string) => l.trim().length > 0).length);
+
+	// Collapse the AI settings block once the stored configuration is usable,
+	// so the ingredients input is the focus of the page.
+	let collapsedOnce = false;
+	$effect(() => {
+		if (configured && !collapsedOnce) {
+			collapsedOnce = true;
+			settingsCollapsed = true;
+		}
+	});
 </script>
 
 <main class="spontan-page">
@@ -221,8 +244,8 @@
 			{/if}
 		</div>
 
-		{#if !provider}
-			<p class="spontan-config__hint">{t('generateSettingsLabel')}</p>
+		{#if aiConfigNoticeVisible(aiLoaded, configured)}
+			<AiConfigNotice />
 		{/if}
 
 		<div
@@ -230,16 +253,14 @@
 			class:spontan-config__picker--hidden={settingsCollapsed && !!provider}
 		>
 			<LlmConfigPicker
+				bind:this={picker}
 				bind:provider
 				bind:providerName
 				bind:model
-				bind:customBaseUrl
-				bind:customApiKey
 				bind:providersReady
+				bind:configured
+				bind:loaded={aiLoaded}
 				disabled={generating}
-				onrestored={() => {
-					if (provider && model) settingsCollapsed = true;
-				}}
 			/>
 		</div>
 	</section>
@@ -456,12 +477,6 @@
 	.spontan-config__text {
 		font-weight: var(--weight-medium);
 		color: var(--color-text);
-	}
-
-	.spontan-config__hint {
-		margin: 0;
-		font-size: var(--text-sm);
-		color: var(--color-text-muted);
 	}
 
 	.spontan-config__toggle {

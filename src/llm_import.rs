@@ -3,7 +3,6 @@ use crate::model::NewIngredientLine;
 use crate::recipe;
 use base64::Engine;
 use genai::adapter::AdapterKind;
-use genai::resolver::{AuthData, Endpoint, ProviderConfig};
 
 // ---------------------------------------------------------------------------
 // Public types
@@ -20,6 +19,9 @@ pub struct LlmProviderInfo {
     pub id: String,
     pub name: String,
     pub env_var: String,
+    /// Whether the provider's API-key environment variable holds a value.
+    pub env_key_set: bool,
+    /// Whether the provider can be used right now.
     pub configured: bool,
     pub supports_custom_endpoint: bool,
 }
@@ -35,38 +37,155 @@ pub struct LlmModelsResponse {
 }
 
 // ---------------------------------------------------------------------------
+// Resolved target
+// ---------------------------------------------------------------------------
+
+/// The provider endpoint and key a request runs against, resolved from the
+/// stored settings (or their environment fallback) before the call.
+#[derive(Debug, Clone, Copy)]
+pub struct LlmTarget<'a> {
+    pub provider_id: &'a str,
+    pub base_url: Option<&'a str>,
+    pub api_key: Option<&'a str>,
+}
+
+impl LlmTarget<'_> {
+    /// The resolved key as auth data, `None` when no key is configured.
+    fn auth(&self) -> Option<genai::resolver::AuthData> {
+        self.api_key
+            .map(str::trim)
+            .filter(|key| !key.is_empty())
+            .map(genai::resolver::AuthData::from_single)
+    }
+
+    /// Client with the resolved key installed as the auth resolver. Without a
+    /// key the client falls back to genai's environment resolution.
+    fn client(&self) -> genai::Client {
+        match self.auth() {
+            Some(auth) => genai::Client::builder()
+                .with_auth_resolver_fn(move |_model_iden: genai::ModelIden| Ok(Some(auth.clone())))
+                .build(),
+            None => genai::Client::default(),
+        }
+    }
+
+    /// Adapter kind for a standard provider.
+    fn adapter_kind(&self) -> Result<AdapterKind, AppError> {
+        AdapterKind::from_lower_str(self.provider_id)
+            .ok_or_else(|| AppError::Validation(format!("unknown provider: {}", self.provider_id)))
+    }
+
+    /// Normalized endpoint for the custom OpenAI-compatible provider.
+    fn custom_endpoint(&self) -> Result<genai::resolver::Endpoint, AppError> {
+        let base_url = self
+            .base_url
+            .map(str::trim)
+            .filter(|url| !url.is_empty())
+            .ok_or_else(|| {
+                AppError::Validation(
+                    "customBaseUrl must be set when the provider is custom".to_string(),
+                )
+            })?;
+        let base_url = if base_url.ends_with('/') {
+            base_url.to_string()
+        } else {
+            format!("{base_url}/")
+        };
+        Ok(genai::resolver::Endpoint::from_owned(base_url))
+    }
+
+    /// Model spec for chat calls: a fully resolved service target for the
+    /// custom endpoint, the provider's adapter otherwise.
+    ///
+    /// The custom endpoint is documented as keyless-capable, but genai's
+    /// OpenAI adapter requires a single key value and fails the whole call
+    /// with `ResolverAuthDataNotSingleValue` for `AuthData::None` before any
+    /// request leaves. A keyless target therefore gets a placeholder, the same
+    /// way genai's own keyless adapters (Ollama) default to one, so the
+    /// request reaches the endpoint instead of surfacing as
+    /// `llm_model_not_found`.
+    fn model_spec(&self, model: &str) -> Result<genai::ModelSpec, AppError> {
+        if self.provider_id == PROVIDER_CUSTOM {
+            return Ok(genai::ServiceTarget {
+                endpoint: self.custom_endpoint()?,
+                auth: self
+                    .auth()
+                    .unwrap_or_else(|| genai::resolver::AuthData::from_single("no-key")),
+                model: genai::ModelIden::new(AdapterKind::OpenAI, model),
+            }
+            .into());
+        }
+        Ok(genai::ModelIden::new(self.adapter_kind()?, model).into())
+    }
+
+    /// Adapter and provider config for model listing.
+    fn listing_config(&self) -> Result<(AdapterKind, genai::resolver::ProviderConfig), AppError> {
+        if self.provider_id == PROVIDER_CUSTOM {
+            let auth = self.auth().unwrap_or(genai::resolver::AuthData::None);
+            return Ok((
+                AdapterKind::OpenAI,
+                genai::resolver::ProviderConfig::from((self.custom_endpoint()?, auth)),
+            ));
+        }
+        let config = match self.auth() {
+            Some(auth) => genai::resolver::ProviderConfig::from_auth(auth),
+            None => genai::resolver::ProviderConfig::default(),
+        };
+        Ok((self.adapter_kind()?, config))
+    }
+}
+
+// ---------------------------------------------------------------------------
 // Provider detection
 // ---------------------------------------------------------------------------
 
-/// Returns the list of LLM providers and whether they are configured.
-/// Providers with a configured API key env var are marked `configured: true`.
-/// Ollama is always `configured: true` (no API key; local server).
-/// A synthetic "custom" provider for OpenAI-compatible endpoints is appended.
-pub fn list_providers() -> Vec<LlmProviderInfo> {
-    let kinds: &[(AdapterKind, &str)] = &[
-        (AdapterKind::OpenAI, "OpenAI"),
-        (AdapterKind::Anthropic, "Anthropic"),
-        (AdapterKind::Gemini, "Gemini"),
-        (AdapterKind::Groq, "Groq"),
-        (AdapterKind::Ollama, "Ollama"),
-        (AdapterKind::DeepSeek, "DeepSeek"),
-        (AdapterKind::Xai, "xAI"),
-    ];
+/// The synthetic OpenAI-compatible provider id.
+pub const PROVIDER_CUSTOM: &str = "custom";
 
-    let mut providers: Vec<LlmProviderInfo> = kinds
+/// Provider adapters offered by the app, with their display names.
+const PROVIDER_KINDS: &[(AdapterKind, &str)] = &[
+    (AdapterKind::OpenAI, "OpenAI"),
+    (AdapterKind::Anthropic, "Anthropic"),
+    (AdapterKind::Gemini, "Gemini"),
+    (AdapterKind::Groq, "Groq"),
+    (AdapterKind::Ollama, "Ollama"),
+    (AdapterKind::DeepSeek, "DeepSeek"),
+    (AdapterKind::Xai, "xAI"),
+];
+
+/// Every provider id the settings accept: the adapter kinds plus the
+/// synthetic OpenAI-compatible `custom` provider.
+pub fn provider_ids() -> Vec<&'static str> {
+    PROVIDER_KINDS
+        .iter()
+        .map(|(kind, _)| kind.as_lower_str())
+        .chain(std::iter::once(PROVIDER_CUSTOM))
+        .collect()
+}
+
+/// Returns the list of LLM providers with their usability.
+///
+/// `configured` is true when the provider can be used right now: it needs no
+/// API key, its API-key environment variable is set, or a key is stored in the
+/// settings for exactly this provider. `env_key_set` reports the environment
+/// variable alone, so the UI can distinguish a stored key from an inherited one.
+pub fn list_providers(stored_provider: Option<&str>, stored_key_set: bool) -> Vec<LlmProviderInfo> {
+    let mut providers: Vec<LlmProviderInfo> = PROVIDER_KINDS
         .iter()
         .map(|(kind, name)| {
+            let id = kind.as_lower_str().to_string();
             let env_var = kind.default_key_env_name().unwrap_or("").to_string();
-            let configured = if matches!(kind, AdapterKind::Ollama) {
-                true
-            } else {
-                std::env::var(&env_var).is_ok()
-            };
+            // A present-but-empty or whitespace-only variable counts as unset,
+            // matching `settings::provider_env_key`, so both endpoints agree.
+            let env_key_set = !env_var.is_empty()
+                && std::env::var(&env_var).is_ok_and(|value| !value.trim().is_empty());
+            let stored_applies = stored_key_set && stored_provider == Some(id.as_str());
             LlmProviderInfo {
-                id: kind.as_lower_str().to_string(),
-                name: name.to_string(),
+                configured: needs_no_api_key(&id) || env_key_set || stored_applies,
+                id,
+                name: (*name).to_string(),
                 env_var,
-                configured,
+                env_key_set,
                 supports_custom_endpoint: false,
             }
         })
@@ -74,14 +193,20 @@ pub fn list_providers() -> Vec<LlmProviderInfo> {
 
     // Append the synthetic "custom" OpenAI-compatible endpoint provider
     providers.push(LlmProviderInfo {
-        id: "custom".to_string(),
+        id: PROVIDER_CUSTOM.to_string(),
         name: "Custom OpenAI-compatible".to_string(),
         env_var: String::new(),
+        env_key_set: false,
         configured: true,
         supports_custom_endpoint: true,
     });
 
     providers
+}
+
+/// Providers that work without an API key.
+fn needs_no_api_key(id: &str) -> bool {
+    id == "ollama" || id == PROVIDER_CUSTOM
 }
 
 // ---------------------------------------------------------------------------
@@ -91,41 +216,15 @@ pub fn list_providers() -> Vec<LlmProviderInfo> {
 /// Lists the available model names for a given provider by querying the
 /// provider's API.
 ///
-/// For standard providers, auth is resolved from env vars and the default
-/// endpoint is used. For `provider_id == "custom"`, `base_url` is required
-/// and `api_key` is optional.
+/// For standard providers, auth is resolved from the target's key or env vars
+/// and the default endpoint is used. For the custom provider, the target's
+/// base URL is required and its key is optional.
 ///
 /// Uses a 15-second timeout to avoid hanging the UI.
-pub async fn list_models(
-    provider_id: &str,
-    base_url: Option<&str>,
-    api_key: Option<&str>,
-) -> Result<Vec<String>, AppError> {
+pub async fn list_models(target: &LlmTarget<'_>) -> Result<Vec<String>, AppError> {
+    require_api_key(target)?;
     let client = genai::Client::default();
-
-    let (adapter_kind, provider_config) = if provider_id == "custom" {
-        let base_url = base_url
-            .map(|s| s.trim())
-            .filter(|s| !s.is_empty())
-            .ok_or_else(|| {
-                AppError::BadRequest("base_url is required for custom provider".into())
-            })?;
-        let base_url = if base_url.ends_with('/') {
-            base_url.to_string()
-        } else {
-            format!("{base_url}/")
-        };
-        let endpoint = Endpoint::from_owned(base_url);
-        let auth = match api_key.map(|s| s.trim()).filter(|s| !s.is_empty()) {
-            Some(key) => AuthData::from_single(key),
-            None => AuthData::None,
-        };
-        (AdapterKind::OpenAI, ProviderConfig::from((endpoint, auth)))
-    } else {
-        let kind = AdapterKind::from_lower_str(provider_id)
-            .ok_or_else(|| AppError::BadRequest(format!("unknown provider: {provider_id}")))?;
-        (kind, ProviderConfig::default())
-    };
+    let (adapter_kind, provider_config) = target.listing_config()?;
 
     let models_fut = client.all_model_names(adapter_kind, provider_config);
     let models = tokio::time::timeout(std::time::Duration::from_secs(15), models_fut)
@@ -198,51 +297,18 @@ fn build_user_content(hint: Option<&str>, images: &[LlmImage]) -> genai::chat::M
 }
 
 // ---------------------------------------------------------------------------
-// Shared model spec builder
-// ---------------------------------------------------------------------------
-
-fn build_model_spec(
-    model: &str,
-    base_url: Option<&str>,
-    api_key: Option<&str>,
-) -> genai::ModelSpec {
-    use genai::resolver::{AuthData, Endpoint};
-
-    if let Some(base_url) = base_url.map(|s| s.trim()).filter(|s| !s.is_empty()) {
-        let base_url = if base_url.ends_with('/') {
-            base_url.to_string()
-        } else {
-            format!("{base_url}/")
-        };
-        let endpoint = Endpoint::from_owned(base_url);
-        let auth = match api_key.map(|s| s.trim()).filter(|s| !s.is_empty()) {
-            Some(key) => AuthData::from_single(key),
-            None => AuthData::None,
-        };
-        genai::ServiceTarget {
-            endpoint,
-            auth,
-            model: genai::ModelIden::new(AdapterKind::OpenAI, model),
-        }
-        .into()
-    } else {
-        model.into()
-    }
-}
-
-// ---------------------------------------------------------------------------
 // Main import function
 // ---------------------------------------------------------------------------
 
 pub async fn import_via_llm(
+    target: &LlmTarget<'_>,
     model: &str,
     hint: Option<&str>,
     images: Vec<LlmImage>,
-    base_url: Option<&str>,
-    api_key: Option<&str>,
     skip_image_download: bool,
 ) -> Result<recipe::ImportDraft, AppError> {
-    let client = genai::Client::default();
+    require_api_key(target)?;
+    let client = target.client();
     let user_content = build_user_content(hint, &images);
 
     let chat_req = genai::chat::ChatRequest::new(vec![
@@ -250,7 +316,7 @@ pub async fn import_via_llm(
         genai::chat::ChatMessage::user(user_content),
     ])
     .with_tools(vec![recipe_tool()]);
-    let model_spec = build_model_spec(model, base_url, api_key);
+    let model_spec = target.model_spec(model)?;
     let chat_fut = client.exec_chat(model_spec, chat_req, None);
 
     let chat_res = match tokio::time::timeout(LLM_CHAT_TIMEOUT, chat_fut).await {
@@ -286,13 +352,13 @@ const GENERATE_SYSTEM_PROMPT: &str = "You are a creative cooking assistant. Crea
 /// so any `imageUrl` the model returns is necessarily invented (SSRF guard),
 /// and user photos are sent to the model directly.
 pub async fn generate_meal_via_llm(
+    target: &LlmTarget<'_>,
     model: &str,
     ingredients: Option<&str>,
     images: Vec<LlmImage>,
-    base_url: Option<&str>,
-    api_key: Option<&str>,
 ) -> Result<recipe::ImportDraft, AppError> {
-    let client = genai::Client::default();
+    require_api_key(target)?;
+    let client = target.client();
     let user_content = build_user_content(ingredients, &images);
 
     let chat_req = genai::chat::ChatRequest::new(vec![
@@ -300,7 +366,7 @@ pub async fn generate_meal_via_llm(
         genai::chat::ChatMessage::user(user_content),
     ])
     .with_tools(vec![recipe_tool()]);
-    let model_spec = build_model_spec(model, base_url, api_key);
+    let model_spec = target.model_spec(model)?;
     let chat_fut = client.exec_chat(model_spec, chat_req, None);
 
     let chat_res = match tokio::time::timeout(LLM_CHAT_TIMEOUT, chat_fut).await {
@@ -333,14 +399,14 @@ pub async fn generate_meal_via_llm(
 const POLISH_SYSTEM_PROMPT: &str = "You are a cooking assistant. Improve the given cooking instructions for clarity, structure, and readability. Preserve the original meaning and the same language as the input. Format the result as HTML using only these tags: p, br, strong, em, b, i, ul, ol, li. Return only the improved instructions, no commentary or preamble.";
 
 pub async fn polish_instructions(
+    target: &LlmTarget<'_>,
     model: &str,
     meal_name: &str,
     ingredients: &[NewIngredientLine],
     instructions: &str,
-    base_url: Option<&str>,
-    api_key: Option<&str>,
 ) -> Result<String, AppError> {
-    let client = genai::Client::default();
+    require_api_key(target)?;
+    let client = target.client();
 
     let mut user_text = format!("Meal: {meal_name}\n\nIngredients:\n");
     for ing in ingredients {
@@ -356,7 +422,7 @@ pub async fn polish_instructions(
         genai::chat::ChatMessage::system(POLISH_SYSTEM_PROMPT),
         genai::chat::ChatMessage::user(user_text),
     ]);
-    let model_spec = build_model_spec(model, base_url, api_key);
+    let model_spec = target.model_spec(model)?;
     let chat_fut = client.exec_chat(model_spec, chat_req, None);
 
     let chat_res = match tokio::time::timeout(LLM_CHAT_TIMEOUT, chat_fut).await {
@@ -394,19 +460,10 @@ fn map_genai_error(err: genai::Error) -> AppError {
     match &err {
         genai::Error::RequiresApiKey { model_iden }
         | genai::Error::NoAuthResolver { model_iden }
-        | genai::Error::NoAuthData { model_iden } => {
-            let env_var = model_iden
-                .adapter_kind
-                .default_key_env_name()
-                .unwrap_or("the provider's API key environment variable");
-            AppError::Llm(
-                format!(
-                    "API key not configured for provider '{}': set the {} environment variable",
-                    model_iden.adapter_kind, env_var
-                ),
-                "llm_api_key_missing",
-            )
-        }
+        | genai::Error::NoAuthData { model_iden } => api_key_missing_error(
+            &model_iden.adapter_kind.to_string(),
+            model_iden.adapter_kind.default_key_env_name(),
+        ),
         genai::Error::Resolver { model_iden, .. }
         | genai::Error::ModelMapperFailed { model_iden, .. } => AppError::Llm(
             format!("model '{}' could not be resolved: {err}", model_iden),
@@ -414,6 +471,38 @@ fn map_genai_error(err: genai::Error) -> AppError {
         ),
         _ => AppError::Llm(format!("LLM request failed: {err}"), "llm_request_failed"),
     }
+}
+
+/// The actionable error for a provider that needs a key but has none. The
+/// sentence names the provider's API-key environment variable when it has one.
+fn api_key_missing_error(provider: &str, env_var: Option<&str>) -> AppError {
+    let env_var = env_var.unwrap_or("the provider's API key environment variable");
+    AppError::Llm(
+        format!(
+            "API key not configured for provider '{provider}': store one in Settings or set the {env_var} environment variable"
+        ),
+        "llm_api_key_missing",
+    )
+}
+
+/// Refuse to run keyless against a provider that needs a key. genai swallows
+/// the unresolved `FromEnv` key, the request leaves without an Authorization
+/// header, and the provider's 401 would surface as an opaque
+/// `llm_request_failed` (on the chat paths, a resolver error that blames the
+/// model instead). Answering `llm_api_key_missing` up front keeps a keyless
+/// install on the same actionable error whether the key is stored, inherited
+/// or missing, and keeps the request from leaving at all.
+///
+/// Callers that spend something before the LLM call (the bare-URL hint fetch
+/// in `import`) call this themselves, so the missing key is reported before
+/// that cost.
+pub(crate) fn require_api_key(target: &LlmTarget<'_>) -> Result<(), AppError> {
+    if needs_no_api_key(target.provider_id) || target.auth().is_some() {
+        return Ok(());
+    }
+    let env_var = AdapterKind::from_lower_str(target.provider_id)
+        .and_then(|kind| kind.default_key_env_name());
+    Err(api_key_missing_error(target.provider_id, env_var))
 }
 
 // ---------------------------------------------------------------------------
@@ -521,26 +610,235 @@ mod tests {
     use super::*;
 
     #[test]
-    fn given_valid_args_when_build_model_spec_then_succeeds() {
-        // Standard model name (no custom endpoint)
-        let spec = build_model_spec("gpt-4o-mini", None, None);
-        let debug = format!("{:?}", spec);
-        assert!(debug.contains("gpt-4o-mini"));
-
-        // Custom endpoint with api key
-        let spec = build_model_spec(
-            "local-model",
-            Some("http://localhost:8080/v1/"),
-            Some("sk-123"),
+    fn given_standard_provider_when_model_spec_then_adapter_from_provider() {
+        let target = LlmTarget {
+            provider_id: "anthropic",
+            base_url: None,
+            api_key: None,
+        };
+        let debug = format!(
+            "{:?}",
+            target.model_spec("claude-3-5-sonnet").expect("model spec")
         );
-        let debug = format!("{:?}", spec);
-        assert!(debug.contains("localhost:8080"));
-        assert!(debug.contains("local-model"));
+        assert!(debug.contains("claude-3-5-sonnet"));
+        assert!(debug.contains("Anthropic"));
+    }
 
-        // Custom endpoint without trailing slash gets normalized
-        let spec = build_model_spec("llama3", Some("http://127.0.0.1:11434/v1"), None);
+    #[test]
+    fn given_custom_provider_when_model_spec_then_custom_endpoint_with_key() {
+        let target = LlmTarget {
+            provider_id: PROVIDER_CUSTOM,
+            base_url: Some("http://localhost:8080/v1"),
+            api_key: Some("sk-123"),
+        };
+        let spec = target.model_spec("local-model").expect("model spec");
         let debug = format!("{:?}", spec);
-        assert!(debug.contains("127.0.0.1:11434"));
+        assert!(debug.contains("localhost:8080/v1/"));
+        assert!(debug.contains("local-model"));
+        // The key must travel with the spec. `AuthData`'s Debug redacts it, so
+        // read it back instead of searching the debug output.
+        let genai::ModelSpec::Target(service_target) = spec else {
+            panic!("custom provider must produce a fully resolved service target");
+        };
+        assert_eq!(
+            service_target.auth.single_key_value().expect("single key"),
+            "sk-123"
+        );
+    }
+
+    #[test]
+    fn given_keyless_custom_provider_when_model_spec_then_placeholder_key() {
+        // A keyless custom endpoint still needs an auth value: genai's OpenAI
+        // adapter fails the whole call with `ResolverAuthDataNotSingleValue` for
+        // `AuthData::None`, before any request leaves, so the placeholder is what
+        // makes a local endpoint usable at all. Removing the fallback would
+        // silently break every keyless endpoint, so it is pinned here.
+        let target = LlmTarget {
+            provider_id: PROVIDER_CUSTOM,
+            base_url: Some("http://localhost:8080/v1"),
+            api_key: None,
+        };
+        let genai::ModelSpec::Target(service_target) =
+            target.model_spec("local-model").expect("model spec")
+        else {
+            panic!("custom provider must produce a fully resolved service target");
+        };
+        assert_eq!(
+            service_target.auth.single_key_value().expect("single key"),
+            "no-key"
+        );
+    }
+
+    #[test]
+    fn given_custom_provider_without_base_url_when_model_spec_then_rejected() {
+        let target = LlmTarget {
+            provider_id: PROVIDER_CUSTOM,
+            base_url: None,
+            api_key: None,
+        };
+        let err = target.model_spec("local-model").expect_err("must reject");
+        assert!(
+            err.to_string().contains("customBaseUrl must be set"),
+            "{err}"
+        );
+    }
+
+    #[test]
+    fn given_unknown_provider_when_model_spec_then_rejected() {
+        let target = LlmTarget {
+            provider_id: "gpt-5-legacy",
+            base_url: None,
+            api_key: None,
+        };
+        let err = target.model_spec("gpt-4o-mini").expect_err("must reject");
+        assert!(err.to_string().contains("unknown provider"), "{err}");
+    }
+
+    #[test]
+    fn given_no_key_when_target_then_no_auth_data() {
+        let target = LlmTarget {
+            provider_id: "openai",
+            base_url: None,
+            api_key: None,
+        };
+        assert!(target.auth().is_none());
+    }
+
+    #[test]
+    fn given_keyless_ollama_when_require_api_key_then_accepted() {
+        // `require_api_key` is the single gate in front of every AI entry
+        // point, and Ollama is exempt from it: dropping that half would turn
+        // every Ollama flow into a 400 `llm_api_key_missing`.
+        let target = LlmTarget {
+            provider_id: "ollama",
+            base_url: None,
+            api_key: None,
+        };
+        require_api_key(&target).expect("a keyless ollama target needs no key");
+    }
+
+    #[test]
+    fn given_keyless_openai_when_require_api_key_then_llm_api_key_missing() {
+        // The keyless half of the gate: a provider that needs a key must be
+        // refused before the request leaves, with the code the UI acts on.
+        let target = LlmTarget {
+            provider_id: "openai",
+            base_url: None,
+            api_key: None,
+        };
+        let err = require_api_key(&target).expect_err("must reject a keyless openai target");
+        match err {
+            AppError::Llm(message, code) => {
+                assert_eq!(code, "llm_api_key_missing");
+                assert!(message.contains("openai"), "{message}");
+            }
+            other => panic!("expected an Llm error, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn given_key_when_target_then_auth_data_holds_it() {
+        let target = LlmTarget {
+            provider_id: "openai",
+            base_url: None,
+            api_key: Some("sk-stored"),
+        };
+        // `AuthData`'s Debug redacts the key, so read the value back.
+        let key = target
+            .auth()
+            .expect("auth data")
+            .single_key_value()
+            .expect("single key");
+        assert_eq!(key, "sk-stored");
+    }
+
+    #[tokio::test]
+    async fn given_key_when_client_then_resolver_installs_it_on_resolved_target() {
+        // A standard provider's stored key reaches the request only through
+        // the resolver `client()` installs; every mocked route test seeds the
+        // `custom` provider, whose fully resolved `ServiceTarget` bypasses
+        // auth resolution. Resolve a `ModelIden` through the real client so
+        // dropping the resolver (or returning `Ok(None)`) fails here instead
+        // of silently sending a stored-key install's requests unauthenticated.
+        let target = LlmTarget {
+            provider_id: "openai",
+            base_url: None,
+            api_key: Some("sk-stored"),
+        };
+        let service_target = target
+            .client()
+            .resolve_service_target(genai::ModelIden::new(AdapterKind::OpenAI, "gpt-4o-mini"))
+            .await
+            .expect("service target");
+        assert_eq!(
+            service_target.auth.single_key_value().expect("single key"),
+            "sk-stored"
+        );
+    }
+
+    #[test]
+    fn given_stored_key_when_listing_config_then_config_carries_it() {
+        // A standard provider's stored key reaches model listing only through
+        // `listing_config`; every mocked route test seeds the `custom` provider,
+        // whose arm carries the key through its endpoint. Dropping the
+        // `from_auth` arm would list a stored-key install's models with the
+        // environment key or with no key at all while the suite stayed green.
+        let target = LlmTarget {
+            provider_id: "openai",
+            base_url: None,
+            api_key: Some("sk-stored"),
+        };
+        let (adapter, config) = target.listing_config().expect("listing config");
+        assert_eq!(adapter, AdapterKind::OpenAI);
+        assert_eq!(
+            config
+                .auth
+                .expect("auth data")
+                .single_key_value()
+                .expect("single key"),
+            "sk-stored"
+        );
+    }
+
+    #[test]
+    fn given_keyless_ollama_when_listing_config_then_no_auth_data() {
+        // Ollama is the standard provider that reaches the listing without a
+        // key (`require_api_key` exempts it), so this is the arm a keyless
+        // install really takes: carrying no auth leaves genai's own
+        // environment/default resolution in charge instead of sending a
+        // placeholder or another provider's key.
+        let target = LlmTarget {
+            provider_id: "ollama",
+            base_url: None,
+            api_key: None,
+        };
+        let (_, config) = target.listing_config().expect("listing config");
+        assert!(config.auth.is_none());
+    }
+
+    #[test]
+    fn given_stored_custom_key_when_listing_config_then_config_carries_it() {
+        // The custom arm builds its config from the endpoint and the resolved
+        // auth. Nothing else pins it: every mocked listing answers a canned
+        // body, so dropping the auth from that tuple would list a
+        // key-protected endpoint with no `Authorization` header (or with the
+        // ambient `OPENAI_API_KEY`) while the chat path, which resolves its
+        // key separately, still authenticated.
+        let target = LlmTarget {
+            provider_id: PROVIDER_CUSTOM,
+            base_url: Some("http://localhost:8080/v1"),
+            api_key: Some("sk-stored"),
+        };
+        let (adapter, config) = target.listing_config().expect("listing config");
+        assert_eq!(adapter, AdapterKind::OpenAI);
+        assert_eq!(
+            config
+                .auth
+                .expect("auth data")
+                .single_key_value()
+                .expect("single key"),
+            "sk-stored"
+        );
     }
 
     #[tokio::test]
@@ -656,7 +954,7 @@ mod tests {
 
     #[test]
     fn list_providers_includes_all_providers() {
-        let providers = list_providers();
+        let providers = list_providers(None, false);
         let ids: Vec<&str> = providers.iter().map(|p| p.id.as_str()).collect();
         for expected in &[
             "openai",
@@ -677,7 +975,7 @@ mod tests {
 
     #[test]
     fn list_providers_ollama_always_configured() {
-        let providers = list_providers();
+        let providers = list_providers(None, false);
         let ollama = providers
             .iter()
             .find(|p| p.id == "ollama")
@@ -687,7 +985,7 @@ mod tests {
 
     #[test]
     fn list_providers_custom_supports_custom_endpoint() {
-        let providers = list_providers();
+        let providers = list_providers(None, false);
         let custom = providers
             .iter()
             .find(|p| p.id == "custom")

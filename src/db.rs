@@ -645,3 +645,59 @@ pub async fn find_meal_image(
         None => Ok(None),
     }
 }
+
+// ---------------------------------------------------------------------------
+// Settings
+// ---------------------------------------------------------------------------
+
+/// Read every stored setting as (key, value) pairs.
+pub async fn list_settings(pool: &SqlitePool) -> Result<Vec<(String, String)>, AppError> {
+    let rows: Vec<(String, String)> = sqlx::query_as("SELECT key, value FROM settings")
+        .fetch_all(pool)
+        .await?;
+    Ok(rows)
+}
+
+/// Apply a settings commit atomically: `plan` receives the settings as they
+/// are inside the transaction and returns the pairs to upsert and the keys to
+/// remove, or an error to reject the commit. Both run on that same
+/// transaction, so a decision taken from the current rows (revoking a key when
+/// its endpoint moves, or rejecting a key that would be stored without one)
+/// can never be separated from the write it guards, and a failing commit
+/// changes nothing: the transaction is dropped, not committed.
+///
+/// The write lock is taken with `BEGIN IMMEDIATE` before the read: a deferred
+/// transaction would fix its read snapshot first and only then upgrade to a
+/// writer, and a concurrent commit landing in between makes SQLite refuse the
+/// upgrade with `SQLITE_BUSY_SNAPSHOT` (the busy handler is not run for it),
+/// dropping the whole commit. Taking the lock up front makes racing commits
+/// wait their turn instead, while the plan still decides on the newest rows.
+pub async fn apply_setting_writes<F>(pool: &SqlitePool, plan: F) -> Result<(), AppError>
+where
+    F: FnOnce(
+        &[(String, String)],
+    ) -> Result<(Vec<(&'static str, String)>, Vec<&'static str>), AppError>,
+{
+    let mut tx = pool.begin_with("BEGIN IMMEDIATE").await?;
+    let rows: Vec<(String, String)> = sqlx::query_as("SELECT key, value FROM settings")
+        .fetch_all(&mut *tx)
+        .await?;
+    let (set, delete) = plan(&rows)?;
+    for (key, value) in set {
+        sqlx::query(
+            "INSERT INTO settings (key, value) VALUES (?1, ?2) ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+        )
+        .bind(key)
+        .bind(value)
+        .execute(&mut *tx)
+        .await?;
+    }
+    for key in delete {
+        sqlx::query("DELETE FROM settings WHERE key = ?1")
+            .bind(key)
+            .execute(&mut *tx)
+            .await?;
+    }
+    tx.commit().await?;
+    Ok(())
+}

@@ -24,6 +24,9 @@ mod routes;
 #[cfg(test)]
 mod routes_tests;
 mod seed;
+mod settings;
+#[cfg(test)]
+mod settings_tests;
 mod state;
 mod static_assets;
 
@@ -133,6 +136,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         )
         .route("/bring/items", post(routes::add_bring_item))
         .route("/bring/status", get(routes::get_bring_status))
+        .route(
+            "/settings",
+            get(routes::get_settings).patch(routes::patch_settings),
+        )
         .route("/version", get(routes::get_version))
         .layer(DefaultBodyLimit::max(MAX_BODY_BYTES))
         .with_state(state);

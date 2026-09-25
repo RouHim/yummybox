@@ -1,5 +1,5 @@
 import { test, expect, type Page } from '@playwright/test';
-import { resetMeals, setLocale } from './_helpers';
+import { resetMeals, resetSettings, setLocale } from './_helpers';
 import { buildPng } from './_png';
 
 const PHOTO = buildPng(8, 8);
@@ -8,6 +8,7 @@ test.describe('AI import image', () => {
 	test.beforeEach(async ({ request, page }) => {
 		await setLocale(page, 'en');
 		await resetMeals(request);
+		await resetSettings(request);
 	});
 
 	async function openAiImport(page: Page) {
@@ -23,8 +24,13 @@ test.describe('AI import image', () => {
 		const dialog = page.getByRole('dialog');
 		await dialog.getByRole('combobox').selectOption('custom');
 		await dialog.getByLabel('Base URL').fill('http://127.0.0.1:1/v1/');
+		// Blurring commits the base URL, which is what triggers the model
+		// listing against the stored configuration.
+		await dialog.getByLabel('Base URL').blur();
 		await expect(dialog.getByPlaceholder('Model name (e.g. gpt-4o-mini)')).toBeVisible();
 		await dialog.getByPlaceholder('Model name (e.g. gpt-4o-mini)').fill('test-model');
+		// Blurring commits the model, completing the stored configuration.
+		await dialog.getByPlaceholder('Model name (e.g. gpt-4o-mini)').blur();
 	}
 
 	test('stages and removes a photo in the AI import tab', async ({ page }) => {
@@ -49,11 +55,7 @@ test.describe('AI import image', () => {
 		const dialog = page.getByRole('dialog');
 		// The custom OpenAI-compatible provider is always selectable without
 		// an API key; a dead endpoint makes the model listing fail fast.
-		await dialog.getByRole('combobox').selectOption('custom');
-		await dialog.getByLabel('Base URL').fill('http://127.0.0.1:1/v1/');
-		// Model listing failure replaces the model select with a text input.
-		await expect(dialog.getByPlaceholder('Model name (e.g. gpt-4o-mini)')).toBeVisible();
-		await dialog.getByPlaceholder('Model name (e.g. gpt-4o-mini)').fill('test-model');
+		await selectCustomModel(page);
 		await dialog.locator('input[type="file"]').setInputFiles({
 			name: 'photo.png', mimeType: 'image/png', buffer: PHOTO,
 		});

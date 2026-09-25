@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { llmErrorMessage } from './llm-error';
 import { ApiError } from './api';
-import { t } from './i18n';
+import { dictionaries, setLocale, t } from './i18n';
 
 describe('llmErrorMessage', () => {
 	it('maps REQUEST_FAILED to the fetch error message', () => {
@@ -16,10 +16,56 @@ describe('llmErrorMessage', () => {
 		expect(llmErrorMessage(new ApiError('boom', 'llm_parse_failed', 500))).toBe(t('llmErrorParseFailed'));
 	});
 
-	it('passes through the raw message for llm_api_key_missing', () => {
-		expect(llmErrorMessage(new ApiError('Set OPENAI_API_KEY', 'llm_api_key_missing', 400))).toBe(
-			'Set OPENAI_API_KEY'
+	it('maps llm_api_key_missing to the localized hint, not the raw server sentence', () => {
+		const message = llmErrorMessage(
+			new ApiError(
+				"API key not configured for provider 'openai': store one in Settings or set the OPENAI_API_KEY environment variable",
+				'llm_api_key_missing',
+				400
+			)
 		);
+		expect(message).toBe(t('llmErrorApiKey'));
+		expect(message).not.toContain('OPENAI_API_KEY');
+	});
+
+	it('renders the German llm_api_key_missing hint, not the raw server sentence', () => {
+		setLocale('de');
+		try {
+			const message = llmErrorMessage(
+				new ApiError(
+					"API key not configured for provider 'openai': store one in Settings or set the OPENAI_API_KEY environment variable",
+					'llm_api_key_missing',
+					400
+				)
+			);
+			expect(message).toBe(dictionaries.de.llmErrorApiKey);
+			expect(message).not.toContain('OPENAI_API_KEY');
+		} finally {
+			setLocale('en');
+		}
+	});
+
+	it('maps llm_not_configured to the settings hint', () => {
+		expect(llmErrorMessage(new ApiError('llm not configured', 'llm_not_configured', 400))).toBe(
+			t('llmErrorNotConfigured')
+		);
+	});
+
+	it('renders the German llm_not_configured hint, not the raw server sentence', () => {
+		setLocale('de');
+		try {
+			const message = llmErrorMessage(
+				new ApiError(
+					'AI is not configured: choose a provider and a model in Settings',
+					'llm_not_configured',
+					400
+				)
+			);
+			expect(message).toBe(dictionaries.de.llmErrorNotConfigured);
+			expect(message).not.toContain('choose a provider');
+		} finally {
+			setLocale('en');
+		}
 	});
 
 	it('wraps unknown codes in the generic message', () => {

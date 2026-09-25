@@ -67,7 +67,7 @@ impl IntoResponse for AppError {
             AppError::BringNoLists => (StatusCode::NOT_FOUND, self.to_string(), None),
             AppError::Llm(msg, code) => {
                 let status = match *code {
-                    "llm_api_key_missing" => StatusCode::BAD_REQUEST,
+                    "llm_api_key_missing" | "llm_not_configured" => StatusCode::BAD_REQUEST,
                     "llm_parse_failed" => StatusCode::UNPROCESSABLE_ENTITY,
                     _ => StatusCode::INTERNAL_SERVER_ERROR,
                 };
@@ -246,6 +246,17 @@ mod tests {
             StatusCode::BAD_REQUEST,
             "API key missing",
             "llm_api_key_missing",
+        )
+        .await;
+    }
+
+    #[tokio::test]
+    async fn given_llm_not_configured_when_into_response_then_returns_400() {
+        assert_response_code(
+            AppError::Llm("LLM not configured".into(), "llm_not_configured"),
+            StatusCode::BAD_REQUEST,
+            "LLM not configured",
+            "llm_not_configured",
         )
         .await;
     }
