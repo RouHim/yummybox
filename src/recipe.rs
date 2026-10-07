@@ -337,7 +337,32 @@ fn parse_yield_portions(yield_value: Option<&serde_json::Value>) -> Option<i32> 
 }
 
 /// Unit words recognized as a quantity prefix in ingredient lines.
+/// Language-specific: currently English + German (see `*_german_*` /
+/// `*_bare_count_*` cases in `recipe_tests.rs`). A new import language MUST
+/// add its unit words here, or its quantities silently land in the
+/// ingredient name (quantity `None`).
 const UNITS: &[&str] = &[
+    "el",
+    "esslöffel",
+    "tl",
+    "teelöffel",
+    "prise",
+    "prisen",
+    "päckchen",
+    "pck",
+    "bund",
+    "zehe",
+    "zehen",
+    "scheibe",
+    "scheiben",
+    "stück",
+    "stueck",
+    "dose",
+    "dosen",
+    "glas",
+    "gläser",
+    "tasse",
+    "tassen",
     "cup",
     "cups",
     "tbsp",
@@ -390,8 +415,9 @@ const UNITS: &[&str] = &[
 ];
 
 /// Split an ingredient line into name and optional quantity.
-/// Best-effort: if the line starts with a quantity prefix (number + unit word),
-/// the prefix is the quantity and the rest is the name. Otherwise the whole line is the name.
+/// Best-effort: if the line starts with a number, the leading number (plus a
+/// following unit word, if any) is the quantity and the rest is the name.
+/// Otherwise the whole line is the name.
 pub(crate) fn split_ingredient_line(line: &str) -> NewIngredientLine {
     let tokens: Vec<&str> = line.split_whitespace().collect();
     if tokens.is_empty() {
@@ -400,37 +426,97 @@ pub(crate) fn split_ingredient_line(line: &str) -> NewIngredientLine {
             quantity: None,
         };
     }
+    // Leading amount ("2", "1/2", "1,5", "400g", "½") — possibly with a unit
+    // glued on ("400g", "2EL"). Mixed tokens like "7-Kräuter" are names.
+    let Some((amount, glued_unit)) = split_leading_amount(tokens[0]) else {
+        return NewIngredientLine {
+            name: truncate(line.trim(), 100),
+            quantity: None,
+        };
+    };
+    if tokens.len() < 2 {
+        return NewIngredientLine {
+            name: truncate(line.trim(), 100),
+            quantity: None,
+        };
+    }
 
-    // Check if first token starts with a digit or is a fraction (1/2, 1½, etc.)
-    let starts_with_number = tokens[0]
-        .chars()
-        .next()
-        .map(|c| c.is_ascii_digit() || c == '½' || c == '⅓' || c == '⅔' || c == '¼' || c == '¾')
-        .unwrap_or(false);
-
-    if starts_with_number && tokens.len() >= 2 {
-        // Check if the second token (or sometimes third) is a unit word
-        let unit_idx = tokens.iter().skip(1).take(2).position(|t| {
-            UNITS.contains(&t.to_lowercase().trim_end_matches(',').trim_end_matches('.'))
-        });
-
-        if let Some(rel_idx) = unit_idx {
-            let unit_end = 1 + rel_idx + 1; // number + unit
-            let quantity = tokens[..unit_end].join(" ");
-            let name = tokens[unit_end..].join(" ");
+    // Glued unit ("400g Mehl", "2EL Öl"): amount + glued suffix is the quantity.
+    // Unknown suffix ("400xyz Mehl") stays name-only instead of dropping text.
+    if let Some(unit) = glued_unit {
+        let unit_lower = unit.to_lowercase();
+        if UNITS.contains(&unit_lower.as_str()) {
+            let name = tokens[1..].join(" ");
             if !name.is_empty() {
                 return NewIngredientLine {
                     name: truncate(name.trim(), 100),
-                    quantity: Some(truncate(quantity.trim(), 50)),
+                    quantity: Some(truncate(format!("{amount} {unit}").trim(), 50)),
                 };
             }
         }
+        return NewIngredientLine {
+            name: truncate(line.trim(), 100),
+            quantity: None,
+        };
+    }
+
+    // Check if the second token (or sometimes third) is a unit word
+    let unit_idx = tokens.iter().skip(1).take(2).position(|t| {
+        UNITS.contains(&t.to_lowercase().trim_end_matches(',').trim_end_matches('.'))
+    });
+
+    if let Some(rel_idx) = unit_idx {
+        let unit_end = 1 + rel_idx + 1; // number + unit
+        let quantity = tokens[..unit_end].join(" ");
+        let name = tokens[unit_end..].join(" ");
+        if !name.is_empty() {
+            return NewIngredientLine {
+                name: truncate(name.trim(), 100),
+                quantity: Some(truncate(quantity.trim(), 50)),
+            };
+        }
+    }
+
+    // Bare count without a unit word ("2 rote Paprika", "1 Zwiebel"):
+    // the leading number is the quantity, the rest is the name.
+    let name = tokens[1..].join(" ");
+    if !name.is_empty() {
+        return NewIngredientLine {
+            name: truncate(name.trim(), 100),
+            quantity: Some(truncate(amount.trim(), 50)),
+        };
     }
 
     NewIngredientLine {
         name: truncate(line.trim(), 100),
         quantity: None,
     }
+}
+
+/// Split a leading token into its numeric amount and an optional glued-on unit
+/// suffix (`"400g"` → `("400", "g")`, `"2"` → `("2", None)`).
+/// Returns `None` when the token is not a pure amount (e.g. `"7-Kräuter"` or
+/// `"etwas"`), so such lines stay name-only.
+fn split_leading_amount(token: &str) -> Option<(&str, Option<&str>)> {
+    const FRACTIONS: &[char] = &['½', '⅓', '⅔', '¼', '¾', '⅛', '⅜', '⅝', '⅞'];
+    let cut = token
+        .char_indices()
+        .take_while(|(_, c)| {
+            c.is_ascii_digit() || *c == '/' || *c == '.' || *c == ',' || FRACTIONS.contains(c)
+        })
+        .map(|(i, c)| i + c.len_utf8())
+        .last()?;
+    if cut == 0 {
+        return None;
+    }
+    let (amount, rest) = token.split_at(cut);
+    if rest.is_empty() {
+        return Some((amount, None));
+    }
+    if rest.chars().all(|c| c.is_alphabetic()) {
+        return Some((amount, Some(rest)));
+    }
+    None
 }
 
 /// Truncate a string to `max` chars, appending `…` if truncated.

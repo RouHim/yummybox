@@ -101,6 +101,8 @@ For the higher-level engineering principles (SOLID, YAGNI, error surfacing) see 
 
 **Validation**: `db::validate_meal()` enforces: name 1–200 chars, instructions 1–20000 chars, 1–100 ingredient lines (name ≤100 chars, quantity ≤50 chars), portions 1–10000. Both backend and frontend enforce the same limits. Validation runs inside `insert_meal` and `update_meal` before touching the DB.
 
+**Backend language-specific content**: adding a UI language beyond English/German also touches the backend. `UNITS` in `src/recipe.rs` holds English + German unit words for `split_ingredient_line` (URL/paste/Mealie/ZIP import); a new import language MUST add its units there plus `*_tests.rs` cases. `AppError` messages and LLM system prompts (`src/llm_import.rs`) are English-only by design — the frontend maps `code` via `llmErrorMessage()` (`web/src/lib/llm-error.ts`) instead of translating backend strings.
+
 **Testing**: 
 - DB tests: `#[tokio::test]` (async) for operations touching the DB, `#[test]` for pure validation/string helpers. Use `tempfile::TempDir` for isolated databases.
 - Route tests: `#[tokio::test]`, use `tower::ServiceExt::oneshot` to send `Request` objects to the router. Helper `TestCtx` struct holds the app and temp directory.
