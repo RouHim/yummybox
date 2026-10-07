@@ -374,9 +374,11 @@ const UNITS: &[&str] = &[
     "g",
     "gram",
     "grams",
+    "gramm",
     "kg",
     "kilogram",
     "kilograms",
+    "kilogramm",
     "ml",
     "milliliter",
     "milliliters",
@@ -478,7 +480,22 @@ pub(crate) fn split_ingredient_line(line: &str) -> NewIngredientLine {
     }
 
     // Bare count without a unit word ("2 rote Paprika", "1 Zwiebel"):
-    // the leading number is the quantity, the rest is the name.
+    // the leading number is the quantity, the rest is the name. A second
+    // numeric token ("1 - 2 Zwiebeln", "1 x 400g") is a range/pack size,
+    // not a count — keep the whole line name-only like before.
+    let second = tokens[1].trim_end_matches(',').trim_end_matches('.');
+    if second == "-"
+        || second == "–"
+        || second == "—"
+        || second == "x"
+        || second == "×"
+        || split_leading_amount(second).is_some()
+    {
+        return NewIngredientLine {
+            name: truncate(line.trim(), 100),
+            quantity: None,
+        };
+    }
     let name = tokens[1..].join(" ");
     if !name.is_empty() {
         return NewIngredientLine {
@@ -509,7 +526,21 @@ fn split_leading_amount(token: &str) -> Option<(&str, Option<&str>)> {
     if cut == 0 {
         return None;
     }
-    let (amount, rest) = token.split_at(cut);
+    let (amount, mut rest) = token.split_at(cut);
+    // A trailing separator ("1.", "1,") is ordinal/punctuation, not an amount.
+    if amount.ends_with(['.', ',']) {
+        return None;
+    }
+    // A bare separator ("/", ".", ",") is not an amount.
+    if !amount
+        .chars()
+        .any(|c| c.is_ascii_digit() || FRACTIONS.contains(&c))
+    {
+        return None;
+    }
+    // Trailing punctuation on a glued suffix ("400g,") belongs to the line,
+    // not the unit.
+    rest = rest.trim_end_matches(['.', ',']);
     if rest.is_empty() {
         return Some((amount, None));
     }

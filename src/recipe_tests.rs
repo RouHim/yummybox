@@ -256,6 +256,44 @@ fn given_mixed_token_and_unknown_suffix_when_parse_then_name_only() {
 }
 
 #[test]
+fn given_spelled_out_german_units_when_parse_then_split() {
+    let cases = [
+        ("200 Gramm Mehl", "200 Gramm", "Mehl"),
+        ("1 Kilogramm Kartoffeln", "1 Kilogramm", "Kartoffeln"),
+    ];
+    for (line, qty, name) in cases {
+        let ingredient = crate::recipe::split_ingredient_line(line);
+        assert_eq!(ingredient.name, name, "line: {line}");
+        assert_eq!(ingredient.quantity.as_deref(), Some(qty), "line: {line}");
+    }
+}
+
+#[test]
+fn given_range_or_pack_size_when_parse_then_name_only() {
+    for line in ["1 - 2 Zwiebeln", "1 x 400g Dose Tomaten", "2 400g Dosen"] {
+        let ingredient = crate::recipe::split_ingredient_line(line);
+        assert_eq!(ingredient.name, line, "line: {line}");
+        assert!(ingredient.quantity.is_none(), "line: {line}");
+    }
+}
+
+#[test]
+fn given_separator_only_first_token_when_parse_then_name_only() {
+    for line in ["/ Eier", "1. Zwiebel"] {
+        let ingredient = crate::recipe::split_ingredient_line(line);
+        assert_eq!(ingredient.name, line, "line: {line}");
+        assert!(ingredient.quantity.is_none(), "line: {line}");
+    }
+}
+
+#[test]
+fn given_glued_unit_with_trailing_punctuation_when_parse_then_split() {
+    let ingredient = crate::recipe::split_ingredient_line("400g, Mehl");
+    assert_eq!(ingredient.name, "Mehl");
+    assert_eq!(ingredient.quantity.as_deref(), Some("400 g"));
+}
+
+#[test]
 fn given_html_without_recipe_when_parse_then_error() {
     let html = r#"<html><head>
 <script type="application/ld+json">
