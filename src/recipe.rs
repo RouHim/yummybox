@@ -87,6 +87,7 @@ pub async fn fetch_and_parse(url: &str) -> Result<ImportDraft, AppError> {
 
     // Image download (best-effort) — needs its own client
     if let Some(img_url) = image_url {
+        let img_url = resolve_url(&img_url, url).unwrap_or(img_url);
         if let Ok(client) = reqwest::Client::builder()
             .timeout(Duration::from_secs(30))
             .connect_timeout(Duration::from_secs(10))
@@ -179,9 +180,10 @@ fn parse_recipe_with_image_url(text: &str) -> Result<(ImportDraft, Option<String
                         String::new()
                     }
                 });
-            let instructions = sanitize_instructions(&raw_instructions);
+            let instructions = decode_html_entities(&sanitize_instructions(&raw_instructions));
 
-            let image_url = extract_image_url(json_value);
+            let image_url =
+                extract_image_url(json_value).or_else(|| find_sibling_image_url(json_value));
 
             let portions = recipe.yields().as_ref().and_then(|y| {
                 let s = y.to_string();
@@ -215,6 +217,7 @@ fn parse_recipe_with_image_url(text: &str) -> Result<(ImportDraft, Option<String
         collect_recipe_nodes(block, &mut nodes);
         for node in nodes {
             if let Some((draft, image_url)) = draft_from_recipe_json(node) {
+                let image_url = image_url.or_else(|| find_sibling_image_url(block));
                 return Ok((draft, image_url));
             }
         }
@@ -252,6 +255,22 @@ fn draft_from_recipe_json(json: &serde_json::Value) -> Option<(ImportDraft, Opti
         Some(serde_json::Value::Array(arr)) => {
             arr.iter().filter_map(|v| v.as_str()).collect::<Vec<_>>()
         }
+        Some(serde_json::Value::Object(obj)) => {
+            // Some sites (e.g. sallys-blog) emit a JSON object with
+            // numeric-string keys instead of an array. Sort numeric-aware
+            // so "10" orders after "9"; non-numeric keys sort last.
+            let mut entries: Vec<(Option<u64>, &str, &str)> = obj
+                .iter()
+                .filter_map(|(k, v)| v.as_str().map(|s| (k.parse::<u64>().ok(), k.as_str(), s)))
+                .collect();
+            entries.sort_by(|a, b| match (&a.0, &b.0) {
+                (Some(x), Some(y)) => x.cmp(y).then_with(|| a.1.cmp(b.1)),
+                (Some(_), None) => std::cmp::Ordering::Less,
+                (None, Some(_)) => std::cmp::Ordering::Greater,
+                (None, None) => a.1.cmp(b.1),
+            });
+            entries.into_iter().map(|(_, _, s)| s).collect::<Vec<_>>()
+        }
         _ => Vec::new(),
     }
     .into_iter()
@@ -269,7 +288,7 @@ fn draft_from_recipe_json(json: &serde_json::Value) -> Option<(ImportDraft, Opti
     if let Some(instructions) = json.get("recipeInstructions") {
         flatten_instruction_texts(instructions, &mut steps);
     }
-    let instructions = sanitize_instructions(&steps.join("\n"));
+    let instructions = decode_html_entities(&sanitize_instructions(&steps.join("\n")));
 
     let portions = parse_yield_portions(json.get("recipeYield"));
     let image_url = extract_image_url(json);
@@ -361,6 +380,7 @@ const UNITS: &[&str] = &[
     "dosen",
     "glas",
     "gläser",
+    "becher",
     "tasse",
     "tassen",
     "cup",
@@ -382,6 +402,8 @@ const UNITS: &[&str] = &[
     "ml",
     "milliliter",
     "milliliters",
+    "dl",
+    "cl",
     "l",
     "liter",
     "liters",
@@ -416,11 +438,62 @@ const UNITS: &[&str] = &[
     "cans",
 ];
 
+/// Decode HTML entities in a recipe string (`&frac12;`, `&nbsp;`, `&amp;`,
+/// decimal/hex numeric references). Unknown entities pass through unchanged.
+pub(crate) fn decode_html_entities(s: &str) -> String {
+    let mut out = String::with_capacity(s.len());
+    let mut rest = s;
+    while let Some(amp) = rest.find('&') {
+        out.push_str(&rest[..amp]);
+        rest = &rest[amp..];
+        let Some(semi) = rest.find(';') else {
+            out.push_str(rest);
+            break;
+        };
+        if semi > 32 {
+            // Not a plausible entity; copy the `&` and keep scanning.
+            out.push('&');
+            rest = &rest[1..];
+            continue;
+        }
+        let entity = &rest[1..semi];
+        let decoded = if entity.starts_with("#x") || entity.starts_with("#X") {
+            u32::from_str_radix(&entity[2..], 16)
+                .ok()
+                .and_then(char::from_u32)
+        } else if let Some(num) = entity.strip_prefix('#') {
+            num.parse::<u32>().ok().and_then(char::from_u32)
+        } else {
+            match entity {
+                "nbsp" => Some(' '),
+                "amp" => Some('&'),
+                "lt" => Some('<'),
+                "gt" => Some('>'),
+                "quot" => Some('"'),
+                "apos" => Some('\''),
+                "frac12" => Some('½'),
+                "frac14" => Some('¼'),
+                "frac34" => Some('¾'),
+                _ => None,
+            }
+        };
+        match decoded {
+            Some(c) => out.push(c),
+            None => out.push_str(&rest[..=semi]),
+        }
+        rest = &rest[semi + 1..];
+    }
+    out.push_str(rest);
+    out
+}
+
 /// Split an ingredient line into name and optional quantity.
 /// Best-effort: if the line starts with a number, the leading number (plus a
 /// following unit word, if any) is the quantity and the rest is the name.
 /// Otherwise the whole line is the name.
 pub(crate) fn split_ingredient_line(line: &str) -> NewIngredientLine {
+    let decoded = decode_html_entities(line);
+    let line = decoded.as_str();
     let tokens: Vec<&str> = line.split_whitespace().collect();
     if tokens.is_empty() {
         return NewIngredientLine {
@@ -575,6 +648,15 @@ pub(crate) fn extract_image_url(json: &serde_json::Value) -> Option<String> {
         }
     }
 
+    // Top-level arrays (e.g. `[Recipe, BreadcrumbList]`): recurse into items.
+    if let Some(arr) = json.as_array() {
+        for item in arr {
+            if let Some(url) = extract_image_url(item) {
+                return Some(url);
+            }
+        }
+    }
+
     let img = json.get("image")?;
     match img {
         serde_json::Value::String(s) => Some(s.clone()),
@@ -583,8 +665,40 @@ pub(crate) fn extract_image_url(json: &serde_json::Value) -> Option<String> {
             serde_json::Value::Object(o) => o.get("url").and_then(|u| u.as_str()).map(String::from),
             _ => None,
         }),
-        serde_json::Value::Object(o) => o.get("url").and_then(|u| u.as_str()).map(String::from),
+        serde_json::Value::Object(o) => o
+            .get("url")
+            .or_else(|| o.get("contentUrl"))
+            .and_then(|u| u.as_str())
+            .map(String::from),
         _ => None,
+    }
+}
+
+/// Scan a JSON-LD block's sibling nodes for an `ImageObject` URL (e.g. a
+/// chefkoch `@graph` whose Recipe `image` is an `@id`-only reference).
+fn find_sibling_image_url(json: &serde_json::Value) -> Option<String> {
+    fn node_url(node: &serde_json::Value) -> Option<String> {
+        let is_image_object = match node.get("@type") {
+            Some(serde_json::Value::String(s)) => s == "ImageObject",
+            Some(serde_json::Value::Array(arr)) => {
+                arr.iter().any(|t| t.as_str() == Some("ImageObject"))
+            }
+            _ => false,
+        };
+        if !is_image_object {
+            return None;
+        }
+        node.get("url")
+            .or_else(|| node.get("contentUrl"))
+            .and_then(|u| u.as_str())
+            .map(String::from)
+    }
+    if let Some(graph) = json.get("@graph").and_then(|g| g.as_array()) {
+        graph.iter().find_map(node_url)
+    } else if let Some(arr) = json.as_array() {
+        arr.iter().find_map(node_url)
+    } else {
+        node_url(json)
     }
 }
 
@@ -717,7 +831,9 @@ pub fn extract_image_urls_from_html(html: &str, base_url: &str) -> Vec<String> {
         for el in document.select(&sel) {
             let block = el.text().collect::<String>();
             if let Ok(json) = serde_json::from_str::<serde_json::Value>(&block) {
-                if let Some(img) = extract_image_url(&json) {
+                if let Some(img) =
+                    extract_image_url(&json).or_else(|| find_sibling_image_url(&json))
+                {
                     if let Some(abs) = resolve_url(&img, base_url) {
                         if seen.insert(abs.clone()) {
                             urls.push(abs);
