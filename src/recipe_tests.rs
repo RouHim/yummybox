@@ -174,6 +174,88 @@ fn given_ingredient_with_quantity_when_parse_then_split() {
 }
 
 #[test]
+fn given_german_metric_units_when_parse_then_split() {
+    let cases = [
+        ("400 g Putenschnitzel", "400 g", "Putenschnitzel"),
+        ("30 g Mehl (Type 405)", "30 g", "Mehl (Type 405)"),
+        ("300 ml Gemüsebrühe", "300 ml", "Gemüsebrühe"),
+        ("80 g Sahne", "80 g", "Sahne"),
+        ("1 kg Kartoffeln", "1 kg", "Kartoffeln"),
+        ("500 ml Milch", "500 ml", "Milch"),
+    ];
+    for (line, qty, name) in cases {
+        let ingredient = crate::recipe::split_ingredient_line(line);
+        assert_eq!(ingredient.name, name, "line: {line}");
+        assert_eq!(ingredient.quantity.as_deref(), Some(qty), "line: {line}");
+    }
+}
+
+#[test]
+fn given_german_spoon_units_when_parse_then_split() {
+    let cases = [
+        ("4 EL Sonnenblumenöl", "4 EL", "Sonnenblumenöl"),
+        ("3 EL Olivenöl", "3 EL", "Olivenöl"),
+        (
+            "1 EL Paprikapulver (edelsüß)",
+            "1 EL",
+            "Paprikapulver (edelsüß)",
+        ),
+        ("2 EL Tomatenmark", "2 EL", "Tomatenmark"),
+        ("2 TL Salz", "2 TL", "Salz"),
+        ("1 Prise Pfeffer", "1 Prise", "Pfeffer"),
+    ];
+    for (line, qty, name) in cases {
+        let ingredient = crate::recipe::split_ingredient_line(line);
+        assert_eq!(ingredient.name, name, "line: {line}");
+        assert_eq!(ingredient.quantity.as_deref(), Some(qty), "line: {line}");
+    }
+}
+
+#[test]
+fn given_bare_count_without_unit_when_parse_then_split() {
+    let cases = [
+        ("2 rote Paprika", "2", "rote Paprika"),
+        ("1 Zwiebel", "1", "Zwiebel"),
+        ("3 Eier", "3", "Eier"),
+        ("1/2 Zitrone", "1/2", "Zitrone"),
+    ];
+    for (line, qty, name) in cases {
+        let ingredient = crate::recipe::split_ingredient_line(line);
+        assert_eq!(ingredient.name, name, "line: {line}");
+        assert_eq!(ingredient.quantity.as_deref(), Some(qty), "line: {line}");
+    }
+}
+
+#[test]
+fn given_no_leading_number_when_parse_then_name_only() {
+    let ingredient = crate::recipe::split_ingredient_line("etwas Salz");
+    assert_eq!(ingredient.name, "etwas Salz");
+    assert!(ingredient.quantity.is_none());
+}
+
+#[test]
+fn given_glued_unit_when_parse_then_split() {
+    let cases = [
+        ("400g Putenschnitzel", "400 g", "Putenschnitzel"),
+        ("2EL Öl", "2 EL", "Öl"),
+    ];
+    for (line, qty, name) in cases {
+        let ingredient = crate::recipe::split_ingredient_line(line);
+        assert_eq!(ingredient.name, name, "line: {line}");
+        assert_eq!(ingredient.quantity.as_deref(), Some(qty), "line: {line}");
+    }
+}
+
+#[test]
+fn given_mixed_token_and_unknown_suffix_when_parse_then_name_only() {
+    for line in ["7-Kräuter-Mischung", "400xyz Mehl"] {
+        let ingredient = crate::recipe::split_ingredient_line(line);
+        assert_eq!(ingredient.name, line, "line: {line}");
+        assert!(ingredient.quantity.is_none(), "line: {line}");
+    }
+}
+
+#[test]
 fn given_html_without_recipe_when_parse_then_error() {
     let html = r#"<html><head>
 <script type="application/ld+json">
