@@ -87,6 +87,7 @@ pub async fn fetch_and_parse(url: &str) -> Result<ImportDraft, AppError> {
 
     // Image download (best-effort) — needs its own client
     if let Some(img_url) = image_url {
+        let img_url = resolve_url(&img_url, url).unwrap_or(img_url);
         if let Ok(client) = reqwest::Client::builder()
             .timeout(Duration::from_secs(30))
             .connect_timeout(Duration::from_secs(10))
@@ -179,9 +180,10 @@ fn parse_recipe_with_image_url(text: &str) -> Result<(ImportDraft, Option<String
                         String::new()
                     }
                 });
-            let instructions = sanitize_instructions(&raw_instructions);
+            let instructions = decode_html_entities(&sanitize_instructions(&raw_instructions));
 
-            let image_url = extract_image_url(json_value);
+            let image_url =
+                extract_image_url(json_value).or_else(|| find_sibling_image_url(json_value));
 
             let portions = recipe.yields().as_ref().and_then(|y| {
                 let s = y.to_string();
@@ -215,6 +217,7 @@ fn parse_recipe_with_image_url(text: &str) -> Result<(ImportDraft, Option<String
         collect_recipe_nodes(block, &mut nodes);
         for node in nodes {
             if let Some((draft, image_url)) = draft_from_recipe_json(node) {
+                let image_url = image_url.or_else(|| find_sibling_image_url(block));
                 return Ok((draft, image_url));
             }
         }
@@ -252,6 +255,22 @@ fn draft_from_recipe_json(json: &serde_json::Value) -> Option<(ImportDraft, Opti
         Some(serde_json::Value::Array(arr)) => {
             arr.iter().filter_map(|v| v.as_str()).collect::<Vec<_>>()
         }
+        Some(serde_json::Value::Object(obj)) => {
+            // Some sites (e.g. sallys-blog) emit a JSON object with
+            // numeric-string keys instead of an array. Sort numeric-aware
+            // so "10" orders after "9"; non-numeric keys sort last.
+            let mut entries: Vec<(Option<u64>, &str, &str)> = obj
+                .iter()
+                .filter_map(|(k, v)| v.as_str().map(|s| (k.parse::<u64>().ok(), k.as_str(), s)))
+                .collect();
+            entries.sort_by(|a, b| match (&a.0, &b.0) {
+                (Some(x), Some(y)) => x.cmp(y).then_with(|| a.1.cmp(b.1)),
+                (Some(_), None) => std::cmp::Ordering::Less,
+                (None, Some(_)) => std::cmp::Ordering::Greater,
+                (None, None) => a.1.cmp(b.1),
+            });
+            entries.into_iter().map(|(_, _, s)| s).collect::<Vec<_>>()
+        }
         _ => Vec::new(),
     }
     .into_iter()
@@ -269,7 +288,7 @@ fn draft_from_recipe_json(json: &serde_json::Value) -> Option<(ImportDraft, Opti
     if let Some(instructions) = json.get("recipeInstructions") {
         flatten_instruction_texts(instructions, &mut steps);
     }
-    let instructions = sanitize_instructions(&steps.join("\n"));
+    let instructions = decode_html_entities(&sanitize_instructions(&steps.join("\n")));
 
     let portions = parse_yield_portions(json.get("recipeYield"));
     let image_url = extract_image_url(json);
@@ -337,7 +356,33 @@ fn parse_yield_portions(yield_value: Option<&serde_json::Value>) -> Option<i32> 
 }
 
 /// Unit words recognized as a quantity prefix in ingredient lines.
+/// Language-specific: currently English + German (see `*_german_*` /
+/// `*_bare_count_*` cases in `recipe_tests.rs`). A new import language MUST
+/// add its unit words here, or its quantities silently land in the
+/// ingredient name (quantity `None`).
 const UNITS: &[&str] = &[
+    "el",
+    "esslöffel",
+    "tl",
+    "teelöffel",
+    "prise",
+    "prisen",
+    "päckchen",
+    "pck",
+    "bund",
+    "zehe",
+    "zehen",
+    "scheibe",
+    "scheiben",
+    "stück",
+    "stueck",
+    "dose",
+    "dosen",
+    "glas",
+    "gläser",
+    "becher",
+    "tasse",
+    "tassen",
     "cup",
     "cups",
     "tbsp",
@@ -349,12 +394,16 @@ const UNITS: &[&str] = &[
     "g",
     "gram",
     "grams",
+    "gramm",
     "kg",
     "kilogram",
     "kilograms",
+    "kilogramm",
     "ml",
     "milliliter",
     "milliliters",
+    "dl",
+    "cl",
     "l",
     "liter",
     "liters",
@@ -389,10 +438,62 @@ const UNITS: &[&str] = &[
     "cans",
 ];
 
+/// Decode HTML entities in a recipe string (`&frac12;`, `&nbsp;`, `&amp;`,
+/// decimal/hex numeric references). Unknown entities pass through unchanged.
+pub(crate) fn decode_html_entities(s: &str) -> String {
+    let mut out = String::with_capacity(s.len());
+    let mut rest = s;
+    while let Some(amp) = rest.find('&') {
+        out.push_str(&rest[..amp]);
+        rest = &rest[amp..];
+        let Some(semi) = rest.find(';') else {
+            out.push_str(rest);
+            break;
+        };
+        if semi > 32 {
+            // Not a plausible entity; copy the `&` and keep scanning.
+            out.push('&');
+            rest = &rest[1..];
+            continue;
+        }
+        let entity = &rest[1..semi];
+        let decoded = if entity.starts_with("#x") || entity.starts_with("#X") {
+            u32::from_str_radix(&entity[2..], 16)
+                .ok()
+                .and_then(char::from_u32)
+        } else if let Some(num) = entity.strip_prefix('#') {
+            num.parse::<u32>().ok().and_then(char::from_u32)
+        } else {
+            match entity {
+                "nbsp" => Some(' '),
+                "amp" => Some('&'),
+                "lt" => Some('<'),
+                "gt" => Some('>'),
+                "quot" => Some('"'),
+                "apos" => Some('\''),
+                "frac12" => Some('½'),
+                "frac14" => Some('¼'),
+                "frac34" => Some('¾'),
+                _ => None,
+            }
+        };
+        match decoded {
+            Some(c) => out.push(c),
+            None => out.push_str(&rest[..=semi]),
+        }
+        rest = &rest[semi + 1..];
+    }
+    out.push_str(rest);
+    out
+}
+
 /// Split an ingredient line into name and optional quantity.
-/// Best-effort: if the line starts with a quantity prefix (number + unit word),
-/// the prefix is the quantity and the rest is the name. Otherwise the whole line is the name.
+/// Best-effort: if the line starts with a number, the leading number (plus a
+/// following unit word, if any) is the quantity and the rest is the name.
+/// Otherwise the whole line is the name.
 pub(crate) fn split_ingredient_line(line: &str) -> NewIngredientLine {
+    let decoded = decode_html_entities(line);
+    let line = decoded.as_str();
     let tokens: Vec<&str> = line.split_whitespace().collect();
     if tokens.is_empty() {
         return NewIngredientLine {
@@ -400,37 +501,126 @@ pub(crate) fn split_ingredient_line(line: &str) -> NewIngredientLine {
             quantity: None,
         };
     }
+    // Leading amount ("2", "1/2", "1,5", "400g", "½") — possibly with a unit
+    // glued on ("400g", "2EL"). Mixed tokens like "7-Kräuter" are names.
+    let Some((amount, glued_unit)) = split_leading_amount(tokens[0]) else {
+        return NewIngredientLine {
+            name: truncate(line.trim(), 100),
+            quantity: None,
+        };
+    };
+    if tokens.len() < 2 {
+        return NewIngredientLine {
+            name: truncate(line.trim(), 100),
+            quantity: None,
+        };
+    }
 
-    // Check if first token starts with a digit or is a fraction (1/2, 1½, etc.)
-    let starts_with_number = tokens[0]
-        .chars()
-        .next()
-        .map(|c| c.is_ascii_digit() || c == '½' || c == '⅓' || c == '⅔' || c == '¼' || c == '¾')
-        .unwrap_or(false);
-
-    if starts_with_number && tokens.len() >= 2 {
-        // Check if the second token (or sometimes third) is a unit word
-        let unit_idx = tokens.iter().skip(1).take(2).position(|t| {
-            UNITS.contains(&t.to_lowercase().trim_end_matches(',').trim_end_matches('.'))
-        });
-
-        if let Some(rel_idx) = unit_idx {
-            let unit_end = 1 + rel_idx + 1; // number + unit
-            let quantity = tokens[..unit_end].join(" ");
-            let name = tokens[unit_end..].join(" ");
+    // Glued unit ("400g Mehl", "2EL Öl"): amount + glued suffix is the quantity.
+    // Unknown suffix ("400xyz Mehl") stays name-only instead of dropping text.
+    if let Some(unit) = glued_unit {
+        let unit_lower = unit.to_lowercase();
+        if UNITS.contains(&unit_lower.as_str()) {
+            let name = tokens[1..].join(" ");
             if !name.is_empty() {
                 return NewIngredientLine {
                     name: truncate(name.trim(), 100),
-                    quantity: Some(truncate(quantity.trim(), 50)),
+                    quantity: Some(truncate(format!("{amount} {unit}").trim(), 50)),
                 };
             }
         }
+        return NewIngredientLine {
+            name: truncate(line.trim(), 100),
+            quantity: None,
+        };
+    }
+
+    // Check if the second token (or sometimes third) is a unit word
+    let unit_idx = tokens.iter().skip(1).take(2).position(|t| {
+        UNITS.contains(&t.to_lowercase().trim_end_matches(',').trim_end_matches('.'))
+    });
+
+    if let Some(rel_idx) = unit_idx {
+        let unit_end = 1 + rel_idx + 1; // number + unit
+        let quantity = tokens[..unit_end].join(" ");
+        let name = tokens[unit_end..].join(" ");
+        if !name.is_empty() {
+            return NewIngredientLine {
+                name: truncate(name.trim(), 100),
+                quantity: Some(truncate(quantity.trim(), 50)),
+            };
+        }
+    }
+
+    // Bare count without a unit word ("2 rote Paprika", "1 Zwiebel"):
+    // the leading number is the quantity, the rest is the name. A second
+    // numeric token ("1 - 2 Zwiebeln", "1 x 400g") is a range/pack size,
+    // not a count — keep the whole line name-only like before.
+    let second = tokens[1].trim_end_matches(',').trim_end_matches('.');
+    if second == "-"
+        || second == "–"
+        || second == "—"
+        || second == "x"
+        || second == "×"
+        || split_leading_amount(second).is_some()
+    {
+        return NewIngredientLine {
+            name: truncate(line.trim(), 100),
+            quantity: None,
+        };
+    }
+    let name = tokens[1..].join(" ");
+    if !name.is_empty() {
+        return NewIngredientLine {
+            name: truncate(name.trim(), 100),
+            quantity: Some(truncate(amount.trim(), 50)),
+        };
     }
 
     NewIngredientLine {
         name: truncate(line.trim(), 100),
         quantity: None,
     }
+}
+
+/// Split a leading token into its numeric amount and an optional glued-on unit
+/// suffix (`"400g"` → `("400", "g")`, `"2"` → `("2", None)`).
+/// Returns `None` when the token is not a pure amount (e.g. `"7-Kräuter"` or
+/// `"etwas"`), so such lines stay name-only.
+fn split_leading_amount(token: &str) -> Option<(&str, Option<&str>)> {
+    const FRACTIONS: &[char] = &['½', '⅓', '⅔', '¼', '¾', '⅛', '⅜', '⅝', '⅞'];
+    let cut = token
+        .char_indices()
+        .take_while(|(_, c)| {
+            c.is_ascii_digit() || *c == '/' || *c == '.' || *c == ',' || FRACTIONS.contains(c)
+        })
+        .map(|(i, c)| i + c.len_utf8())
+        .last()?;
+    if cut == 0 {
+        return None;
+    }
+    let (amount, mut rest) = token.split_at(cut);
+    // A trailing separator ("1.", "1,") is ordinal/punctuation, not an amount.
+    if amount.ends_with(['.', ',']) {
+        return None;
+    }
+    // A bare separator ("/", ".", ",") is not an amount.
+    if !amount
+        .chars()
+        .any(|c| c.is_ascii_digit() || FRACTIONS.contains(&c))
+    {
+        return None;
+    }
+    // Trailing punctuation on a glued suffix ("400g,") belongs to the line,
+    // not the unit.
+    rest = rest.trim_end_matches(['.', ',']);
+    if rest.is_empty() {
+        return Some((amount, None));
+    }
+    if rest.chars().all(|c| c.is_alphabetic()) {
+        return Some((amount, Some(rest)));
+    }
+    None
 }
 
 /// Truncate a string to `max` chars, appending `…` if truncated.
@@ -458,6 +648,15 @@ pub(crate) fn extract_image_url(json: &serde_json::Value) -> Option<String> {
         }
     }
 
+    // Top-level arrays (e.g. `[Recipe, BreadcrumbList]`): recurse into items.
+    if let Some(arr) = json.as_array() {
+        for item in arr {
+            if let Some(url) = extract_image_url(item) {
+                return Some(url);
+            }
+        }
+    }
+
     let img = json.get("image")?;
     match img {
         serde_json::Value::String(s) => Some(s.clone()),
@@ -466,8 +665,40 @@ pub(crate) fn extract_image_url(json: &serde_json::Value) -> Option<String> {
             serde_json::Value::Object(o) => o.get("url").and_then(|u| u.as_str()).map(String::from),
             _ => None,
         }),
-        serde_json::Value::Object(o) => o.get("url").and_then(|u| u.as_str()).map(String::from),
+        serde_json::Value::Object(o) => o
+            .get("url")
+            .or_else(|| o.get("contentUrl"))
+            .and_then(|u| u.as_str())
+            .map(String::from),
         _ => None,
+    }
+}
+
+/// Scan a JSON-LD block's sibling nodes for an `ImageObject` URL (e.g. a
+/// chefkoch `@graph` whose Recipe `image` is an `@id`-only reference).
+fn find_sibling_image_url(json: &serde_json::Value) -> Option<String> {
+    fn node_url(node: &serde_json::Value) -> Option<String> {
+        let is_image_object = match node.get("@type") {
+            Some(serde_json::Value::String(s)) => s == "ImageObject",
+            Some(serde_json::Value::Array(arr)) => {
+                arr.iter().any(|t| t.as_str() == Some("ImageObject"))
+            }
+            _ => false,
+        };
+        if !is_image_object {
+            return None;
+        }
+        node.get("url")
+            .or_else(|| node.get("contentUrl"))
+            .and_then(|u| u.as_str())
+            .map(String::from)
+    }
+    if let Some(graph) = json.get("@graph").and_then(|g| g.as_array()) {
+        graph.iter().find_map(node_url)
+    } else if let Some(arr) = json.as_array() {
+        arr.iter().find_map(node_url)
+    } else {
+        node_url(json)
     }
 }
 
@@ -600,7 +831,9 @@ pub fn extract_image_urls_from_html(html: &str, base_url: &str) -> Vec<String> {
         for el in document.select(&sel) {
             let block = el.text().collect::<String>();
             if let Ok(json) = serde_json::from_str::<serde_json::Value>(&block) {
-                if let Some(img) = extract_image_url(&json) {
+                if let Some(img) =
+                    extract_image_url(&json).or_else(|| find_sibling_image_url(&json))
+                {
                     if let Some(abs) = resolve_url(&img, base_url) {
                         if seen.insert(abs.clone()) {
                             urls.push(abs);
