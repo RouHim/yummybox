@@ -174,6 +174,126 @@ fn given_ingredient_with_quantity_when_parse_then_split() {
 }
 
 #[test]
+fn given_german_metric_units_when_parse_then_split() {
+    let cases = [
+        ("400 g Putenschnitzel", "400 g", "Putenschnitzel"),
+        ("30 g Mehl (Type 405)", "30 g", "Mehl (Type 405)"),
+        ("300 ml Gemüsebrühe", "300 ml", "Gemüsebrühe"),
+        ("80 g Sahne", "80 g", "Sahne"),
+        ("1 kg Kartoffeln", "1 kg", "Kartoffeln"),
+        ("500 ml Milch", "500 ml", "Milch"),
+    ];
+    for (line, qty, name) in cases {
+        let ingredient = crate::recipe::split_ingredient_line(line);
+        assert_eq!(ingredient.name, name, "line: {line}");
+        assert_eq!(ingredient.quantity.as_deref(), Some(qty), "line: {line}");
+    }
+}
+
+#[test]
+fn given_german_spoon_units_when_parse_then_split() {
+    let cases = [
+        ("4 EL Sonnenblumenöl", "4 EL", "Sonnenblumenöl"),
+        ("3 EL Olivenöl", "3 EL", "Olivenöl"),
+        (
+            "1 EL Paprikapulver (edelsüß)",
+            "1 EL",
+            "Paprikapulver (edelsüß)",
+        ),
+        ("2 EL Tomatenmark", "2 EL", "Tomatenmark"),
+        ("2 TL Salz", "2 TL", "Salz"),
+        ("1 Prise Pfeffer", "1 Prise", "Pfeffer"),
+    ];
+    for (line, qty, name) in cases {
+        let ingredient = crate::recipe::split_ingredient_line(line);
+        assert_eq!(ingredient.name, name, "line: {line}");
+        assert_eq!(ingredient.quantity.as_deref(), Some(qty), "line: {line}");
+    }
+}
+
+#[test]
+fn given_bare_count_without_unit_when_parse_then_split() {
+    let cases = [
+        ("2 rote Paprika", "2", "rote Paprika"),
+        ("1 Zwiebel", "1", "Zwiebel"),
+        ("3 Eier", "3", "Eier"),
+        ("1/2 Zitrone", "1/2", "Zitrone"),
+    ];
+    for (line, qty, name) in cases {
+        let ingredient = crate::recipe::split_ingredient_line(line);
+        assert_eq!(ingredient.name, name, "line: {line}");
+        assert_eq!(ingredient.quantity.as_deref(), Some(qty), "line: {line}");
+    }
+}
+
+#[test]
+fn given_no_leading_number_when_parse_then_name_only() {
+    let ingredient = crate::recipe::split_ingredient_line("etwas Salz");
+    assert_eq!(ingredient.name, "etwas Salz");
+    assert!(ingredient.quantity.is_none());
+}
+
+#[test]
+fn given_glued_unit_when_parse_then_split() {
+    let cases = [
+        ("400g Putenschnitzel", "400 g", "Putenschnitzel"),
+        ("2EL Öl", "2 EL", "Öl"),
+    ];
+    for (line, qty, name) in cases {
+        let ingredient = crate::recipe::split_ingredient_line(line);
+        assert_eq!(ingredient.name, name, "line: {line}");
+        assert_eq!(ingredient.quantity.as_deref(), Some(qty), "line: {line}");
+    }
+}
+
+#[test]
+fn given_mixed_token_and_unknown_suffix_when_parse_then_name_only() {
+    for line in ["7-Kräuter-Mischung", "400xyz Mehl"] {
+        let ingredient = crate::recipe::split_ingredient_line(line);
+        assert_eq!(ingredient.name, line, "line: {line}");
+        assert!(ingredient.quantity.is_none(), "line: {line}");
+    }
+}
+
+#[test]
+fn given_spelled_out_german_units_when_parse_then_split() {
+    let cases = [
+        ("200 Gramm Mehl", "200 Gramm", "Mehl"),
+        ("1 Kilogramm Kartoffeln", "1 Kilogramm", "Kartoffeln"),
+    ];
+    for (line, qty, name) in cases {
+        let ingredient = crate::recipe::split_ingredient_line(line);
+        assert_eq!(ingredient.name, name, "line: {line}");
+        assert_eq!(ingredient.quantity.as_deref(), Some(qty), "line: {line}");
+    }
+}
+
+#[test]
+fn given_range_or_pack_size_when_parse_then_name_only() {
+    for line in ["1 - 2 Zwiebeln", "1 x 400g Dose Tomaten", "2 400g Dosen"] {
+        let ingredient = crate::recipe::split_ingredient_line(line);
+        assert_eq!(ingredient.name, line, "line: {line}");
+        assert!(ingredient.quantity.is_none(), "line: {line}");
+    }
+}
+
+#[test]
+fn given_separator_only_first_token_when_parse_then_name_only() {
+    for line in ["/ Eier", "1. Zwiebel"] {
+        let ingredient = crate::recipe::split_ingredient_line(line);
+        assert_eq!(ingredient.name, line, "line: {line}");
+        assert!(ingredient.quantity.is_none(), "line: {line}");
+    }
+}
+
+#[test]
+fn given_glued_unit_with_trailing_punctuation_when_parse_then_split() {
+    let ingredient = crate::recipe::split_ingredient_line("400g, Mehl");
+    assert_eq!(ingredient.name, "Mehl");
+    assert_eq!(ingredient.quantity.as_deref(), Some("400 g"));
+}
+
+#[test]
 fn given_html_without_recipe_when_parse_then_error() {
     let html = r#"<html><head>
 <script type="application/ld+json">
@@ -440,4 +560,138 @@ fn given_mixed_steps_and_section_when_parse_then_all_steps_joined() {
         "Kartoffeln schneiden.\nBohnen kochen.\nJoghurt ruehren und servieren."
     );
     assert_eq!(draft.portions, Some(2));
+}
+
+// -----------------------------------------------------------------------
+// Recipe parser fixes: entities, object-form ingredients, image shapes
+// -----------------------------------------------------------------------
+
+#[test]
+fn given_top_level_array_when_extract_image_url_then_returns_recipe_image() {
+    let json: serde_json::Value = serde_json::json!([
+        {
+            "@type": "Recipe",
+            "name": "Array-Rezept",
+            "image": ["https://example.com/array.jpg"],
+            "recipeIngredient": ["1 Zwiebel"],
+            "recipeInstructions": ["Schneiden."]
+        },
+        {"@type": "BreadcrumbList", "itemListElement": []}
+    ]);
+    let result = extract_image_url(&json);
+    assert_eq!(result.as_deref(), Some("https://example.com/array.jpg"));
+}
+
+#[test]
+fn given_object_form_ingredients_when_parse_then_numeric_key_order() {
+    let html = r#"<html><head><script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@type": "Recipe",
+  "name": "Objekt-Kuchen",
+  "recipeIngredient": {"0": "1 Mehl", "2": "2 Butter", "10": "1 Salz"},
+  "recipeInstructions": ["Backen."]
+}
+</script></head><body></body></html>"#;
+    let draft = parse_recipe(html).expect("should parse object-form ingredients");
+    let names: Vec<&str> = draft.ingredients.iter().map(|i| i.name.as_str()).collect();
+    assert_eq!(names, vec!["Mehl", "Butter", "Salz"]);
+    assert_eq!(
+        draft.ingredients[0].quantity.as_deref(),
+        Some("1"),
+        "bare count without unit word"
+    );
+}
+
+#[test]
+fn given_html_entities_when_split_then_decoded_quantities() {
+    let becher = crate::recipe::split_ingredient_line("&frac12; Becher Kräuterfrischkäse");
+    assert_eq!(becher.name, "Kräuterfrischkäse");
+    assert_eq!(becher.quantity.as_deref(), Some("½ Becher"));
+
+    let spoon = crate::recipe::split_ingredient_line("1&nbsp;EL Zucker");
+    assert_eq!(spoon.name, "Zucker");
+    assert_eq!(spoon.quantity.as_deref(), Some("1 EL"));
+
+    let numeric = crate::recipe::split_ingredient_line("&#189; Tasse Milch");
+    assert_eq!(numeric.quantity.as_deref(), Some("½ Tasse"));
+
+    let unknown = crate::recipe::decode_html_entities("1 &bogus; Mehl");
+    assert_eq!(unknown, "1 &bogus; Mehl");
+}
+
+#[test]
+fn given_entity_in_instructions_when_parse_then_plain_space() {
+    let html = r#"<html><head><script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@type": "Recipe",
+  "name": "Entitäten-Topf",
+  "recipeIngredient": ["1 Zwiebel"],
+  "recipeInstructions": ["Teig&nbsp;ruhen lassen."]
+}
+</script></head><body></body></html>"#;
+    let draft = parse_recipe(html).expect("should parse");
+    assert_eq!(draft.instructions, "Teig ruhen lassen.");
+    assert!(!draft.instructions.contains("&nbsp;"));
+}
+
+#[test]
+fn given_at_id_image_with_sibling_image_object_when_parse_then_sibling_url() {
+    let html = r#"<html><head><script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@graph": [
+    {
+      "@type": "Recipe",
+      "@id": "https://example.com/rezept/#recipe",
+      "name": "Chefkoch-Topf",
+      "image": {"@id": "https://example.com/rezept/#primaryimage"},
+      "recipeIngredient": ["1 Zwiebel"],
+      "recipeInstructions": ["Kochen."]
+    },
+    {
+      "@type": "ImageObject",
+      "@id": "https://example.com/rezept/#primaryimage",
+      "url": "https://example.com/chefkoch.jpg"
+    }
+  ]
+}
+</script></head><body></body></html>"#;
+    let block: serde_json::Value = {
+        let document = scraper::Html::parse_document(html);
+        let selector = scraper::Selector::parse(r#"script[type="application/ld+json"]"#)
+            .expect("static selector");
+        let text = document
+            .select(&selector)
+            .next()
+            .expect("one block")
+            .text()
+            .collect::<String>();
+        serde_json::from_str(&text).expect("valid JSON")
+    };
+    // The Recipe node itself has no usable URL; the block-level helper
+    // recovers the sibling ImageObject URL.
+    let recipe_node = block
+        .get("@graph")
+        .and_then(|g| g.as_array())
+        .and_then(|g| {
+            g.iter()
+                .find(|n| n.get("@type").and_then(|t| t.as_str()) == Some("Recipe"))
+        })
+        .expect("recipe node");
+    assert!(extract_image_url(recipe_node).is_none());
+    let urls = extract_image_urls_from_html(html, "https://example.com/rezept/");
+    assert!(
+        urls.iter().any(|u| u == "https://example.com/chefkoch.jpg"),
+        "sibling ImageObject URL found, got: {urls:?}"
+    );
+}
+
+#[test]
+fn given_dl_cl_units_when_split_then_quantity_includes_unit() {
+    for (line, qty) in [("1 dl Weisswein", "1 dl"), ("2 cl Essig", "2 cl")] {
+        let ingredient = crate::recipe::split_ingredient_line(line);
+        assert_eq!(ingredient.quantity.as_deref(), Some(qty), "line: {line}");
+    }
 }
