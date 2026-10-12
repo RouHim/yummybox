@@ -1,3 +1,10 @@
+## [1.23.2](https://github.com/RouHim/yummybox/compare/v1.23.1...v1.23.2) (2026-10-12)
+
+
+### Bug Fixes
+
+* repair recipe parser for entities, object ingredients, and image shapes ([#14](https://github.com/RouHim/yummybox/issues/14)) ([d84fe7c](https://github.com/RouHim/yummybox/commit/d84fe7c5b9046e94e6ab692f6a815551130b783d))
+
 ## [1.23.1](https://github.com/RouHim/yummybox/compare/v1.23.0...v1.23.1) (2026-10-11)
 
 # [1.23.0](https://github.com/RouHim/yummybox/compare/v1.22.2...v1.23.0) (2026-09-25)
