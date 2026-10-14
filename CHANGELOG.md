@@ -1,3 +1,10 @@
+# [1.25.0](https://github.com/RouHim/yummybox/compare/v1.24.0...v1.25.0) (2026-10-14)
+
+
+### Features
+
+* ingredient subsets, pantry staples and extra instructions for spontaneous cooking ([#16](https://github.com/RouHim/yummybox/issues/16)) ([6472ed6](https://github.com/RouHim/yummybox/commit/6472ed6b214f00d7cd1f4891e1b8ea97b8a02d6a))
+
 # [1.24.0](https://github.com/RouHim/yummybox/compare/v1.23.2...v1.24.0) (2026-10-14)
 
 
