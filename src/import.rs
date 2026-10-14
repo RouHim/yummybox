@@ -267,6 +267,9 @@ const MAX_GENERATE_IMAGES: usize = 5;
 /// Maximum length of the ingredients text field.
 const MAX_INGREDIENTS_CHARS: usize = 20000;
 
+/// Maximum length of the extra instructions field.
+const MAX_EXTRA_INSTRUCTIONS_CHARS: usize = 500;
+
 /// Generate a recipe on the fly from an ingredient list and/or photos.
 /// The LLM result is returned as a draft; nothing is persisted here.
 #[instrument(skip(state))]
@@ -275,6 +278,7 @@ pub(crate) async fn generate_meal(
     mut multipart: Multipart,
 ) -> Result<Json<recipe::ImportDraft>, AppError> {
     let mut ingredients: Option<String> = None;
+    let mut extra_instructions: Option<String> = None;
     let mut images: Vec<crate::llm_import::LlmImage> = Vec::new();
 
     while let Some(field) = multipart
@@ -289,6 +293,12 @@ pub(crate) async fn generate_meal(
                     .await
                     .map_err(|e| map_multipart_error(e, "failed to read ingredients field"))?;
                 ingredients = Some(text);
+            }
+            Some("extra_instructions") => {
+                let text = field.text().await.map_err(|e| {
+                    map_multipart_error(e, "failed to read extra_instructions field")
+                })?;
+                extra_instructions = Some(text);
             }
             Some("image") => {
                 let content_type = field.content_type().map(String::from);
@@ -328,6 +338,10 @@ pub(crate) async fn generate_meal(
         .map(|s| s.trim().to_string())
         .filter(|s| !s.is_empty());
 
+    let extra_instructions = extra_instructions
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty());
+
     if ingredients.is_none() && images.is_empty() {
         return Err(AppError::BadRequest(
             "at least one of ingredients or an image is required".into(),
@@ -338,6 +352,14 @@ pub(crate) async fn generate_meal(
         if ing.chars().count() > MAX_INGREDIENTS_CHARS {
             return Err(AppError::BadRequest(
                 "ingredients must be at most 20000 characters".into(),
+            ));
+        }
+    }
+
+    if let Some(extra) = &extra_instructions {
+        if extra.chars().count() > MAX_EXTRA_INSTRUCTIONS_CHARS {
+            return Err(AppError::BadRequest(
+                "extra instructions must be at most 500 characters".into(),
             ));
         }
     }
@@ -360,6 +382,7 @@ pub(crate) async fn generate_meal(
         &ai.target(),
         &ai.model,
         ingredients.as_deref(),
+        extra_instructions.as_deref(),
         images,
     )
     .await?;
