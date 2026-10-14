@@ -695,3 +695,126 @@ fn given_dl_cl_units_when_split_then_quantity_includes_unit() {
         assert_eq!(ingredient.quantity.as_deref(), Some(qty), "line: {line}");
     }
 }
+
+// ---------------------------------------------------------------------------
+// Cookidoo: public recipe pages omit the preparation steps for anonymous
+// visitors (login-gated). The mobile API serves the full recipe without
+// authentication, so cookidoo URLs are imported from there.
+// ---------------------------------------------------------------------------
+
+const COOKIDOO_PAGE_URL: &str = "https://cookidoo.de/recipes/recipe/de-DE/r47931";
+
+// Shape mirrors a real `de.tmmobile.vorwerk-digital.com` recipe payload:
+// ingredients carry quantity/unit/preparation/optional flags, steps contain
+// <nobr> setting annotations and HTML entities, and image assets use a
+// {transformation} slot.
+const COOKIDOO_API_JSON: &str = r#"{
+  "title": "Gewürzpaste für Gemüsebrühe",
+  "servingSize": {"quantity": {"value": 650}, "unitNotation": "g"},
+  "recipeIngredientGroups": [
+    {
+      "title": "",
+      "recipeIngredients": [
+        {"quantity": {"value": 50}, "unitNotation": "g", "ingredientNotation": "Parmesan", "preparation": "in Stücken (3 cm)", "optional": true},
+        {"quantity": {"value": 200}, "unitNotation": "g", "ingredientNotation": "Staudensellerie", "preparation": "in Stücken (3 cm), siehe Tipp", "optional": false},
+        {"quantity": {"value": 1}, "unitNotation": "", "ingredientNotation": "Knoblauchzehe", "preparation": "", "optional": false},
+        {"quantity": {"value": 1}, "unitNotation": "EL", "ingredientNotation": "Olivenöl", "preparation": "", "optional": false},
+        {"quantity": {"value": 40}, "unitNotation": "g", "ingredientNotation": "Butter", "preparation": ", in Stücken", "optional": false},
+        {"ingredientNotation": "Salz zum Abschmecken", "preparation": "", "optional": false}
+      ]
+    }
+  ],
+  "recipeStepGroups": [
+    {"title": "", "recipeSteps": [
+      {"title": "1", "formattedText": "Parmesan in den Mixtopf geben, <nobr>Pürieren /10 Sek.</nobr> und umfüllen."},
+      {"title": "2", "formattedText": "Gemüse <NOBR>10 Sek./Stufe 5</NOBR> zerkleinern."},
+      {"title": "3", "formattedText": "Mit &frac12; TL Salz abschmecken."}
+    ]}
+  ],
+  "descriptiveAssets": [
+    {"type": "image",
+     "square": "https://assets.tmecosys.com/image/upload/{transformation}/img/recipe/ras/Assets/abc/Derivates/def-square",
+     "landscape": "https://assets.tmecosys.com/image/upload/{transformation}/img/recipe/ras/Assets/abc/Derivates/def"}
+  ]
+}"#;
+
+#[test]
+fn given_cookidoo_de_recipe_url_when_resolving_api_url_then_maps_to_mobile_api() {
+    assert_eq!(
+        cookidoo_api_url(COOKIDOO_PAGE_URL),
+        Some("https://de.tmmobile.vorwerk-digital.com/recipes/recipe/de-DE/r47931".to_string())
+    );
+}
+
+#[test]
+fn given_cookidoo_url_with_query_and_fragment_when_resolving_api_url_then_both_dropped() {
+    let url = "https://cookidoo.de/recipes/recipe/de-DE/r47931?utm_source=x#steps";
+    assert_eq!(
+        cookidoo_api_url(url),
+        Some("https://de.tmmobile.vorwerk-digital.com/recipes/recipe/de-DE/r47931".to_string())
+    );
+}
+
+#[test]
+fn given_non_cookidoo_host_when_resolving_api_url_then_none() {
+    assert!(cookidoo_api_url("https://example.com/recipes/recipe/de-DE/r47931").is_none());
+}
+
+#[test]
+fn given_cookidoo_page_without_recipe_id_when_resolving_api_url_then_none() {
+    assert!(cookidoo_api_url("https://cookidoo.de/recipes/search?q=apfel").is_none());
+    assert!(cookidoo_api_url("https://cookidoo.de/recipes/recipe/de-DE/custom-abc").is_none());
+}
+
+#[test]
+fn given_cookidoo_api_payload_when_building_draft_then_maps_recipe_fields() {
+    let json: serde_json::Value = serde_json::from_str(COOKIDOO_API_JSON).expect("fixture parses");
+    let draft = draft_from_cookidoo_json(&json).expect("should build draft");
+
+    assert_eq!(draft.name, "Gewürzpaste für Gemüsebrühe");
+    assert_eq!(draft.portions, Some(650));
+    assert_eq!(draft.ingredients.len(), 6);
+
+    assert_eq!(draft.ingredients[0].quantity.as_deref(), Some("50 g"));
+    assert_eq!(
+        draft.ingredients[0].name,
+        "Parmesan (optional), in Stücken (3 cm)"
+    );
+    assert_eq!(draft.ingredients[1].quantity.as_deref(), Some("200 g"));
+    assert_eq!(
+        draft.ingredients[1].name,
+        "Staudensellerie, in Stücken (3 cm), siehe Tipp"
+    );
+    assert_eq!(draft.ingredients[2].quantity.as_deref(), Some("1"));
+    assert_eq!(draft.ingredients[2].name, "Knoblauchzehe");
+    assert_eq!(draft.ingredients[3].quantity.as_deref(), Some("1 EL"));
+    assert_eq!(draft.ingredients[3].name, "Olivenöl");
+    assert_eq!(draft.ingredients[4].quantity.as_deref(), Some("40 g"));
+    assert_eq!(draft.ingredients[4].name, "Butter, in Stücken");
+    assert_eq!(draft.ingredients[5].quantity, None);
+    assert_eq!(draft.ingredients[5].name, "Salz zum Abschmecken");
+
+    assert_eq!(
+        draft.instructions,
+        "Parmesan in den Mixtopf geben, Pürieren /10 Sek. und umfüllen.\nGemüse 10 Sek./Stufe 5 zerkleinern.\nMit ½ TL Salz abschmecken."
+    );
+}
+
+#[test]
+fn given_cookidoo_api_payload_without_title_when_building_draft_then_none() {
+    let json: serde_json::Value =
+        serde_json::from_str(r#"{"recipeStepGroups": []}"#).expect("fixture parses");
+    assert!(draft_from_cookidoo_json(&json).is_none());
+}
+
+#[test]
+fn given_cookidoo_api_payload_when_resolving_image_url_then_landscape_without_placeholder() {
+    let json: serde_json::Value = serde_json::from_str(COOKIDOO_API_JSON).expect("fixture parses");
+    assert_eq!(
+        cookidoo_image_url(&json),
+        Some(
+            "https://assets.tmecosys.com/image/upload/t_web_rdp_recipe_584x480_1_5x/img/recipe/ras/Assets/abc/Derivates/def.jpg"
+                .to_string()
+        )
+    );
+}

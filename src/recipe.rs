@@ -82,6 +82,13 @@ pub async fn fetch_page_html(url: &str) -> Result<String, AppError> {
 }
 /// Fetch a URL server-side, then parse. Image download is best-effort.
 pub async fn fetch_and_parse(url: &str) -> Result<ImportDraft, AppError> {
+    // Cookidoo hides preparation steps from anonymous visitors on its public
+    // pages; its mobile API serves the full recipe, so prefer it and fall
+    // back to generic HTML parsing when it fails.
+    if let Some(draft) = try_fetch_cookidoo(url).await {
+        return Ok(draft);
+    }
+
     let html = fetch_page_html(url).await?;
     let (mut draft, image_url) = parse_recipe_with_image_url(&html)?;
 
@@ -102,6 +109,235 @@ pub async fn fetch_and_parse(url: &str) -> Result<ImportDraft, AppError> {
     }
 
     Ok(draft)
+}
+
+/// Try to fetch a full recipe from the Cookidoo mobile API. Returns `None`
+/// for non-Cookidoo URLs and for any API failure, so callers can fall back
+/// to generic HTML parsing.
+async fn try_fetch_cookidoo(url: &str) -> Option<ImportDraft> {
+    let api_url = cookidoo_api_url(url)?;
+
+    let client = reqwest::Client::builder()
+        .timeout(Duration::from_secs(30))
+        .connect_timeout(Duration::from_secs(10))
+        .user_agent("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36")
+        .build()
+        .ok()?;
+
+    let resp = client
+        .get(&api_url)
+        .header("accept", "application/vnd.vorwerk.recipe.embedded.hal+json")
+        .send()
+        .await
+        .ok()?;
+
+    if !resp.status().is_success() {
+        tracing::warn!(url = %api_url, status = %resp.status(), "cookidoo API fetch failed; falling back to HTML parsing");
+        return None;
+    }
+
+    let json: serde_json::Value = match resp.json().await {
+        Ok(json) => json,
+        Err(e) => {
+            tracing::warn!(url = %api_url, error = %e, "cookidoo API returned invalid JSON; falling back to HTML parsing");
+            return None;
+        }
+    };
+
+    let mut draft = match draft_from_cookidoo_json(&json) {
+        Some(draft) => draft,
+        None => {
+            tracing::warn!(url = %api_url, "cookidoo API payload has no usable recipe; falling back to HTML parsing");
+            return None;
+        }
+    };
+
+    if let Some(image_url) = cookidoo_image_url(&json) {
+        if let Some(jpeg_bytes) = try_download_image(&client, &image_url).await {
+            draft.image_base64 =
+                Some(base64::engine::general_purpose::STANDARD.encode(&jpeg_bytes));
+        }
+    }
+
+    Some(draft)
+}
+
+/// Map a Cookidoo recipe page URL to the mobile API URL that serves the
+/// complete recipe (including preparation steps).
+///
+/// `https://cookidoo.de/recipes/recipe/de-DE/r47931`
+/// -> `https://de.tmmobile.vorwerk-digital.com/recipes/recipe/de-DE/r47931`
+///
+/// Returns `None` for every other URL shape so the caller can use the
+/// generic HTML parser.
+pub(crate) fn cookidoo_api_url(page_url: &str) -> Option<String> {
+    let parsed = reqwest::Url::parse(page_url).ok()?;
+    let host = parsed.host_str()?.to_lowercase();
+    let host = host.strip_prefix("www.").unwrap_or(&host);
+    let market = host.strip_prefix("cookidoo.")?;
+    if market.is_empty() || !market.chars().all(|c| c.is_ascii_alphanumeric()) {
+        return None;
+    }
+
+    let segments: Vec<&str> = parsed
+        .path_segments()?
+        .filter(|segment| !segment.is_empty())
+        .collect();
+    let [first, second, locale, recipe_id] = segments[..] else {
+        return None;
+    };
+    if first != "recipes" || second != "recipe" {
+        return None;
+    }
+    if locale.len() < 2
+        || locale.len() > 10
+        || !locale
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || c == '-')
+    {
+        return None;
+    }
+    let digits = recipe_id.strip_prefix('r')?;
+    if digits.is_empty() || !digits.chars().all(|c| c.is_ascii_digit()) {
+        return None;
+    }
+
+    Some(format!(
+        "https://{market}.tmmobile.vorwerk-digital.com/recipes/recipe/{locale}/{recipe_id}"
+    ))
+}
+
+/// Build a draft from a Cookidoo mobile API recipe payload. Returns `None`
+/// when the payload has no usable title.
+pub(crate) fn draft_from_cookidoo_json(json: &serde_json::Value) -> Option<ImportDraft> {
+    let name = json.get("title")?.as_str()?.trim().to_string();
+    if name.is_empty() {
+        return None;
+    }
+
+    let mut ingredients = Vec::new();
+    if let Some(groups) = json
+        .get("recipeIngredientGroups")
+        .and_then(|g| g.as_array())
+    {
+        for group in groups {
+            let Some(items) = group.get("recipeIngredients").and_then(|i| i.as_array()) else {
+                continue;
+            };
+            for item in items {
+                if let Some(line) = cookidoo_ingredient_line(item) {
+                    ingredients.push(line);
+                }
+            }
+        }
+    }
+
+    let mut steps = Vec::new();
+    if let Some(groups) = json.get("recipeStepGroups").and_then(|g| g.as_array()) {
+        for group in groups {
+            let Some(items) = group.get("recipeSteps").and_then(|s| s.as_array()) else {
+                continue;
+            };
+            for item in items {
+                if let Some(text) = item.get("formattedText").and_then(|t| t.as_str()) {
+                    let text = text.trim();
+                    if !text.is_empty() {
+                        steps.push(text.to_string());
+                    }
+                }
+            }
+        }
+    }
+    let instructions = decode_html_entities(&sanitize_instructions(&steps.join("\n")));
+
+    let portions = json
+        .get("servingSize")
+        .and_then(|s| s.get("quantity"))
+        .and_then(|q| q.get("value"))
+        .and_then(|v| v.as_i64())
+        .and_then(|value| i32::try_from(value).ok())
+        .filter(|value| (1..=10000).contains(value));
+
+    Some(ImportDraft {
+        name,
+        ingredients,
+        instructions,
+        image_base64: None,
+        portions,
+        source_url: None,
+    })
+}
+
+/// Map one Cookidoo API ingredient to a meal ingredient line. Quantity and
+/// unit are joined ("200 g"); preparation and the optional flag become part
+/// of the name ("Parmesan (optional), in Stücken (3 cm)").
+fn cookidoo_ingredient_line(item: &serde_json::Value) -> Option<NewIngredientLine> {
+    let raw_name = item.get("ingredientNotation")?.as_str()?.trim();
+    if raw_name.is_empty() {
+        return None;
+    }
+
+    let value = item
+        .get("quantity")
+        .and_then(|q| q.get("value"))
+        .map(|v| match v {
+            serde_json::Value::Number(n) => n.to_string(),
+            serde_json::Value::String(s) => s.trim().to_string(),
+            _ => String::new(),
+        })
+        .unwrap_or_default();
+    let unit = item
+        .get("unitNotation")
+        .and_then(|u| u.as_str())
+        .unwrap_or("")
+        .trim();
+
+    let quantity = match (value.is_empty(), unit.is_empty()) {
+        (true, _) => None,
+        (false, true) => Some(value),
+        (false, false) => Some(format!("{value} {unit}")),
+    };
+
+    let mut name = raw_name.to_string();
+    if item
+        .get("optional")
+        .and_then(|o| o.as_bool())
+        .unwrap_or(false)
+    {
+        name.push_str(" (optional)");
+    }
+    let preparation = item
+        .get("preparation")
+        .and_then(|p| p.as_str())
+        .map(|p| p.trim().trim_start_matches(',').trim())
+        .filter(|p| !p.is_empty());
+    if let Some(preparation) = preparation {
+        name.push_str(", ");
+        name.push_str(preparation);
+    }
+
+    Some(NewIngredientLine {
+        name: truncate(&name, 100),
+        quantity: quantity.as_deref().map(|q| truncate(q, 50)),
+    })
+}
+
+/// Extract the best available image URL from a Cookidoo API payload. Asset
+/// URLs contain a `{transformation}` placeholder and have no file extension;
+/// both are filled in to produce a loadable JPEG URL.
+pub(crate) fn cookidoo_image_url(json: &serde_json::Value) -> Option<String> {
+    let asset = json.get("descriptiveAssets")?.as_array()?.first()?;
+    let url = asset
+        .get("landscape")
+        .or_else(|| asset.get("square"))
+        .or_else(|| asset.get("portrait"))
+        .and_then(|u| u.as_str())?;
+    let url = url.replace("{transformation}", "t_web_rdp_recipe_584x480_1_5x");
+    if url.rsplit('/').next().unwrap_or("").contains('.') {
+        Some(url)
+    } else {
+        Some(format!("{url}.jpg"))
+    }
 }
 
 /// Parse recipe and return the draft plus the raw image URL (if found in JSON-LD).
