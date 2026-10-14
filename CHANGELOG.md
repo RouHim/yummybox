@@ -1,3 +1,10 @@
+# [1.24.0](https://github.com/RouHim/yummybox/compare/v1.23.2...v1.24.0) (2026-10-14)
+
+
+### Features
+
+* import Cookidoo recipes including preparation steps via mobile API ([#15](https://github.com/RouHim/yummybox/issues/15)) ([cc5b327](https://github.com/RouHim/yummybox/commit/cc5b327d0fa67d1dbb5a3d196c3277ff2e06e5bb))
+
 ## [1.23.2](https://github.com/RouHim/yummybox/compare/v1.23.1...v1.23.2) (2026-10-12)
 
 
