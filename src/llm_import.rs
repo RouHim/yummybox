@@ -346,6 +346,23 @@ pub async fn import_via_llm(
 
 const GENERATE_SYSTEM_PROMPT: &str = "You are a creative cooking assistant. Create a recipe from the user's available ingredients (a text list, photos, or both). The recipe is built from the provided ingredients, but you do not have to use all of them: choose a sensible subset and leave out ingredients that do not fit the dish. Use at least one provided ingredient whenever any were given, and never use ingredients other than the provided ones plus these common pantry staples that most kitchens have: salt, pepper, oil, sugar, water, vinegar, flour, broth, herbs, and spices; list every ingredient you use, including the pantry staples, in the ingredients array. Preserve the exact quantities the user specified; assign plausible quantities to ingredients that have none. If the user adds extra instructions or requirements (for example a time limit, a dietary rule such as vegan, or an appliance such as a Thermomix), treat them as binding constraints and shape the recipe accordingly; when a requirement conflicts with a provided ingredient or a pantry staple, the requirement wins and the conflicting item is left out. If an ingredient appears in both the text list and the photos, list it once, using the quantity from the text list. Respond in the same language as the user's input. Never invent an image URL; always leave the imageUrl field empty. Call the extract_recipe tool with the result. Always call the tool.";
 
+/// Compose the user text for a generation request: the entered ingredients plus,
+/// when given, the extra instructions as a labelled requirements block. Returns
+/// `None` when neither carries any non-whitespace text.
+fn build_generate_hint(
+    ingredients: Option<&str>,
+    extra_instructions: Option<&str>,
+) -> Option<String> {
+    let ingredients = ingredients.map(str::trim).filter(|s| !s.is_empty());
+    let extra = extra_instructions.map(str::trim).filter(|s| !s.is_empty());
+    match (ingredients, extra) {
+        (None, None) => None,
+        (Some(i), None) => Some(i.to_string()),
+        (None, Some(e)) => Some(format!("Additional requirements:\n{e}")),
+        (Some(i), Some(e)) => Some(format!("{i}\n\nAdditional requirements:\n{e}")),
+    }
+}
+
 /// Generate a complete recipe draft from an ingredient list and/or photos.
 /// Same plumbing as `import_via_llm` (tool call, 60s timeout, error mapping).
 /// The draft never downloads a dish photo: the dish is created from scratch,
@@ -355,11 +372,15 @@ pub async fn generate_meal_via_llm(
     target: &LlmTarget<'_>,
     model: &str,
     ingredients: Option<&str>,
+    extra_instructions: Option<&str>,
     images: Vec<LlmImage>,
 ) -> Result<recipe::ImportDraft, AppError> {
     require_api_key(target)?;
     let client = target.client();
-    let user_content = build_user_content(ingredients, &images);
+    let user_content = build_user_content(
+        build_generate_hint(ingredients, extra_instructions).as_deref(),
+        &images,
+    );
 
     let chat_req = genai::chat::ChatRequest::new(vec![
         genai::chat::ChatMessage::system(GENERATE_SYSTEM_PROMPT),
@@ -612,12 +633,43 @@ mod tests {
     #[test]
     fn given_generate_prompt_when_inspected_then_contains_subset_pantry_and_constraint_clauses() {
         assert!(GENERATE_SYSTEM_PROMPT.contains("you do not have to use all of them"));
-        assert!(GENERATE_SYSTEM_PROMPT
-            .contains("salt, pepper, oil, sugar, water, vinegar, flour, broth, herbs, and spices"));
+        assert!(
+            GENERATE_SYSTEM_PROMPT.contains(
+                "salt, pepper, oil, sugar, water, vinegar, flour, broth, herbs, and spices"
+            )
+        );
         assert!(GENERATE_SYSTEM_PROMPT.contains("binding constraints"));
         assert!(GENERATE_SYSTEM_PROMPT.contains("the requirement wins"));
         assert!(GENERATE_SYSTEM_PROMPT.contains("list every ingredient you use"));
         assert!(!GENERATE_SYSTEM_PROMPT.contains("must primarily use the provided ingredients"));
+    }
+
+    #[test]
+    fn given_ingredients_and_extra_when_build_generate_hint_then_requirements_appended() {
+        let hint = build_generate_hint(Some("flour\neggs"), Some("max 30 minutes"))
+            .expect("both inputs present");
+        assert_eq!(
+            hint,
+            "flour\neggs\n\nAdditional requirements:\nmax 30 minutes"
+        );
+    }
+
+    #[test]
+    fn given_only_extra_when_build_generate_hint_then_requirements_only() {
+        let hint = build_generate_hint(None, Some("vegan")).expect("extra present");
+        assert_eq!(hint, "Additional requirements:\nvegan");
+    }
+
+    #[test]
+    fn given_only_ingredients_when_build_generate_hint_then_ingredients_unchanged() {
+        let hint = build_generate_hint(Some("flour"), None).expect("ingredients present");
+        assert_eq!(hint, "flour");
+    }
+
+    #[test]
+    fn given_only_whitespace_when_build_generate_hint_then_none() {
+        assert!(build_generate_hint(Some("  \n"), Some("\t")).is_none());
+        assert!(build_generate_hint(None, None).is_none());
     }
 
     #[test]

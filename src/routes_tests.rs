@@ -1993,7 +1993,120 @@ async fn given_keyless_provider_when_generate_meal_then_400_llm_api_key_missing(
     }
 }
 
-fn build_generate_multipart(ingredients: Option<&str>, images: &[&[u8]]) -> (Vec<u8>, String) {
+#[tokio::test]
+async fn given_extra_instructions_when_generate_meal_then_sent_to_the_provider() {
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+
+    let ctx = setup().await;
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let port = listener.local_addr().unwrap().port();
+
+    // The mock reports the raw request body, so the assertions below prove the
+    // extra instructions and the relaxed generation contract reach the provider.
+    let (body_tx, body_rx) = tokio::sync::oneshot::channel::<String>();
+    let mock_body = r#"{"id":"chatcmpl-test","object":"chat.completion","created":0,"model":"test-model","choices":[{"index":0,"message":{"role":"assistant","content":null,"tool_calls":[{"id":"call_1","type":"function","function":{"name":"extract_recipe","arguments":"{\"name\":\"Flour Eggs Pancake\",\"ingredients\":[{\"name\":\"flour\",\"quantity\":\"200 g\"}],\"instructions\":\"Whisk and fry.\",\"portion\":2}"}}]},"finish_reason":"tool_calls"}],"usage":{"prompt_tokens":1,"completion_tokens":1,"total_tokens":2}}"#;
+    tokio::spawn(async move {
+        let (mut stream, _) = listener.accept().await.unwrap();
+        let mut buf = Vec::new();
+        let mut byte = [0u8; 1];
+        while !buf.ends_with(b"\r\n\r\n") {
+            stream.read_exact(&mut byte).await.unwrap();
+            buf.push(byte[0]);
+        }
+        let headers = String::from_utf8_lossy(&buf);
+        let content_length = headers
+            .lines()
+            .find_map(|l| {
+                l.to_ascii_lowercase()
+                    .strip_prefix("content-length:")
+                    .map(|v| v.trim().parse::<usize>().unwrap())
+            })
+            .unwrap_or(0);
+        let mut body = vec![0u8; content_length];
+        if content_length > 0 {
+            stream.read_exact(&mut body).await.unwrap();
+        }
+        let _ = body_tx.send(String::from_utf8_lossy(&body).to_string());
+        let resp = format!(
+            "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
+            mock_body.len(),
+            mock_body
+        );
+        let _ = stream.write_all(resp.as_bytes()).await;
+    });
+
+    seed_custom_ai(&ctx, &format!("http://127.0.0.1:{port}/v1/"), "test-model").await;
+
+    let (body, content_type) = build_generate_multipart_with_extra(
+        Some("flour\neggs"),
+        Some("max 30 minutes, vegan"),
+        &[],
+    );
+    let response = ctx
+        .app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method(Method::POST)
+                .uri("/import/generate")
+                .header("content-type", content_type)
+                .body(axum::body::Body::from(body))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+
+    let raw = body_rx.await.expect("mock captured the request body");
+    assert!(
+        raw.contains("Additional requirements"),
+        "the extra instructions must travel as a labelled block: {raw}"
+    );
+    assert!(
+        raw.contains("max 30 minutes, vegan"),
+        "the extra instructions text must reach the provider verbatim: {raw}"
+    );
+    assert!(
+        raw.contains("you do not have to use all of them"),
+        "the relaxed generation contract must be the live system prompt: {raw}"
+    );
+}
+
+#[tokio::test]
+async fn given_extra_instructions_over_500_chars_when_generate_meal_then_400_before_any_llm_call() {
+    let ctx = setup().await;
+    let long = "x".repeat(501);
+    let (body, content_type) = build_generate_multipart_with_extra(Some("flour"), Some(&long), &[]);
+    let response = ctx
+        .app
+        .oneshot(
+            Request::builder()
+                .method(Method::POST)
+                .uri("/import/generate")
+                .header("content-type", content_type)
+                .body(axum::body::Body::from(body))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    // No provider is seeded: the length check must run before the configuration
+    // lookup, so the response is the length error, not `llm_not_configured`.
+    assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+    let bytes = to_bytes(response.into_body(), 4096).await.unwrap();
+    let json: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
+    assert_eq!(
+        json["error"],
+        "extra instructions must be at most 500 characters"
+    );
+}
+
+/// Like build_generate_multipart, but with the optional extra-instructions field.
+fn build_generate_multipart_with_extra(
+    ingredients: Option<&str>,
+    extra_instructions: Option<&str>,
+    images: &[&[u8]],
+) -> (Vec<u8>, String) {
     let boundary = "testboundaryGEN";
     let mut body = Vec::new();
 
@@ -2003,6 +2116,16 @@ fn build_generate_multipart(ingredients: Option<&str>, images: &[&[u8]]) -> (Vec
         body.extend_from_slice(b"\r\n");
         body.extend_from_slice(b"Content-Disposition: form-data; name=\"ingredients\"\r\n\r\n");
         body.extend_from_slice(ing.as_bytes());
+        body.extend_from_slice(b"\r\n");
+    }
+    if let Some(extra) = extra_instructions {
+        body.extend_from_slice(b"--");
+        body.extend_from_slice(boundary.as_bytes());
+        body.extend_from_slice(b"\r\n");
+        body.extend_from_slice(
+            b"Content-Disposition: form-data; name=\"extra_instructions\"\r\n\r\n",
+        );
+        body.extend_from_slice(extra.as_bytes());
         body.extend_from_slice(b"\r\n");
     }
     for img in images {
@@ -2023,6 +2146,10 @@ fn build_generate_multipart(ingredients: Option<&str>, images: &[&[u8]]) -> (Vec
 
     let content_type = format!("multipart/form-data; boundary={boundary}");
     (body, content_type)
+}
+
+fn build_generate_multipart(ingredients: Option<&str>, images: &[&[u8]]) -> (Vec<u8>, String) {
+    build_generate_multipart_with_extra(ingredients, None, images)
 }
 
 /// Like build_generate_multipart, but with a single image part carrying a
