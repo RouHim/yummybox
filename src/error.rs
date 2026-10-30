@@ -35,6 +35,10 @@ pub enum AppError {
 
     #[error("{0}")]
     Llm(String, &'static str), // (message, error_code)
+    /// Import failures whose cause the frontend explains in the user's
+    /// language. `(message, error_code)`.
+    #[error("{0}")]
+    Import(String, &'static str),
     #[error("a meal with this name already exists")]
     DuplicateName,
 }
@@ -73,6 +77,7 @@ impl IntoResponse for AppError {
                 };
                 (status, msg.clone(), Some(*code))
             }
+            AppError::Import(msg, code) => (StatusCode::BAD_REQUEST, msg.clone(), Some(*code)),
             AppError::DuplicateName => (StatusCode::CONFLICT, self.to_string(), None),
         };
         let body = ErrorBody {
@@ -301,6 +306,34 @@ mod tests {
             StatusCode::INTERNAL_SERVER_ERROR,
             "request failed",
             "llm_request_failed",
+        )
+        .await;
+    }
+
+    #[tokio::test]
+    async fn given_import_site_blocked_when_into_response_then_returns_400_with_code() {
+        assert_response_code(
+            AppError::Import(
+                "the site refused automated access".into(),
+                "import_site_blocked",
+            ),
+            StatusCode::BAD_REQUEST,
+            "refused automated access",
+            "import_site_blocked",
+        )
+        .await;
+    }
+
+    #[tokio::test]
+    async fn given_import_no_recipe_when_into_response_then_returns_400_with_code() {
+        assert_response_code(
+            AppError::Import(
+                "no machine-readable recipe found on this page".into(),
+                "import_no_recipe",
+            ),
+            StatusCode::BAD_REQUEST,
+            "no machine-readable recipe",
+            "import_no_recipe",
         )
         .await;
     }

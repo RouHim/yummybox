@@ -8,6 +8,8 @@ import { t } from '$lib/i18n';
 export function llmErrorMessage(err: unknown): string {
 	if (err instanceof ApiError) {
 		if (err.code === 'REQUEST_FAILED') return t('importErrorFetch');
+		if (err.code === 'import_site_blocked') return t('importErrorSiteBlocked');
+		if (err.code === 'import_no_recipe') return t('importErrorNoRecipe');
 		if (err.code === 'llm_timeout') return t('llmErrorTimeout');
 		if (err.code === 'llm_parse_failed') return t('llmErrorParseFailed');
 		if (err.code === 'llm_api_key_missing') return t('llmErrorApiKey');

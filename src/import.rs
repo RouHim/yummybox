@@ -590,6 +590,9 @@ async fn process_single_url(pool: &sqlx::SqlitePool, url: &str) -> Result<Meal, 
 pub(crate) fn classify_fetch_error(err: &AppError) -> String {
     match err {
         AppError::NotFound => "no recipe found".into(),
+        AppError::Import(_, "import_site_blocked") => "site blocked".into(),
+        AppError::Import(_, "import_no_recipe") => "no recipe found".into(),
+        AppError::Import(msg, _) => format!("fetch failed: {msg}"),
         AppError::BadRequest(msg) if msg.starts_with("fetch returned HTTP ") => {
             // Surface the HTTP status so users can distinguish 404 from 500 etc.
             msg.clone()

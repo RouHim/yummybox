@@ -59,9 +59,20 @@ pub async fn fetch_page_html(url: &str) -> Result<String, AppError> {
         .map_err(|e| AppError::BadRequest(format!("failed to fetch page: {e}")))?;
 
     if !resp.status().is_success() {
+        let status = resp.status();
+        // 403 and 429 are how bot protection and rate limiting answer
+        // automated clients. The body is a challenge or error page, not a
+        // recipe, so report the actual cause instead of a parser error.
+        if status == reqwest::StatusCode::FORBIDDEN
+            || status == reqwest::StatusCode::TOO_MANY_REQUESTS
+        {
+            return Err(AppError::Import(
+                "the site refused automated access".into(),
+                "import_site_blocked",
+            ));
+        }
         return Err(AppError::BadRequest(format!(
-            "fetch returned HTTP {}",
-            resp.status()
+            "fetch returned HTTP {status}"
         )));
     }
 
@@ -1000,8 +1011,9 @@ fn parse_recipe_with_image_url(text: &str) -> Result<(ImportDraft, Option<String
         }
     }
 
-    Err(AppError::BadRequest(
-        "no schema.org Recipe found in the provided content".into(),
+    Err(AppError::Import(
+        "no machine-readable recipe found on this page".into(),
+        "import_no_recipe",
     ))
 }
 

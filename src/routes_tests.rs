@@ -1134,7 +1134,13 @@ async fn given_paste_without_recipe_when_import_from_paste_then_returns_400() {
     assert_eq!(response.status(), StatusCode::BAD_REQUEST);
     let body = to_bytes(response.into_body(), 4096).await.unwrap();
     let error: serde_json::Value = serde_json::from_slice(&body).unwrap();
-    assert!(error["error"].as_str().unwrap().contains("Recipe"));
+    assert_eq!(error["code"], "import_no_recipe");
+    assert!(
+        error["error"]
+            .as_str()
+            .unwrap()
+            .contains("no machine-readable recipe")
+    );
 }
 
 #[tokio::test]
@@ -3012,6 +3018,24 @@ async fn given_empty_urls_when_bulk_import_then_empty_result() {
 #[test]
 fn given_not_found_error_when_classify_fetch_then_no_recipe_found() {
     let err = AppError::NotFound;
+    assert_eq!(crate::import::classify_fetch_error(&err), "no recipe found");
+}
+
+#[test]
+fn given_site_blocked_error_when_classify_fetch_then_site_blocked() {
+    let err = AppError::Import(
+        "the site refused automated access".into(),
+        "import_site_blocked",
+    );
+    assert_eq!(crate::import::classify_fetch_error(&err), "site blocked");
+}
+
+#[test]
+fn given_no_recipe_error_when_classify_fetch_then_no_recipe_found() {
+    let err = AppError::Import(
+        "no machine-readable recipe found on this page".into(),
+        "import_no_recipe",
+    );
     assert_eq!(crate::import::classify_fetch_error(&err), "no recipe found");
 }
 

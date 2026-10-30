@@ -303,8 +303,11 @@ fn given_html_without_recipe_when_parse_then_error() {
     let result = parse_recipe(html);
     assert!(result.is_err());
     match result {
-        Err(AppError::BadRequest(msg)) => assert!(msg.contains("Recipe")),
-        other => panic!("expected BadRequest, got {other:?}"),
+        Err(AppError::Import(msg, code)) => {
+            assert!(msg.contains("no machine-readable recipe"));
+            assert_eq!(code, "import_no_recipe");
+        }
+        other => panic!("expected Import, got {other:?}"),
     }
 }
 
