@@ -234,10 +234,10 @@ pub async fn update_meal(
             .map_err(|e| AppError::BadRequest(format!("invalid ingredients JSON: {e}")))?;
 
     // Validate image_action if present
-    if let Some(action) = &parsed.image_action {
-        if action != "remove" {
-            return Err(AppError::BadRequest("image_action must be 'remove'".into()));
-        }
+    if let Some(action) = &parsed.image_action
+        && action != "remove"
+    {
+        return Err(AppError::BadRequest("image_action must be 'remove'".into()));
     }
 
     let jpeg_bytes;

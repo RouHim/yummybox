@@ -1119,7 +1119,19 @@ mod tests {
         let body = jpeg_bytes.to_vec();
         tokio::spawn(async move {
             let (mut stream, _) = listener.accept().await.unwrap();
-            use tokio::io::AsyncWriteExt;
+            use tokio::io::{AsyncReadExt, AsyncWriteExt};
+            // Read the request headers before answering. Responding before the
+            // request has arrived makes the client observe an unexpected
+            // message on some runtime versions.
+            let mut request = Vec::new();
+            let mut buf = [0u8; 1024];
+            while !request.windows(4).any(|window| window == b"\r\n\r\n") {
+                let read = stream.read(&mut buf).await.unwrap_or(0);
+                if read == 0 {
+                    break;
+                }
+                request.extend_from_slice(&buf[..read]);
+            }
             let resp = format!(
                 "HTTP/1.1 200 OK\r\nContent-Type: image/jpeg\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
                 body.len()
@@ -1215,7 +1227,19 @@ mod tests {
         let body = jpeg_bytes.clone();
         tokio::spawn(async move {
             let (mut stream, _) = listener.accept().await.unwrap();
-            use tokio::io::AsyncWriteExt;
+            use tokio::io::{AsyncReadExt, AsyncWriteExt};
+            // Read the request headers before answering. Responding before the
+            // request has arrived makes the client observe an unexpected
+            // message on some runtime versions.
+            let mut request = Vec::new();
+            let mut buf = [0u8; 1024];
+            while !request.windows(4).any(|window| window == b"\r\n\r\n") {
+                let read = stream.read(&mut buf).await.unwrap_or(0);
+                if read == 0 {
+                    break;
+                }
+                request.extend_from_slice(&buf[..read]);
+            }
             let resp = format!(
                 "HTTP/1.1 200 OK\r\nContent-Type: image/jpeg\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
                 body.len()

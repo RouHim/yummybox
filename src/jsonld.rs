@@ -59,13 +59,13 @@ pub fn meal_to_recipe(meal: &Meal, base_url: Option<&str>) -> serde_json::Value 
     }
 
     // Image only when the meal actually has one AND we have a base URL
-    if meal.has_image {
-        if let Some(base) = base_url {
-            obj.insert(
-                "image".into(),
-                Value::String(format!("{}/api/meals/{}/image", base, meal.id)),
-            );
-        }
+    if meal.has_image
+        && let Some(base) = base_url
+    {
+        obj.insert(
+            "image".into(),
+            Value::String(format!("{}/api/meals/{}/image", base, meal.id)),
+        );
     }
 
     Value::Object(obj)

@@ -67,10 +67,10 @@ pub async fn export_meals_zip(State(state): State<Arc<AppState>>) -> Result<Resp
     // Pre-fetch all images (must happen before ZIP building, which is sync)
     let mut images: Vec<(i64, Vec<u8>)> = Vec::new();
     for meal in &meals {
-        if meal.has_image {
-            if let Some((bytes, _)) = db::find_meal_image(&state.pool, meal.id).await? {
-                images.push((meal.id, bytes));
-            }
+        if meal.has_image
+            && let Some((bytes, _)) = db::find_meal_image(&state.pool, meal.id).await?
+        {
+            images.push((meal.id, bytes));
         }
     }
 
@@ -327,7 +327,10 @@ pub(crate) fn preload_images<R: Read + std::io::Seek>(
         let mut entry = archive
             .by_index(i)
             .map_err(|e| AppError::BadRequest(format!("zip read error: {e}")))?;
-        let name = entry.name().to_string();
+        let name = entry
+            .name()
+            .map_err(|e| AppError::BadRequest(format!("zip read error: {e}")))?
+            .to_string();
         if name.starts_with("images/") {
             if entry.size() > IMPORT_MAX_IMAGE_SIZE {
                 continue; // best-effort: skip oversized images

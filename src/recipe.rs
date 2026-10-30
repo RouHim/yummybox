@@ -76,10 +76,10 @@ pub async fn fetch_page_html(url: &str) -> Result<String, AppError> {
         )));
     }
 
-    if let Some(len) = resp.content_length() {
-        if len > 2_000_000 {
-            return Err(AppError::BadRequest("page too large (max 2MB)".into()));
-        }
+    if let Some(len) = resp.content_length()
+        && len > 2_000_000
+    {
+        return Err(AppError::BadRequest("page too large (max 2MB)".into()));
     }
 
     let bytes = resp
@@ -111,12 +111,10 @@ pub async fn fetch_and_parse(url: &str) -> Result<ImportDraft, AppError> {
             .connect_timeout(Duration::from_secs(10))
             .user_agent("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36")
             .build()
-        {
-            if let Some(jpeg_bytes) = try_download_image(&client, &img_url).await {
+            && let Some(jpeg_bytes) = try_download_image(&client, &img_url).await {
                 let b64 = base64::engine::general_purpose::STANDARD.encode(&jpeg_bytes);
                 draft.image_base64 = Some(b64);
             }
-        }
     }
 
     Ok(draft)
@@ -163,11 +161,10 @@ async fn try_fetch_cookidoo(url: &str) -> Option<ImportDraft> {
         }
     };
 
-    if let Some(image_url) = cookidoo_image_url(&json) {
-        if let Some(jpeg_bytes) = try_download_image(&client, &image_url).await {
-            draft.image_base64 =
-                Some(base64::engine::general_purpose::STANDARD.encode(&jpeg_bytes));
-        }
+    if let Some(image_url) = cookidoo_image_url(&json)
+        && let Some(jpeg_bytes) = try_download_image(&client, &image_url).await
+    {
+        draft.image_base64 = Some(base64::engine::general_purpose::STANDARD.encode(&jpeg_bytes));
     }
 
     Some(draft)
@@ -922,13 +919,14 @@ fn parse_recipe_with_image_url(text: &str) -> Result<(ImportDraft, Option<String
     }
 
     // Fallback: if no script blocks found, try parsing the text directly as raw JSON-LD
-    if pairs.is_empty() && raw_blocks.is_empty() {
-        if let Ok(json_value) = serde_json::from_str::<serde_json::Value>(text) {
-            if let Ok(entry) = SchemaOrgEntry::from_json_str(text) {
-                pairs.push((json_value.clone(), entry));
-            }
-            raw_blocks.push(json_value);
+    if pairs.is_empty()
+        && raw_blocks.is_empty()
+        && let Ok(json_value) = serde_json::from_str::<serde_json::Value>(text)
+    {
+        if let Ok(entry) = SchemaOrgEntry::from_json_str(text) {
+            pairs.push((json_value.clone(), entry));
         }
+        raw_blocks.push(json_value);
     }
 
     // Extract the first Recipe from all SchemaEntry objects
@@ -1437,10 +1435,10 @@ pub(crate) fn extract_image_url(json: &serde_json::Value) -> Option<String> {
     // If @graph array, find the first element with @type containing "Recipe"
     if let Some(graph) = json.get("@graph").and_then(|g| g.as_array()) {
         for item in graph {
-            if is_recipe_type(item) {
-                if let Some(url) = extract_image_url(item) {
-                    return Some(url);
-                }
+            if is_recipe_type(item)
+                && let Some(url) = extract_image_url(item)
+            {
+                return Some(url);
             }
         }
     }
@@ -1613,12 +1611,11 @@ pub fn extract_image_urls_from_html(html: &str, base_url: &str) -> Vec<String> {
     // 1. OpenGraph og:image
     if let Ok(sel) = scraper::Selector::parse(r#"meta[property="og:image"]"#) {
         for el in document.select(&sel) {
-            if let Some(content) = el.value().attr("content") {
-                if let Some(abs) = resolve_url(content, base_url) {
-                    if seen.insert(abs.clone()) {
-                        urls.push(abs);
-                    }
-                }
+            if let Some(content) = el.value().attr("content")
+                && let Some(abs) = resolve_url(content, base_url)
+                && seen.insert(abs.clone())
+            {
+                urls.push(abs);
             }
         }
     }
@@ -1627,16 +1624,13 @@ pub fn extract_image_urls_from_html(html: &str, base_url: &str) -> Vec<String> {
     if let Ok(sel) = scraper::Selector::parse(r#"script[type="application/ld+json"]"#) {
         for el in document.select(&sel) {
             let block = el.text().collect::<String>();
-            if let Ok(json) = serde_json::from_str::<serde_json::Value>(&block) {
-                if let Some(img) =
+            if let Ok(json) = serde_json::from_str::<serde_json::Value>(&block)
+                && let Some(img) =
                     extract_image_url(&json).or_else(|| find_sibling_image_url(&json))
-                {
-                    if let Some(abs) = resolve_url(&img, base_url) {
-                        if seen.insert(abs.clone()) {
-                            urls.push(abs);
-                        }
-                    }
-                }
+                && let Some(abs) = resolve_url(&img, base_url)
+                && seen.insert(abs.clone())
+            {
+                urls.push(abs);
             }
         }
     }
@@ -1656,12 +1650,11 @@ pub fn extract_image_urls_from_html(html: &str, base_url: &str) -> Vec<String> {
                             | "featured-image"
                     )
                 });
-                if is_relevant {
-                    if let Some(abs) = resolve_url(src, base_url) {
-                        if seen.insert(abs.clone()) {
-                            urls.push(abs);
-                        }
-                    }
+                if is_relevant
+                    && let Some(abs) = resolve_url(src, base_url)
+                    && seen.insert(abs.clone())
+                {
+                    urls.push(abs);
                 }
             }
         }

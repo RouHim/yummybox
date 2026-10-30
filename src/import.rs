@@ -41,11 +41,11 @@ pub(crate) async fn import_from_url(
     draft.source_url = Some(trimmed_url);
     // User-supplied image URL takes precedence over the recipe's own image.
     // Best-effort: failure falls back to whatever fetch_and_parse returned.
-    if let Some(image_url) = &req.image_url {
-        if let Ok(jpeg) = recipe::download_image_from_url(image_url).await {
-            let b64 = base64::engine::general_purpose::STANDARD.encode(&jpeg);
-            draft.image_base64 = Some(b64);
-        }
+    if let Some(image_url) = &req.image_url
+        && let Ok(jpeg) = recipe::download_image_from_url(image_url).await
+    {
+        let b64 = base64::engine::general_purpose::STANDARD.encode(&jpeg);
+        draft.image_base64 = Some(b64);
     }
     Ok(Json(draft))
 }
@@ -66,11 +66,11 @@ pub(crate) async fn import_from_paste(
     let mut draft = recipe::parse_recipe(&req.content)?;
     // Paste mode has no recipe image; user-supplied URL is the only source.
     // Best-effort: failure means the draft stays with no image.
-    if let Some(image_url) = &req.image_url {
-        if let Ok(jpeg) = recipe::download_image_from_url(image_url).await {
-            let b64 = base64::engine::general_purpose::STANDARD.encode(&jpeg);
-            draft.image_base64 = Some(b64);
-        }
+    if let Some(image_url) = &req.image_url
+        && let Ok(jpeg) = recipe::download_image_from_url(image_url).await
+    {
+        let b64 = base64::engine::general_purpose::STANDARD.encode(&jpeg);
+        draft.image_base64 = Some(b64);
     }
     Ok(Json(draft))
 }
@@ -210,12 +210,12 @@ pub(crate) async fn import_from_llm(
         ));
     }
 
-    if let Some(h) = &hint {
-        if h.chars().count() > MAX_INGREDIENTS_CHARS {
-            return Err(AppError::BadRequest(
-                "hint must be at most 20000 characters".into(),
-            ));
-        }
+    if let Some(h) = &hint
+        && h.chars().count() > MAX_INGREDIENTS_CHARS
+    {
+        return Err(AppError::BadRequest(
+            "hint must be at most 20000 characters".into(),
+        ));
     }
 
     // Preserve bare-URL hint as source_url for later display/edit.
@@ -348,20 +348,20 @@ pub(crate) async fn generate_meal(
         ));
     }
 
-    if let Some(ing) = &ingredients {
-        if ing.chars().count() > MAX_INGREDIENTS_CHARS {
-            return Err(AppError::BadRequest(
-                "ingredients must be at most 20000 characters".into(),
-            ));
-        }
+    if let Some(ing) = &ingredients
+        && ing.chars().count() > MAX_INGREDIENTS_CHARS
+    {
+        return Err(AppError::BadRequest(
+            "ingredients must be at most 20000 characters".into(),
+        ));
     }
 
-    if let Some(extra) = &extra_instructions {
-        if extra.chars().count() > MAX_EXTRA_INSTRUCTIONS_CHARS {
-            return Err(AppError::BadRequest(
-                "extra instructions must be at most 500 characters".into(),
-            ));
-        }
+    if let Some(extra) = &extra_instructions
+        && extra.chars().count() > MAX_EXTRA_INSTRUCTIONS_CHARS
+    {
+        return Err(AppError::BadRequest(
+            "extra instructions must be at most 500 characters".into(),
+        ));
     }
 
     if images.len() > MAX_GENERATE_IMAGES {
