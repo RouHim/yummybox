@@ -1,3 +1,10 @@
+## [1.25.1](https://github.com/RouHim/yummybox/compare/v1.25.0...v1.25.1) (2026-10-30)
+
+
+### Bug Fixes
+
+* explain why recipe URL imports fail ([99e81ea](https://github.com/RouHim/yummybox/commit/99e81ea2fb228b9d10b9293cd0f3ab0284f9d95f))
+
 # [1.25.0](https://github.com/RouHim/yummybox/compare/v1.24.0...v1.25.0) (2026-10-14)
 
 
