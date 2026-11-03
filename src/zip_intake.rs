@@ -81,7 +81,10 @@ pub(crate) fn read_images<R: Read + std::io::Seek>(
         let mut entry = archive
             .by_index(index)
             .map_err(|e| AppError::BadRequest(format!("zip read error: {e}")))?;
-        let name = entry.name().to_ascii_lowercase();
+        let name = entry
+            .name()
+            .map_err(|e| AppError::BadRequest(format!("zip read error: {e}")))?
+            .to_ascii_lowercase();
         if !is_image(&name) || entry.size() > MAX_IMAGE_SIZE {
             continue;
         }

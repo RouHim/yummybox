@@ -69,7 +69,7 @@ Then open **http://127.0.0.1:11341** in your browser.
 
 ### Build from source
 
-Requires [Rust](https://rustup.rs) 1.85+ and [Node.js](https://nodejs.org) 26+ (build-time only, not needed to run).
+Requires [Rust](https://rustup.rs) 1.88+ and [Node.js](https://nodejs.org) 26+ (build-time only, not needed to run).
 
 ```bash
 git clone https://github.com/RouHim/yummybox.git

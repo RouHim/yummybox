@@ -1055,13 +1055,20 @@ mod tests {
         let body = jpeg_bytes.to_vec();
         tokio::spawn(async move {
             let (mut stream, _) = listener.accept().await.unwrap();
-            use tokio::io::AsyncWriteExt;
+            use tokio::io::{AsyncReadExt, AsyncWriteExt};
+            // Read the request before answering: closing a socket that still
+            // has unread data can make the kernel answer with RST and discard
+            // the response, which the client then reports as a canceled
+            // request. The suite must not depend on that race.
+            let mut request = [0u8; 1024];
+            let _ = stream.read(&mut request).await;
             let resp = format!(
                 "HTTP/1.1 200 OK\r\nContent-Type: image/jpeg\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
                 body.len()
             );
             let _ = stream.write_all(resp.as_bytes()).await;
             let _ = stream.write_all(&body).await;
+            let _ = stream.shutdown().await;
         });
         let url = format!("http://127.0.0.1:{port}/img.jpg");
         let args = serde_json::json!({
@@ -1151,13 +1158,20 @@ mod tests {
         let body = jpeg_bytes.clone();
         tokio::spawn(async move {
             let (mut stream, _) = listener.accept().await.unwrap();
-            use tokio::io::AsyncWriteExt;
+            use tokio::io::{AsyncReadExt, AsyncWriteExt};
+            // Read the request before answering: closing a socket that still
+            // has unread data can make the kernel answer with RST and discard
+            // the response, which the client then reports as a canceled
+            // request. The suite must not depend on that race.
+            let mut request = [0u8; 1024];
+            let _ = stream.read(&mut request).await;
             let resp = format!(
                 "HTTP/1.1 200 OK\r\nContent-Type: image/jpeg\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
                 body.len()
             );
             let _ = stream.write_all(resp.as_bytes()).await;
             let _ = stream.write_all(&body).await;
+            let _ = stream.shutdown().await;
         });
         let url = format!("http://127.0.0.1:{port}/img.jpg");
         let args = serde_json::json!({

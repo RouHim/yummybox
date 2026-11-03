@@ -6,7 +6,7 @@ Thanks for considering contributing!
 
 ### Prerequisites
 
-- **Rust** 1.85+ (with Cargo)
+- **Rust** 1.88+ (with Cargo)
 - **Node.js** 26+ (build-time only)
 - **`just`** (optional, for E2E workflow)
 

@@ -155,13 +155,13 @@ pub fn validate_meal(
                 norm.len()
             )));
         }
-        if let Some(qty) = &line.quantity {
-            if qty.len() > 50 {
-                return Err(AppError::Validation(format!(
-                    "ingredient quantity must be at most 50 characters, got {}",
-                    qty.len()
-                )));
-            }
+        if let Some(qty) = &line.quantity
+            && qty.len() > 50
+        {
+            return Err(AppError::Validation(format!(
+                "ingredient quantity must be at most 50 characters, got {}",
+                qty.len()
+            )));
         }
     }
     validate_portions(portions)?;

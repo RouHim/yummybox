@@ -160,7 +160,7 @@ If a function has no call site, delete it — no commented-out scaffolds, no `#[
 
 | File | Role |
 |------|------|
-| `Cargo.toml` | Binary name `yummybox`, edition 2024, Rust 1.85+, sqlx with compile-time checked queries |
+| `Cargo.toml` | Binary name `yummybox`, edition 2024, Rust 1.88+, sqlx with compile-time checked queries |
 | `build.rs` | Auto-runs `npm install && npm run build` in `web/` |
 | `src/main.rs` | Port binding, logging init, subcommand dispatch, SPA mount |
 | `src/router.rs` | The `/api` route table |
@@ -196,7 +196,7 @@ If a function has no call site, delete it — no commented-out scaffolds, no `#[
 
 ## Runtime/Tooling Preferences
 
-- **Rust**: 1.85+ (edition 2024). Use `rustfmt` and `clippy`.
+- **Rust**: 1.88+ (edition 2024). Use `rustfmt` and `clippy`.
 - **Node.js**: 26+ (build-time only, for SvelteKit/Vite compilation).
 - **Port**: `0.0.0.0:11341` by default, overridable via `YUMMYBOX_PORT` env var.
 - **CI**: `.github/workflows/ci.yml` — lint-format + frontend-tests + rust-tests (parallel) → e2e-tests (both suites) → create-release → build-binaries + build-container.

@@ -35,8 +35,9 @@ pub async fn import_mealie_zip(
 
     let recipe_paths: Vec<String> = archive
         .file_names()
-        .filter(|n| is_mealie_recipe_entry(n))
-        .map(str::to_string)
+        .filter_map(Result::ok)
+        .map(|name| name.into_owned())
+        .filter(|name| is_mealie_recipe_entry(name))
         .collect();
 
     if recipe_paths.is_empty() {
@@ -247,10 +248,10 @@ pub(crate) fn parse_instructions(recipe: &serde_json::Value) -> String {
 
 fn normalize_step_text(text: &str) -> String {
     let trimmed = text.trim();
-    if trimmed.starts_with('{') || trimmed.starts_with('[') {
-        if let Some(texts) = extract_python_dict_texts(trimmed) {
-            return texts.join("\n\n");
-        }
+    if (trimmed.starts_with('{') || trimmed.starts_with('['))
+        && let Some(texts) = extract_python_dict_texts(trimmed)
+    {
+        return texts.join("\n\n");
     }
     text.to_string()
 }
@@ -423,16 +424,14 @@ fn unescape_python_string(s: &str) -> String {
             b'0' => out.push('\0'),
             b'x' => {
                 let mut done = false;
-                if i + 2 < bytes.len() {
-                    if let Ok(hex) = std::str::from_utf8(&bytes[i + 1..i + 3]) {
-                        if let Ok(n) = u32::from_str_radix(hex, 16) {
-                            if let Some(ch) = char::from_u32(n) {
-                                out.push(ch);
-                                i += 2;
-                                done = true;
-                            }
-                        }
-                    }
+                if i + 2 < bytes.len()
+                    && let Ok(hex) = std::str::from_utf8(&bytes[i + 1..i + 3])
+                    && let Ok(n) = u32::from_str_radix(hex, 16)
+                    && let Some(ch) = char::from_u32(n)
+                {
+                    out.push(ch);
+                    i += 2;
+                    done = true;
                 }
                 if !done {
                     out.push('\\');
@@ -441,16 +440,14 @@ fn unescape_python_string(s: &str) -> String {
             }
             b'u' => {
                 let mut done = false;
-                if i + 4 < bytes.len() {
-                    if let Ok(hex) = std::str::from_utf8(&bytes[i + 1..i + 5]) {
-                        if let Ok(n) = u32::from_str_radix(hex, 16) {
-                            if let Some(ch) = char::from_u32(n) {
-                                out.push(ch);
-                                i += 4;
-                                done = true;
-                            }
-                        }
-                    }
+                if i + 4 < bytes.len()
+                    && let Ok(hex) = std::str::from_utf8(&bytes[i + 1..i + 5])
+                    && let Ok(n) = u32::from_str_radix(hex, 16)
+                    && let Some(ch) = char::from_u32(n)
+                {
+                    out.push(ch);
+                    i += 4;
+                    done = true;
                 }
                 if !done {
                     out.push('\\');
