@@ -1,3 +1,16 @@
+# [1.26.0](https://github.com/RouHim/yummybox/compare/v1.25.2...v1.26.0) (2026-11-03)
+
+
+### Bug Fixes
+
+* **cookidoo:** harden mobile-API import mapping ([6d3adc4](https://github.com/RouHim/yummybox/commit/6d3adc4b57f42043a2ece7405dc1bd6c880746b2))
+* **deps:** resolve RUSTSEC advisories and require Rust 1.88 ([9b1012d](https://github.com/RouHim/yummybox/commit/9b1012d8ca63d9df3f15f2872b265263fade8c72))
+
+
+### Features
+
+* import Cookidoo recipes including preparation steps via mobile API ([ee5943e](https://github.com/RouHim/yummybox/commit/ee5943e1f6acd94a338198b741d3382128db848a))
+
 ## [1.25.2](https://github.com/RouHim/yummybox/compare/v1.25.1...v1.25.2) (2026-11-02)
 
 ## [1.25.1](https://github.com/RouHim/yummybox/compare/v1.25.0...v1.25.1) (2026-10-30)
