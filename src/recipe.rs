@@ -59,9 +59,20 @@ pub async fn fetch_page_html(url: &str) -> Result<String, AppError> {
         .map_err(|e| AppError::BadRequest(format!("failed to fetch page: {e}")))?;
 
     if !resp.status().is_success() {
+        let status = resp.status();
+        // 403 and 429 are how bot protection and rate limiting answer
+        // automated clients. The body is a challenge or error page, not a
+        // recipe, so report the actual cause instead of a parser error.
+        if status == reqwest::StatusCode::FORBIDDEN
+            || status == reqwest::StatusCode::TOO_MANY_REQUESTS
+        {
+            return Err(AppError::Import(
+                "the site refused automated access".into(),
+                "import_site_blocked",
+            ));
+        }
         return Err(AppError::BadRequest(format!(
-            "fetch returned HTTP {}",
-            resp.status()
+            "fetch returned HTTP {status}"
         )));
     }
 
@@ -100,11 +111,10 @@ pub async fn fetch_and_parse(url: &str) -> Result<ImportDraft, AppError> {
             .connect_timeout(Duration::from_secs(10))
             .user_agent("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36")
             .build()
-            && let Some(jpeg_bytes) = try_download_image(&client, &img_url).await
-        {
-            let b64 = base64::engine::general_purpose::STANDARD.encode(&jpeg_bytes);
-            draft.image_base64 = Some(b64);
-        }
+            && let Some(jpeg_bytes) = try_download_image(&client, &img_url).await {
+                let b64 = base64::engine::general_purpose::STANDARD.encode(&jpeg_bytes);
+                draft.image_base64 = Some(b64);
+            }
     }
 
     Ok(draft)
@@ -999,8 +1009,9 @@ fn parse_recipe_with_image_url(text: &str) -> Result<(ImportDraft, Option<String
         }
     }
 
-    Err(AppError::BadRequest(
-        "no schema.org Recipe found in the provided content".into(),
+    Err(AppError::Import(
+        "no machine-readable recipe found on this page".into(),
+        "import_no_recipe",
     ))
 }
 

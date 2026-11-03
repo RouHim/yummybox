@@ -32,6 +32,7 @@
 	let settingsCollapsed = $state(false);
 
 	let ingredients = $state('');
+	let extraInstructions = $state('');
 	let images = $state<File[]>([]);
 	let generating = $state(false);
 	let generateError = $state<string | null>(null);
@@ -68,7 +69,7 @@
 			// racing it (a request that beats the commit is answered
 			// `llm_not_configured`).
 			await picker?.settle();
-			const d = await generateMeal(ingredients, images);
+			const d = await generateMeal(ingredients, images, extraInstructions);
 			draft = {
 				name: d.name,
 				ingredients: d.ingredients.length > 0
@@ -252,6 +253,20 @@
 						</span>
 					{/if}
 				</label>
+
+				<label class="field create-card__field">
+					<span class="field__label">{t('generateExtraLabel')}</span>
+					<textarea
+						bind:value={extraInstructions}
+						placeholder={t('generateExtraPlaceholder')}
+						rows="2"
+						maxlength={500}
+						disabled={generating}
+						class="create-card__textarea"
+					></textarea>
+				</label>
+
+				<p class="create-card__hint">{t('generateAssumptionsHint')}</p>
 
 				<div class="create-card__photos">
 					<p class="create-card__photos-caption">{t('generateImagesHint')}</p>

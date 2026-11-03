@@ -8,6 +8,33 @@ describe('llmErrorMessage', () => {
 		expect(llmErrorMessage(new ApiError('boom', 'REQUEST_FAILED', 500))).toBe(t('importErrorFetch'));
 	});
 
+	it('maps import_site_blocked to the localized blocked hint', () => {
+		const message = llmErrorMessage(
+			new ApiError('the site refused automated access', 'import_site_blocked', 400)
+		);
+		expect(message).toBe(t('importErrorSiteBlocked'));
+		expect(message).not.toContain('refused automated access');
+	});
+
+	it('renders the German import_site_blocked hint, not the raw server sentence', () => {
+		setLocale('de');
+		try {
+			const message = llmErrorMessage(
+				new ApiError('the site refused automated access', 'import_site_blocked', 400)
+			);
+			expect(message).toBe(dictionaries.de.importErrorSiteBlocked);
+		} finally {
+			setLocale('en');
+		}
+	});
+
+	it('maps import_no_recipe to the localized no-recipe hint', () => {
+		const message = llmErrorMessage(
+			new ApiError('no machine-readable recipe found on this page', 'import_no_recipe', 400)
+		);
+		expect(message).toBe(t('importErrorNoRecipe'));
+	});
+
 	it('maps llm_timeout to the timeout message', () => {
 		expect(llmErrorMessage(new ApiError('boom', 'llm_timeout', 500))).toBe(t('llmErrorTimeout'));
 	});

@@ -80,6 +80,33 @@ test.describe('Generate meal page', () => {
 		await expect(saved).toContainText('flour');
 	});
 
+	test('generates with extra instructions and shows the pantry hint', async ({ page }) => {
+		await page.goto('/spontaneous');
+		await expect(
+			page.getByText(/Standard pantry items such as salt, pepper, oil, and sugar/)
+		).toBeVisible();
+		await configureMockProvider(page);
+		await page.getByLabel(/ingredients/i).fill('flour\neggs');
+		await page.getByLabel(/extra instructions/i).fill('max 30 minutes, vegan');
+		const sent = page.waitForRequest(
+			(r) => r.url().includes('/api/import/generate') && r.method() === 'POST'
+		);
+		await page.getByRole('button', { name: /^Generate recipe$/ }).click();
+		const request = await sent;
+		expect(request.postData() ?? '').toContain('extra_instructions');
+		expect(request.postData() ?? '').toContain('max 30 minutes, vegan');
+		await expect(page.getByLabel('Name', { exact: true })).toHaveValue('Mock Pasta');
+		// Removing an ingredient line must survive into the saved meal: drop the
+		// second draft row (eggs) the mock returned.
+		await page.getByRole('button', { name: 'Remove', exact: true }).nth(1).click();
+		await expect(page.getByLabel(/Ingredient name/)).toHaveCount(1);
+		await page.getByRole('button', { name: /^(Save|Speichern)$/ }).click();
+		await expect(page).toHaveURL(/\/meals/);
+		const saved = page.getByRole('listitem').filter({ hasText: 'Mock Pasta' });
+		await expect(saved).toContainText('flour');
+		await expect(saved).not.toContainText('eggs');
+	});
+
 	test('waits for the configuration commit its own click issued before generating', async ({ page }) => {
 		// Choosing the model is part of the same click that completes the
 		// configuration, and that click also sends the generate request. The

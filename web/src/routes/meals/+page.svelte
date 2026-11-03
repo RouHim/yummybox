@@ -127,7 +127,8 @@ import { focusTrap } from '$lib/focusTrap';
 
     function bulkReasonLabel(reason: string): string {
         if (reason === 'fetch failed') return t('importBulkReasonFetch');
-        if (reason === 'no recipe found') return t('importBulkReasonNoRecipe');
+        if (reason === 'site blocked') return t('importErrorSiteBlocked');
+        if (reason === 'no recipe found') return t('importErrorNoRecipe');
         if (reason === 'duplicate') return t('importBulkReasonDuplicate');
         if (reason === 'validation failed') return t('importBulkReasonValidation');
         return reason;

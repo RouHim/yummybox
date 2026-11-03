@@ -181,9 +181,10 @@ export async function importFromLlm(hint: string | null, images: File[]): Promis
     return request<ImportDraft>('/api/import/llm', { method: 'POST', body: form }, 90_000);
 }
 
-export async function generateMeal(ingredients: string, images: File[]): Promise<ImportDraft> {
+export async function generateMeal(ingredients: string, images: File[], extraInstructions = ''): Promise<ImportDraft> {
     const form = new FormData();
     if (ingredients.trim()) form.set('ingredients', ingredients);
+    if (extraInstructions.trim()) form.set('extra_instructions', extraInstructions);
     for (const img of images) form.append('image', img);
     return request<ImportDraft>('/api/import/generate', { method: 'POST', body: form }, 90_000);
 }

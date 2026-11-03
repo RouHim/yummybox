@@ -53,7 +53,7 @@ test.describe('Import URLs — bulk', () => {
 	test('given_bulk_import_returns_failures_when_imported_then_results_shown', async ({ page }) => {
 		await openImportUrls(page);
 
-		await page.getByPlaceholder('Paste recipe URLs, one per line…').fill('https://example.com/r1\nhttps://example.com/r2');
+		await page.getByPlaceholder('Paste recipe URLs, one per line…').fill('https://example.com/r1\nhttps://example.com/r2\nhttps://example.com/r3');
 
 		await page.route('**/api/import/bulk', async (route) => {
 			await route.fulfill({
@@ -64,6 +64,7 @@ test.describe('Import URLs — bulk', () => {
 					failed: [
 						{ url: 'https://example.com/r1', reason: 'fetch failed' },
 						{ url: 'https://example.com/r2', reason: 'no recipe found' },
+						{ url: 'https://example.com/r3', reason: 'site blocked' },
 					],
 				}),
 			});
@@ -75,7 +76,7 @@ test.describe('Import URLs — bulk', () => {
 		await expect(page.locator('.bulk-results__success')).toContainText('0 meals imported');
 
 		const failures = page.locator('.bulk-results__failures > li');
-		await expect(failures).toHaveCount(2);
+		await expect(failures).toHaveCount(3);
 
 		const firstFailure = failures.nth(0);
 		await expect(firstFailure.locator('.bulk-results__url')).toContainText('example.com/r1');
@@ -83,7 +84,11 @@ test.describe('Import URLs — bulk', () => {
 
 		const secondFailure = failures.nth(1);
 		await expect(secondFailure.locator('.bulk-results__url')).toContainText('example.com/r2');
-		await expect(secondFailure.locator('.bulk-results__reason')).toContainText('no recipe found');
+		await expect(secondFailure.locator('.bulk-results__reason')).toContainText('No machine-readable recipe');
+
+		const thirdFailure = failures.nth(2);
+		await expect(thirdFailure.locator('.bulk-results__url')).toContainText('example.com/r3');
+		await expect(thirdFailure.locator('.bulk-results__reason')).toContainText('This site blocks automated imports');
 
 		await page.getByRole('button', { name: 'New batch' }).click();
 		await expect(page.getByPlaceholder('Paste recipe URLs, one per line…')).toBeVisible();

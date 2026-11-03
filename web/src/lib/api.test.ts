@@ -699,6 +699,20 @@ describe('generateMeal', () => {
 		const fd = mockFetch.mock.calls[0][1].body as FormData;
 		expect(fd.get('ingredients')).toBeNull();
 	});
+
+	it('sends extra instructions when provided', async () => {
+		mockResponse(200, { name: '', ingredients: [], instructions: '', imageBase64: null, portions: null, sourceUrl: null });
+		await generateMeal('flour', [], 'maximal 30 Minuten, vegan');
+		const fd = mockFetch.mock.calls[0][1].body as FormData;
+		expect(fd.get('extra_instructions')).toBe('maximal 30 Minuten, vegan');
+	});
+
+	it('omits whitespace-only extra instructions', async () => {
+		mockResponse(200, { name: '', ingredients: [], instructions: '', imageBase64: null, portions: null, sourceUrl: null });
+		await generateMeal('flour', [], '   ');
+		const fd = mockFetch.mock.calls[0][1].body as FormData;
+		expect(fd.get('extra_instructions')).toBeNull();
+	});
 });
 
 describe('importMealie', () => {
