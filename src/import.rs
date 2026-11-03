@@ -8,7 +8,7 @@ use tracing::instrument;
 
 use crate::db;
 use crate::error::AppError;
-use crate::image;
+use crate::intake;
 use crate::model::{BulkImportFailure, BulkImportRequest, BulkImportResult, Meal, NewMeal};
 use crate::recipe;
 use crate::state::AppState;
@@ -122,24 +122,6 @@ pub(crate) fn map_multipart_error(
     }
 }
 
-// ---------------------------------------------------------------------------
-// Effective AI configuration
-// ---------------------------------------------------------------------------
-
-/// Resolve the effective AI configuration, or report that AI is not
-/// configured and the settings page has to be visited first.
-pub(crate) async fn effective_ai(
-    pool: &sqlx::SqlitePool,
-) -> Result<crate::settings::EffectiveAi, AppError> {
-    let stored = crate::settings::load(pool).await?;
-    crate::settings::resolve_ai(&stored, &crate::settings::env_lookup)?.ok_or_else(|| {
-        AppError::Llm(
-            "AI is not configured: choose a provider and a model in Settings".to_string(),
-            "llm_not_configured",
-        )
-    })
-}
-
 #[instrument(skip(state))]
 pub(crate) async fn import_from_llm(
     State(state): State<Arc<AppState>>,
@@ -232,7 +214,7 @@ pub(crate) async fn import_from_llm(
     // checked here for the same reason: `import_via_llm` checks it too, but by
     // then the fetch would already have run (and a failed fetch would hide the
     // real reason).
-    let ai = effective_ai(&state.pool).await?;
+    let ai = crate::settings::current(&state.pool).await?.ai()?;
     crate::llm_import::require_api_key(&ai.target())?;
 
     let hint = expand_hint_if_bare_url(hint).await?;
@@ -355,7 +337,7 @@ pub(crate) async fn generate_meal(
         }
     }
 
-    let ai = effective_ai(&state.pool).await?;
+    let ai = crate::settings::current(&state.pool).await?.ai()?;
     let draft = crate::llm_import::generate_meal_via_llm(
         &ai.target(),
         &ai.model,
@@ -451,7 +433,7 @@ pub(crate) async fn polish_instructions(
     let ingredients: Vec<crate::model::NewIngredientLine> = serde_json::from_str(&ingredients_json)
         .map_err(|e| AppError::BadRequest(format!("invalid ingredients JSON: {e}")))?;
 
-    let ai = effective_ai(&state.pool).await?;
+    let ai = crate::settings::current(&state.pool).await?.ai()?;
     let polished = crate::llm_import::polish_instructions(
         &ai.target(),
         &ai.model,
@@ -528,39 +510,34 @@ async fn process_single_url(pool: &sqlx::SqlitePool, url: &str) -> Result<Meal, 
         source_url,
     };
 
-    if db::meal_name_exists(pool, &new_meal.name, None)
+    if intake::name_taken(pool, &new_meal.name)
         .await
         .map_err(|e| format!("database error: {e}"))?
     {
         return Err("duplicate".to_string());
     }
 
-    // Decode and convert the image (if present) into owned JPEG bytes so the
-    // borrow lives long enough for ImageChange::Set.
-    let jpeg_bytes: Option<Vec<u8>> = if let Some(b64) = &draft.image_base64 {
-        let bytes = base64::engine::general_purpose::STANDARD
-            .decode(b64.as_bytes())
-            .map_err(|e| format!("image decode error: {e}"))?;
-        // Re-encode via convert_to_jpeg as a safety net (ensures consistent
-        // encoding even if the upstream downloader changes).
-        let jpeg =
-            image::convert_to_jpeg(&bytes).map_err(|e| format!("image conversion error: {e}"))?;
-        Some(jpeg)
-    } else {
-        None
+    let image_bytes = match &draft.image_base64 {
+        Some(b64) => Some(
+            base64::engine::general_purpose::STANDARD
+                .decode(b64.as_bytes())
+                .map_err(|e| format!("image decode error: {e}"))?,
+        ),
+        None => None,
+    };
+    let image = match &image_bytes {
+        Some(bytes) => intake::ImageInput::Set(bytes),
+        None => intake::ImageInput::Keep,
     };
 
-    let image_change = match &jpeg_bytes {
-        Some(bytes) => db::ImageChange::Set(bytes),
-        None => db::ImageChange::Keep,
-    };
-
-    db::insert_meal(pool, new_meal, image_change)
-        .await
-        .map_err(|e| {
-            tracing::warn!(url = %url, error = %e, "bulk import: insert_meal failed");
-            classify_insert_error(&e)
-        })
+    match intake::insert(pool, new_meal, image).await {
+        Ok(intake::IntakeOutcome::Created(meal)) => Ok(meal),
+        Ok(intake::IntakeOutcome::Duplicate) => Err("duplicate".to_string()),
+        Err(e) => {
+            tracing::warn!(url = %url, error = %e, "bulk import: insert failed");
+            Err(intake::failure_reason(&e))
+        }
+    }
 }
 
 /// Map an [`AppError`] from `fetch_and_parse` to a user-facing reason string.
@@ -572,14 +549,6 @@ pub(crate) fn classify_fetch_error(err: &AppError) -> String {
             msg.clone()
         }
         _ => format!("fetch failed: {err}"),
-    }
-}
-
-/// Map an [`AppError`] from `insert_meal` / `validate_meal` to a user-facing reason string.
-pub(crate) fn classify_insert_error(err: &AppError) -> String {
-    match err {
-        AppError::Validation(_) => "validation failed".into(),
-        _ => err.to_string(),
     }
 }
 
@@ -595,12 +564,9 @@ pub(crate) struct ModelsQuery {
 pub(crate) async fn llm_providers(
     State(state): State<Arc<AppState>>,
 ) -> Result<Json<crate::llm_import::LlmProvidersResponse>, AppError> {
-    let stored = crate::settings::load(&state.pool).await?;
+    let current = crate::settings::current(&state.pool).await?;
     Ok(Json(crate::llm_import::LlmProvidersResponse {
-        providers: crate::llm_import::list_providers(
-            stored.provider.as_deref(),
-            stored.api_key.is_some(),
-        ),
+        providers: current.providers(),
     }))
 }
 
@@ -609,15 +575,8 @@ pub(crate) async fn llm_models(
     State(state): State<Arc<AppState>>,
     Query(q): Query<ModelsQuery>,
 ) -> Result<Json<crate::llm_import::LlmModelsResponse>, AppError> {
-    if !crate::llm_import::provider_ids().contains(&q.provider.as_str()) {
-        return Err(AppError::BadRequest(format!(
-            "unknown provider: {}",
-            q.provider
-        )));
-    }
-    let stored = crate::settings::load(&state.pool).await?;
-    let credentials =
-        crate::settings::provider_credentials(&stored, &q.provider, &crate::settings::env_lookup);
+    let current = crate::settings::current(&state.pool).await?;
+    let credentials = current.credentials(&q.provider)?;
     let target = crate::llm_import::LlmTarget {
         provider_id: &q.provider,
         base_url: credentials.base_url.as_deref(),

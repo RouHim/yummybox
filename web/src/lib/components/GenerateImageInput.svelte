@@ -1,7 +1,12 @@
 <script lang="ts">
 	import { t } from '$lib/i18n';
 	import Icon from '$lib/Icon.svelte';
-	import { MAX_GENERATE_IMAGES, validateGenerateImage, validateGenerateImageTotal } from '$lib/multi-image';
+	import {
+		MAX_GENERATE_IMAGES,
+		validateGenerateImage,
+		validateGenerateImageTotal
+	} from '$lib/multi-image';
+	import { ImageCapture } from '$lib/image-stage.svelte';
 
 	let {
 		files = $bindable([]),
@@ -13,49 +18,46 @@
 		onerror: (error: string | null) => void;
 	} = $props();
 
+	const capture = new ImageCapture(
+		{
+			maxFiles: MAX_GENERATE_IMAGES,
+			tooManyMessage: 'generateTooManyImages',
+			validateFile: validateGenerateImage,
+			validateTotal: validateGenerateImageTotal,
+		},
+		{
+			onchange: (next) => {
+				files = next;
+			},
+			onerror: (message) => onerror(message),
+		}
+	);
+
+	// The parent owns the bound list; mirror an external change (a reset) into
+	// the capture without notifying back, which would loop.
+	$effect(() => {
+		const external = files;
+		const staged = capture.files;
+		const same =
+			external.length === staged.length && external.every((file, i) => file === staged[i]);
+		if (!same) capture.replace(external);
+	});
+
 	// Object URLs are created in an effect over the file list and revoked
 	// whenever the list changes (or the component unmounts), so thumbnails
 	// never leak blob URLs. Creating them in a $derived would be a side
 	// effect inside a cached lazy value, so populate $state instead.
 	let previews = $state<{ file: File; url: string }[]>([]);
 	$effect(() => {
-		const urls = files.map((file) => ({ file, url: URL.createObjectURL(file) }));
+		const urls = capture.files.map((file) => ({ file, url: URL.createObjectURL(file) }));
 		previews = urls;
 		return () => {
 			for (const { url } of urls) URL.revokeObjectURL(url);
 		};
 	});
-
-	function addFiles(list: FileList | null) {
-		if (!list) return;
-		const incoming = Array.from(list);
-		if (files.length + incoming.length > MAX_GENERATE_IMAGES) {
-			onerror(t('generateTooManyImages'));
-			return;
-		}
-		for (const f of incoming) {
-			const err = validateGenerateImage(f);
-			if (err) {
-				onerror(t(err));
-				return;
-			}
-		}
-		const totalErr = validateGenerateImageTotal([...files, ...incoming]);
-		if (totalErr) {
-			onerror(t(totalErr));
-			return;
-		}
-		onerror(null);
-		files = [...files, ...incoming];
-	}
-
-	function removeFile(index: number) {
-		files = files.filter((_, i) => i !== index);
-		onerror(null);
-	}
 </script>
 
-{#if files.length > 0}
+{#if capture.files.length > 0}
 	<ul class="multi-image__list">
 		{#each previews as { file, url }, i (file)}
 			<li class="multi-image__item">
@@ -63,7 +65,7 @@
 				<button
 					type="button"
 					class="multi-image__remove btn btn--ghost"
-					onclick={() => removeFile(i)}
+					onclick={() => capture.remove(i)}
 					disabled={disabled}
 					aria-label={t('fieldImageRemove')}
 					title={t('fieldImageRemove')}
@@ -79,18 +81,14 @@
 		type="file"
 		accept="image/*"
 		multiple
-		disabled={disabled || files.length >= MAX_GENERATE_IMAGES}
-		onchange={(e) => {
-			const input = e.target as HTMLInputElement;
-			addFiles(input.files);
-			input.value = '';
-		}}
+		disabled={disabled || capture.files.length >= MAX_GENERATE_IMAGES}
+		onchange={(e) => capture.onFileInputChange(e)}
 		class="multi-image__input"
 	/>
 	<span class="multi-image__add-icon"><Icon name="image" size={16} /></span>
 	<span class="multi-image__add-label">{t('generateImagesLabel')}</span>
-	{#if files.length > 0}
-		<span class="multi-image__count">{files.length}/{MAX_GENERATE_IMAGES}</span>
+	{#if capture.files.length > 0}
+		<span class="multi-image__count">{capture.files.length}/{MAX_GENERATE_IMAGES}</span>
 	{/if}
 </label>
 

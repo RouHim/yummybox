@@ -4,6 +4,7 @@ use rand::seq::SliceRandom;
 
 use crate::db;
 use crate::error::AppError;
+use crate::intake;
 use crate::model::{NewIngredientLine, NewMeal};
 
 /// Hardcoded seed for deterministic meal generation.
@@ -101,7 +102,7 @@ pub enum SeedOutcome {
 /// Seed the database with 15 deterministic meals.
 ///
 /// If the database already contains meals, the run is skipped.
-/// Otherwise 15 meals are inserted sequentially via [`db::insert_meal`].
+/// Otherwise 15 meals are inserted sequentially through [`intake::insert`].
 pub async fn run(pool: &sqlx::SqlitePool) -> Result<SeedOutcome, AppError> {
     if db::meals_count(pool).await? > 0 {
         return Ok(SeedOutcome::Skipped);
@@ -135,7 +136,16 @@ pub async fn run(pool: &sqlx::SqlitePool) -> Result<SeedOutcome, AppError> {
             portions: None,
             source_url: None,
         };
-        db::insert_meal(pool, new_meal, db::ImageChange::Keep).await?;
+        match intake::insert(pool, new_meal, intake::ImageInput::Keep).await? {
+            intake::IntakeOutcome::Created(_) => {}
+            // Unreachable: the empty-database guard runs first and the pool
+            // names are unique. Fail loudly instead of silently seeding fewer.
+            intake::IntakeOutcome::Duplicate => {
+                return Err(AppError::Internal(format!(
+                    "seed produced a duplicate meal name: {name}"
+                )));
+            }
+        }
     }
 
     Ok(SeedOutcome::Inserted(15))

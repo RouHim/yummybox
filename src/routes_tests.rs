@@ -9,7 +9,7 @@ use ::image::RgbaImage;
 use axum::Router;
 use axum::body::{Body, to_bytes};
 use axum::http::{Method, Request, StatusCode, header};
-use axum::routing::{get, post, put};
+use axum::routing::get;
 use serde_json::json;
 
 use tower::ServiceExt;
@@ -17,11 +17,7 @@ use tower::ServiceExt;
 use crate::db::init_db;
 use crate::error::AppError;
 use crate::model::{Meal, Plan, PlanSummaryItem};
-use crate::routes::{
-    add_bring_item, create_meal, create_plan, delete_meal, delete_plan, get_bring_status, get_meal,
-    get_meal_image, get_plans, get_settings, get_version, list_meals, patch_settings, update_meal,
-    update_plan,
-};
+use crate::routes::{get_settings, patch_settings};
 use crate::state::AppState;
 
 struct TestCtx {
@@ -35,29 +31,7 @@ async fn setup() -> TestCtx {
     let db_path = dir.path().join("test.db");
     let pool = init_db(&db_path).await.expect("init_db");
     let state = Arc::new(AppState { pool: pool.clone() });
-    let app = Router::new()
-        .route("/meals", get(list_meals).post(create_meal))
-        .route(
-            "/meals/{id}",
-            get(get_meal).put(update_meal).delete(delete_meal),
-        )
-        .route("/meals/{id}/image", get(get_meal_image))
-        .route("/import/url", post(crate::import::import_from_url))
-        .route("/import/paste", post(crate::import::import_from_paste))
-        .route("/import/llm", post(crate::import::import_from_llm))
-        .route("/import/generate", post(crate::import::generate_meal))
-        .route("/import/bulk", post(crate::import::import_bulk))
-        .route("/llm/providers", get(crate::import::llm_providers))
-        .route("/llm/models", get(crate::import::llm_models))
-        .route("/llm/polish", post(crate::import::polish_instructions))
-        .route("/plans", get(get_plans).post(create_plan))
-        .route("/plans/{year}/{week}", put(update_plan).delete(delete_plan))
-        .route("/bring/items", post(add_bring_item))
-        .route("/bring/status", get(get_bring_status))
-        .route("/settings", get(get_settings).patch(patch_settings))
-        .route("/version", get(get_version))
-        .layer(axum::extract::DefaultBodyLimit::max(crate::MAX_BODY_BYTES))
-        .with_state(state);
+    let app = crate::router::api(state);
     TestCtx {
         app,
         pool,
@@ -3167,20 +3141,11 @@ fn given_other_error_when_classify_fetch_then_includes_detail() {
 }
 
 #[test]
-fn given_validation_error_when_classify_insert_then_validation_failed() {
+fn given_validation_error_when_failure_reason_then_reports_validation_with_detail() {
     let err = AppError::Validation("too long".into());
     assert_eq!(
-        crate::import::classify_insert_error(&err),
-        "validation failed"
-    );
-}
-
-#[test]
-fn given_db_error_when_classify_insert_then_returns_message() {
-    let err = AppError::BadRequest("something wrong".into());
-    assert_eq!(
-        crate::import::classify_insert_error(&err),
-        "something wrong"
+        crate::intake::failure_reason(&err),
+        "validation failed: too long"
     );
 }
 

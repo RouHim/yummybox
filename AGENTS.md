@@ -21,9 +21,11 @@ Browser (SPA) ──fetch──▶ axum (Rust) ──async──▶ SQLite (via 
 | Directory | Purpose |
 |-----------|---------|
 | `src/` | Rust source — flat files, no nested modules |
-| `src/main.rs` | Binary entry point, routing, server startup |
+| `src/main.rs` | Binary entry point, server startup, subcommand dispatch |
+| `src/router.rs` | The `/api` route table shared by production and the integration tests |
 | `src/db.rs` | SQLite operations (init, CRUD, validation, search, ingredient hydration) |
-| `src/routes.rs` | Axum handler functions: meals, plans, Bring!, version, images + integration tests |
+| `src/routes.rs` | Axum handler functions: meals, plans, Bring!, settings, version, images |
+| `src/intake.rs` | Meal insertion seam: duplicate check, image conversion, validation, write |
 | `src/plan.rs` | Week math, plan CRUD, ingredient aggregation, weighted meal selection |
 | `src/import.rs` | Import handlers: URL, LLM, paste, bulk; LLM config helpers |
 | `src/llm_import.rs` | LLM-based recipe extraction and parsing |
@@ -33,9 +35,11 @@ Browser (SPA) ──fetch──▶ axum (Rust) ──async──▶ SQLite (via 
 | `src/state.rs` | `AppState` struct holding the `SqlitePool` |
 | `src/static_assets.rs` | SPA fallback via `rust-embed` |
 | `src/image.rs` | Image conversion/validation |
-| `src/jsonld.rs` | JSON-LD (schema.org Recipe) serialization |
+| `src/jsonld.rs` | Schema.org Recipe serialization for JSON-LD responses and the ZIP export |
 | `src/bring.rs` | Bring! shopping list integration |
-| `src/export_import.rs` | ZIP export/import of meals |
+| `src/export_import.rs` | ZIP export/import of meals (schema.org `recipes.json` + images) |
+| `src/mealie.rs` | Mealie backup ZIP import |
+| `src/zip_intake.rs` | Shared ZIP archive intake: multipart read, size ceilings, entry and image reads |
 | `src/seed.rs` | Database seeding with sample meals (`yummybox seed`) |
 | `src/data_dir.rs` | Data directory resolution and creation |
 | `src/settings.rs` | Stored AI and Bring! settings, effective-configuration resolution, validation |
@@ -43,17 +47,17 @@ Browser (SPA) ──fetch──▶ axum (Rust) ──async──▶ SQLite (via 
 | `web/` | SvelteKit project (frontend) |
 | `web/src/routes/` | Svelte page components: `+page.svelte` (home), `meals/` (list/create), `meals/[id]/` (detail/edit/cooking), `planner/` (weekly planner) |
 | `web/src/routes/settings/` | Settings page: AI provider/model/endpoint/key and Bring! credentials |
-| `web/src/lib/` | Shared modules: `api.ts` (fetch client), `validation.ts`, `types.ts`, i18n, components |
+| `web/src/lib/` | Shared modules: `api.ts` (fetch client), `validation.ts`, `week.ts` (week model), `calendar.svelte.ts` (month view state), `planner.svelte.ts` (plan editor), `cook-draft.ts` (sessionStorage handoff), `image-stage.svelte.ts` (image capture), `types.ts`, i18n, components |
 | `web/build/` | Build output (embedded into binary at compile time) |
 
 ## Development Commands
 
 ```bash
 # Build and run (production)
-# Run all Rust tests (286 tests)
+# Run all Rust tests (472 tests)
 cargo test
 
-# Run all frontend tests (147 tests)
+# Run all frontend tests (229 tests)
 cd web && npm test
 
 # Type-check frontend
@@ -158,9 +162,12 @@ If a function has no call site, delete it — no commented-out scaffolds, no `#[
 |------|------|
 | `Cargo.toml` | Binary name `yummybox`, edition 2024, Rust 1.85+, sqlx with compile-time checked queries |
 | `build.rs` | Auto-runs `npm install && npm run build` in `web/` |
-| `src/main.rs` | Router assembly, port binding, logging init, subcommand dispatch |
+| `src/main.rs` | Port binding, logging init, subcommand dispatch, SPA mount |
+| `src/router.rs` | The `/api` route table |
 | `src/db.rs` | SQL queries, validation, `init_db` schema creation, ingredient hydration |
-| `src/routes.rs` | Handlers: meals (list/get/create/update/delete), meal images, plans CRUD, Bring!, version |
+| `src/routes.rs` | Handlers: meals (list/get/create/update/delete), meal images, plans CRUD, Bring!, settings, version |
+| `src/intake.rs` | Insertion seam for imported meals |
+| `src/zip_intake.rs` | Shared ZIP intake for the archive importers |
 | `src/plan.rs` | Week math, plan CRUD, ingredient aggregation, weighted meal selection |
 | `src/import.rs` | Import handlers: URL, LLM, paste, bulk; LLM config helpers |
 | `src/error.rs` | `AppError` → HTTP response mapping |
@@ -172,6 +179,11 @@ If a function has no call site, delete it — no commented-out scaffolds, no `#[
 | `web/vitest.config.ts` | Test include pattern: `src/**/*.test.ts` |
 | `web/src/routes/` | Svelte page components: home, meals list/detail/cooking, weekly planner |
 | `web/src/lib/api.ts` | Fetch client for all API endpoints |
+| `web/src/lib/planner.svelte.ts` | Plan-editor state: selection, mutations, summary refresh |
+| `web/src/lib/week.ts` | Week identity, month grid, week rows and display ranges |
+| `web/src/lib/calendar.svelte.ts` | Month view state: paging, grid rows |
+| `web/src/lib/image-stage.svelte.ts` | Image capture and validation shared by the pickers |
+| `web/src/lib/cook-draft.ts` | Versioned sessionStorage handoff between spontaneous cooking and its cooking view |
 | `web/playwright.config.ts` | E2E config: visual tests on :11341 (release binary) |
 | `tests/playwright.config.ts` | E2E config: workflow tests on :11342 (auto-build, isolated DB) |
 | `tests/e2e/_helpers.ts` | Shared E2E helpers: `createMeal`, `resetMeals`, `setLocale` |

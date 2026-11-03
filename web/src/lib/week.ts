@@ -66,3 +66,28 @@ export function monthGrid(year: number, month: number): MonthCell[] {
 	}
 	return cells;
 }
+
+export interface WeekRow {
+	week: { year: number; week: number };
+	cells: MonthCell[];
+}
+
+/** Group a 42-cell month grid into six Monday-started week rows. */
+export function weekRows(cells: MonthCell[]): WeekRow[] {
+	return Array.from({ length: 6 }, (_, row) => {
+		const rowCells = cells.slice(row * 7, row * 7 + 7);
+		return { week: rowCells[0].week, cells: rowCells };
+	});
+}
+
+/** Display range of an ISO week, e.g. "Jun 15 to Jun 21". */
+export function formatWeekRange(year: number, week: number): string {
+	const { monday, sunday } = mondaySundayOf(year, week);
+	const opts: Intl.DateTimeFormatOptions = { month: 'short', day: 'numeric' };
+	return `${monday.toLocaleDateString(undefined, opts)} to ${sunday.toLocaleDateString(undefined, opts)}`;
+}
+
+/** Calendar-grid date as a local date string, for comparing against `Date#toDateString`. */
+export function localDateString(date: Date): string {
+	return new Date(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate()).toDateString();
+}

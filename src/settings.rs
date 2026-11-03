@@ -50,7 +50,7 @@ const BRING_PASSWORD_ENV: &str = "BRING_PASSWORD";
 
 /// Environment lookup, injected so resolution is testable without mutating
 /// the process environment.
-pub type Env<'a> = &'a dyn Fn(&str) -> Option<String>;
+pub type Env<'a> = &'a (dyn Fn(&str) -> Option<String> + Send + Sync);
 
 /// The environment lookup the handlers use.
 pub fn env_lookup(key: &str) -> Option<String> {
@@ -241,6 +241,68 @@ pub fn resolve_bring(stored: &StoredSettings, env: Env<'_>) -> Option<BringCrede
         .clone()
         .or_else(|| env(BRING_PASSWORD_ENV).filter(|value| !value.trim().is_empty()))?;
     Some(BringCredentials { email, password })
+}
+
+/// Stored settings resolved against an environment, ready for a caller.
+///
+/// Every handler needs one of these. Obtaining it is one call, and each
+/// method answers a complete question instead of exposing the resolution
+/// steps and the environment lookup.
+pub struct Current<'a> {
+    stored: StoredSettings,
+    env: Env<'a>,
+}
+
+impl<'a> Current<'a> {
+    /// Resolve already-loaded settings. [`current`] is the database path.
+    pub(crate) fn from_stored(stored: StoredSettings, env: Env<'a>) -> Self {
+        Self { stored, env }
+    }
+
+    /// The AI configuration a flow runs with, or the actionable
+    /// "configure it in Settings" error.
+    pub fn ai(&self) -> Result<EffectiveAi, AppError> {
+        resolve_ai(&self.stored, self.env)?.ok_or_else(|| {
+            AppError::Llm(
+                "AI is not configured: choose a provider and a model in Settings".to_string(),
+                "llm_not_configured",
+            )
+        })
+    }
+
+    /// Bring! credentials, or `None` when either value is missing.
+    pub fn bring(&self) -> Option<BringCredentials> {
+        resolve_bring(&self.stored, self.env)
+    }
+
+    /// The browser-visible snapshot of the effective configuration.
+    pub fn snapshot(&self) -> SettingsSnapshot {
+        snapshot(&self.stored, self.env)
+    }
+
+    /// The provider list with usability, resolved against this environment.
+    pub fn providers(&self) -> Vec<crate::llm_import::LlmProviderInfo> {
+        crate::llm_import::list_providers(
+            self.stored.provider.as_deref(),
+            self.stored.api_key.is_some(),
+            &|name| (self.env)(name).is_some_and(|value| !value.trim().is_empty()),
+        )
+    }
+
+    /// Credentials for one provider; an unknown provider is a 400.
+    pub fn credentials(&self, provider: &str) -> Result<ProviderCredentials, AppError> {
+        if !crate::llm_import::provider_ids().contains(&provider) {
+            return Err(AppError::BadRequest(format!(
+                "unknown provider: {provider}"
+            )));
+        }
+        Ok(provider_credentials(&self.stored, provider, self.env))
+    }
+}
+
+/// Load the stored settings and resolve them against the process environment.
+pub async fn current(pool: &SqlitePool) -> Result<Current<'static>, AppError> {
+    Ok(Current::from_stored(load(pool).await?, &env_lookup))
 }
 
 // ---------------------------------------------------------------------------

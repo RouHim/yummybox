@@ -1,43 +1,8 @@
 <script lang="ts">
 	import CookingView from '$lib/components/CookingView.svelte';
 	import { t } from '$lib/i18n';
-	import type { Meal, NewIngredientLine } from '$lib/types';
-
-	interface CookDraft {
-		name: string;
-		ingredients: NewIngredientLine[];
-		instructions: string;
-		portions: number | null;
-		imageDataUrl: string | null;
-		sourceUrl?: string | null;
-		source_url?: string | null;
-	}
-
-	function readDraft(): CookDraft | null {
-		const raw = (() => {
-			try {
-				return sessionStorage.getItem('yummybox-cook-draft');
-			} catch {
-				return null;
-			}
-		})();
-		if (!raw) return null;
-		try {
-			const parsed: unknown = JSON.parse(raw);
-			if (
-				typeof parsed !== 'object' ||
-				parsed === null ||
-				!Array.isArray((parsed as CookDraft).ingredients) ||
-				typeof (parsed as CookDraft).name !== 'string' ||
-				typeof (parsed as CookDraft).instructions !== 'string'
-			) {
-				return null;
-			}
-			return parsed as CookDraft;
-		} catch {
-			return null;
-		}
-	}
+	import type { Meal } from '$lib/types';
+	import { readCookDraft, type CookDraft } from '$lib/cook-draft';
 
 	// sessionStorage is browser-only: read it in an $effect (client-only) so
 	// the initial render matches the server-rendered HTML and hydration never
@@ -47,7 +12,7 @@
 	let ready = $state(false);
 
 	$effect(() => {
-		draft = readDraft();
+		draft = readCookDraft();
 		ready = true;
 	});
 
@@ -63,7 +28,7 @@
 					updated_at: '',
 					has_image: !!draft.imageDataUrl,
 					portions: draft.portions,
-					source_url: draft.source_url ?? draft.sourceUrl ?? null,
+					source_url: draft.sourceUrl,
 				}
 			: null
 	);

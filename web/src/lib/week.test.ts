@@ -1,5 +1,14 @@
 import { describe, it, expect } from 'vitest';
-import { weekOfDate, mondaySundayOf, weeksInYear, isPastWeek, monthGrid } from './week';
+import {
+	weekOfDate,
+	mondaySundayOf,
+	weeksInYear,
+	isPastWeek,
+	monthGrid,
+	weekRows,
+	formatWeekRange,
+	localDateString,
+} from './week';
 
 describe('weekOfDate', () => {
 	it('returns 2026 week 1 for Jan 1 2026', () => {
@@ -110,5 +119,40 @@ describe('monthGrid', () => {
 		// The second Monday (Jan 5 2026) should have ISO week {2026, 2}
 		expect(jan[7].week.year).toBe(2026);
 		expect(jan[7].week.week).toBe(2);
+	});
+});
+
+describe('weekRows', () => {
+	it('groups the month grid into six rows of seven cells', () => {
+		const rows = weekRows(monthGrid(2026, 0));
+
+		expect(rows).toHaveLength(6);
+		for (const row of rows) expect(row.cells).toHaveLength(7);
+	});
+
+	it('labels each row with the ISO week of its Monday', () => {
+		const rows = weekRows(monthGrid(2026, 0));
+
+		// Jan 2026 starts on Thursday, so the first row's Monday is Dec 29 2025.
+		expect(rows[0].week).toEqual({ year: 2025, week: 53 });
+		expect(rows[0].cells[0].date.toISOString().slice(0, 10)).toBe('2025-12-29');
+	});
+});
+
+describe('formatWeekRange', () => {
+	it('names both ends of the week', () => {
+		const range = formatWeekRange(2026, 25);
+
+		expect(range).toContain('15');
+		expect(range).toContain('21');
+		expect(range).toContain(' to ');
+	});
+});
+
+describe('localDateString', () => {
+	it('matches the local date of the grid cell', () => {
+		const gridDate = new Date(Date.UTC(2026, 5, 15, 12, 0, 0));
+
+		expect(localDateString(gridDate)).toBe(new Date(2026, 5, 15).toDateString());
 	});
 });

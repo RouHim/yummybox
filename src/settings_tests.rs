@@ -2,8 +2,9 @@
 // src/settings.rs stays focused on production code.
 
 use crate::db;
+use crate::error::AppError;
 use crate::settings::{
-    KEY_BRING_EMAIL, KEY_BRING_PASSWORD, KEY_LLM_API_KEY, KEY_LLM_BASE_URL, KEY_LLM_MODEL,
+    Current, KEY_BRING_EMAIL, KEY_BRING_PASSWORD, KEY_LLM_API_KEY, KEY_LLM_BASE_URL, KEY_LLM_MODEL,
     KEY_LLM_PROVIDER, SecretState, StoredSettings, ValueSource, load, provider_credentials,
     resolve_ai, resolve_bring, snapshot,
 };
@@ -1568,4 +1569,105 @@ async fn given_cleared_credentials_with_environment_when_resolved_then_environme
 
     assert_eq!(credentials.email, "env@example.com");
     assert_eq!(credentials.password, "env-pass");
+}
+
+// ---------------------------------------------------------------------------
+// Current: the resolved handle every caller uses
+// ---------------------------------------------------------------------------
+
+#[test]
+fn given_no_ai_configuration_when_current_ai_then_reports_llm_not_configured() {
+    let env = empty_env();
+    let current = Current::from_stored(StoredSettings::default(), &env);
+    let err = current.ai().expect_err("unconfigured AI must fail");
+
+    assert!(
+        matches!(&err, AppError::Llm(_, "llm_not_configured")),
+        "expected llm_not_configured, got: {err}"
+    );
+}
+
+#[tokio::test]
+async fn given_stored_provider_and_model_when_current_ai_then_resolves_them() {
+    let (pool, _dir) = setup_db().await;
+    let mut tx = pool.begin().await.expect("begin");
+    for (key, value) in [(KEY_LLM_PROVIDER, "ollama"), (KEY_LLM_MODEL, "llama3")] {
+        sqlx::query("INSERT INTO settings (key, value) VALUES (?1, ?2)")
+            .bind(key)
+            .bind(value)
+            .execute(&mut *tx)
+            .await
+            .expect("insert setting");
+    }
+    tx.commit().await.expect("commit");
+
+    let effective = crate::settings::current(&pool)
+        .await
+        .expect("current")
+        .ai()
+        .expect("configured");
+
+    assert_eq!(effective.provider, "ollama");
+    assert_eq!(effective.model, "llama3");
+}
+
+#[test]
+fn given_provider_env_key_when_current_providers_then_reports_it_configured() {
+    let stored = StoredSettings {
+        provider: Some("openai".to_string()),
+        ..StoredSettings::default()
+    };
+    let env = |key: &str| (key == "OPENAI_API_KEY").then(|| "sk-env".to_string());
+
+    let providers = Current::from_stored(stored, &env).providers();
+    let openai = providers
+        .iter()
+        .find(|provider| provider.id == "openai")
+        .expect("openai is listed");
+
+    assert!(openai.env_key_set);
+    assert!(openai.configured);
+}
+
+#[test]
+fn given_whitespace_provider_env_key_when_current_providers_then_reports_it_unset() {
+    let env = |key: &str| (key == "OPENAI_API_KEY").then(|| "   ".to_string());
+
+    let providers = Current::from_stored(StoredSettings::default(), &env).providers();
+    let openai = providers
+        .iter()
+        .find(|provider| provider.id == "openai")
+        .expect("openai is listed");
+
+    assert!(!openai.env_key_set);
+    assert!(
+        !openai.configured,
+        "a blank key leaves the provider unusable"
+    );
+}
+
+#[test]
+fn given_unknown_provider_when_current_credentials_then_rejects_it() {
+    let env = empty_env();
+    let current = Current::from_stored(StoredSettings::default(), &env);
+    let err = current.credentials("nope").expect_err("unknown provider");
+
+    assert!(matches!(err, AppError::BadRequest(_)), "got: {err}");
+}
+
+#[test]
+fn given_stored_bring_values_when_current_bring_then_uses_them() {
+    let stored = StoredSettings {
+        bring_email: Some("cook@example.com".to_string()),
+        bring_password: Some("secret".to_string()),
+        ..StoredSettings::default()
+    };
+
+    let env = empty_env();
+    let credentials = Current::from_stored(stored, &env)
+        .bring()
+        .expect("stored credentials");
+
+    assert_eq!(credentials.email, "cook@example.com");
+    assert_eq!(credentials.password, "secret");
 }

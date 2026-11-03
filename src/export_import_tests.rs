@@ -3,68 +3,12 @@
 
 use std::io::{Cursor, Read, Write};
 
-use chrono::{TimeZone, Utc};
 use zip::CompressionMethod;
 use zip::read::ZipArchive;
 use zip::write::ZipWriter;
 
 use crate::export_import::*;
-use crate::model::Meal;
 use crate::state::AppState;
-
-// ------------------------------------------------------------------
-// build_recipe_json
-// ------------------------------------------------------------------
-
-fn sample_meal(id: i64, name: &str, has_image: bool) -> Meal {
-    Meal {
-        id,
-        name: name.into(),
-        ingredients: vec![
-            crate::model::IngredientQuantity {
-                name: "flour".into(),
-                quantity: Some("2 cups".into()),
-            },
-            crate::model::IngredientQuantity {
-                name: "sugar".into(),
-                quantity: None,
-            },
-        ],
-        instructions: "Mix and bake.".into(),
-        last_planned_at: None,
-        created_at: Utc.with_ymd_and_hms(2026, 1, 15, 12, 0, 0).unwrap(),
-        updated_at: Utc.with_ymd_and_hms(2026, 1, 16, 12, 0, 0).unwrap(),
-        has_image,
-        portions: None,
-        source_url: None,
-    }
-}
-
-#[test]
-fn build_recipe_json_with_image_includes_relative_path() {
-    let meal = sample_meal(42, "Test Meal", true);
-    let images = vec![(42, vec![1, 2, 3])];
-    let recipe = build_recipe_json(&meal, &images);
-
-    assert_eq!(recipe["@context"], "https://schema.org");
-    assert_eq!(recipe["@type"], "Recipe");
-    assert_eq!(recipe["name"], "Test Meal");
-    assert_eq!(recipe["image"], "images/42.jpg");
-
-    let ingredients = recipe["recipeIngredient"].as_array().unwrap();
-    assert_eq!(ingredients.len(), 2);
-    assert_eq!(ingredients[0], "2 cups flour");
-    assert_eq!(ingredients[1], "sugar");
-}
-
-#[test]
-fn build_recipe_json_without_image_omits_image_key() {
-    let meal = sample_meal(7, "No Image", false);
-    let images: Vec<(i64, Vec<u8>)> = vec![];
-    let recipe = build_recipe_json(&meal, &images);
-
-    assert!(recipe.get("image").is_none());
-}
 
 // ------------------------------------------------------------------
 // build_export_zip
@@ -181,25 +125,6 @@ fn extract_instructions_missing_returns_empty() {
     assert_eq!(extract_instructions(&recipe), "");
 }
 
-// ------------------------------------------------------------------
-// preload_images
-// ------------------------------------------------------------------
-
-#[test]
-fn preload_images_ignores_non_image_entries() {
-    let zip_bytes = make_test_zip(&[
-        ("recipes.json", b"{}" as &[u8]),
-        ("images/1.jpg", b"fake-jpeg"),
-        ("other.txt", b"ignored"),
-    ]);
-    let cursor = Cursor::new(zip_bytes);
-    let mut archive = ZipArchive::new(cursor).unwrap();
-    let map = preload_images(&mut archive).unwrap();
-
-    assert_eq!(map.len(), 1);
-    assert_eq!(map.get("images/1.jpg").unwrap(), b"fake-jpeg");
-}
-
 /// Build a minimal in-memory ZIP for tests.
 fn make_test_zip(entries: &[(&str, &[u8])]) -> Vec<u8> {
     let mut buf = Cursor::new(Vec::new());
@@ -225,7 +150,6 @@ use ::image::ImageEncoder as _;
 use axum::Router;
 use axum::body::to_bytes;
 use axum::http::{Method, Request, StatusCode};
-use axum::routing::{get, post};
 use serde_json::json;
 use std::sync::Arc;
 use tower::ServiceExt;
@@ -240,11 +164,7 @@ async fn route_setup() -> RouteTestCtx {
     let db_path = dir.path().join("test.db");
     let pool = init_db(&db_path).await.expect("init_db");
     let state = Arc::new(AppState { pool });
-    let app = Router::new()
-        .route("/export/meals.zip", get(export_meals_zip))
-        .route("/import/zip", post(import_meals_zip))
-        .layer(axum::extract::DefaultBodyLimit::max(crate::MAX_BODY_BYTES))
-        .with_state(Arc::clone(&state));
+    let app = crate::router::api(Arc::clone(&state));
     RouteTestCtx {
         app,
         state,

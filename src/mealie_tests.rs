@@ -156,14 +156,12 @@ use ::image::ImageEncoder as _;
 use axum::Router;
 use axum::body::to_bytes;
 use axum::http::{Method, Request, StatusCode};
-use axum::routing::post;
 use std::sync::Arc;
 use tower::ServiceExt;
 use zip::CompressionMethod;
 use zip::write::ZipWriter;
 
 use crate::db::init_db;
-use crate::mealie::import_mealie_zip;
 use crate::state::AppState;
 
 struct MealieRouteCtx {
@@ -177,10 +175,7 @@ async fn mealie_route_setup() -> MealieRouteCtx {
     let db_path = dir.path().join("test.db");
     let pool = init_db(&db_path).await.expect("init_db");
     let state = Arc::new(AppState { pool });
-    let app = Router::new()
-        .route("/import/mealie", post(import_mealie_zip))
-        .layer(axum::extract::DefaultBodyLimit::max(crate::MAX_BODY_BYTES))
-        .with_state(Arc::clone(&state));
+    let app = crate::router::api(Arc::clone(&state));
     MealieRouteCtx {
         app,
         state,

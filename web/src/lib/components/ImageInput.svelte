@@ -2,8 +2,9 @@
 	import { t } from '$lib/i18n';
 	import Icon from '$lib/Icon.svelte';
 	import { fade, scale } from 'svelte/transition';
-	import { mealImageUrl, loadImageFromUrl, ApiError } from '$lib/api';
+	import { mealImageUrl } from '$lib/api';
 	import type { Meal } from '$lib/types';
+	import { ImageCapture, looksLikeImage } from '$lib/image-stage.svelte';
 
 	let {
 		editingMeal = null,
@@ -19,16 +20,30 @@
 		onerror: (error: string | null) => void;
 	} = $props();
 
-	let formImage = $state<File | null>(initialImage);
+	// A meal image: any format the backend can decode, one file at a time.
 	let removeImage = $state(false);
+	const initialFiles = [initialImage].filter((file): file is File => file !== null);
+	const capture = new ImageCapture(
+		{
+			maxFiles: 1,
+			allowPlainTextDrag: true,
+			// The meal form stages a new file when one is picked; a file that
+			// is not an image is the only rejection.
+			validateFile: (file) => (looksLikeImage(file) ? null : 'imageErrorNotImage'),
+		},
+		{
+			onchange: (files) => {
+				const file = files[0] ?? null;
+				if (file) removeImage = false;
+				onchange(file, removeImage);
+			},
+			onerror: (message) => onerror(message),
+		},
+		initialFiles
+	);
+
+	const formImage = $derived(capture.files[0] ?? null);
 	let stagedImageUrl = $state<string | null>(null);
-	let imageUrl = $state('');
-	let imageUrlLoading = $state(false);
-	let imageUrlError = $state<string | null>(null);
-	let imageError = $state<string | null>(null);
-	let dragDepth = $state(0);
-	const isDragging = $derived(dragDepth > 0);
-	let urlRowOpen = $state(false);
 
 	// Object URL for staged-image thumbnail preview.
 	$effect(() => {
@@ -45,115 +60,10 @@
 	// focused div. Attaching to document catches Ctrl+V/Cmd+V while the dialog
 	// is mounted. See https://web.dev/patterns/clipboard/paste-images/.
 	$effect(() => {
-		const handler = (e: ClipboardEvent) => onPaste(e);
+		const handler = (event: ClipboardEvent) => capture.onPaste(event);
 		document.addEventListener('paste', handler);
 		return () => document.removeEventListener('paste', handler);
 	});
-
-	function looksLikeImage(file: File): boolean {
-		if (file.type.startsWith('image/')) return true;
-		const ext = file.name.split('.').pop()?.toLowerCase();
-		return ['png', 'jpg', 'jpeg', 'webp', 'gif', 'avif', 'bmp', 'tiff'].includes(ext ?? '');
-	}
-
-	function stageImage(file: File | null) {
-		if (file && !looksLikeImage(file)) {
-			imageError = t('imageErrorNotImage');
-			onerror(imageError);
-			return;
-		}
-		imageError = null;
-		onerror(null);
-		if (file) {
-			formImage = file;
-			removeImage = false;
-		}
-		onchange(formImage, removeImage);
-	}
-
-	// --- DnD handlers (whole component surface) ---
-
-	function isFileDrag(dt: DataTransfer | null): boolean {
-		if (!dt) return false;
-		// Browsers protect the file list during dragenter/dragover, so it can
-		// be empty even when the user is dragging files. The `types` list is
-		// the reliable signal.
-		if (dt.files.length > 0) return true;
-		// dt.types is a DOMStringList; convert to array so .includes() works
-		// both in real browsers and in synthetic test DataTransfer objects.
-		const types = Array.from(dt.types);
-		if (types.includes('Files')) return true;
-		return types.includes('text/uri-list') || types.includes('text/plain');
-	}
-
-	function onDragEnter(e: DragEvent) {
-		if (isFileDrag(e.dataTransfer)) {
-			dragDepth++;
-		}
-		e.preventDefault();
-	}
-
-	function onDragOver(e: DragEvent) {
-		e.preventDefault();
-	}
-
-	function onDragLeave(_e: DragEvent) {
-		dragDepth = Math.max(0, dragDepth - 1);
-	}
-
-	function readDraggedUrl(dt: DataTransfer | null): string | null {
-		if (!dt) return null;
-		// Standard MIME type for URI drags; Firefox/Chrome both populate it
-		// for image/link/tab drags. URI lists may contain multiple URLs
-		// newline-separated with '#' comment lines — take the first non-comment.
-		const uriList = dt.getData('text/uri-list');
-		if (uriList) {
-			for (const line of uriList.split(/\r?\n/)) {
-				const trimmed = line.trim();
-				if (trimmed && !trimmed.startsWith('#')) return trimmed;
-			}
-		}
-		// Firefox-specific: "URL\ntitle" on two lines.
-		const mozUrl = dt.getData('text/x-moz-url');
-		if (mozUrl) {
-			const firstLine = mozUrl.split(/\r?\n/)[0]?.trim();
-			if (firstLine) return firstLine;
-		}
-		// Fallback: plain text (some drags only populate this).
-		const plain = dt.getData('text/plain').trim();
-		if (plain) return plain;
-		return null;
-	}
-
-	function onDrop(e: DragEvent) {
-		e.preventDefault();
-		dragDepth = 0;
-		const files = e.dataTransfer?.files;
-		if (files && files.length > 0) {
-			const file = files[0];
-			if (file) stageImage(file);
-			return;
-		}
-		// Cross-window browser drag: payload is a URL string, not a File.
-		const url = readDraggedUrl(e.dataTransfer);
-		if (url) {
-			loadAndStageFromUrl(url).catch((err) => {
-				if (err instanceof ApiError) {
-					const msg = err.message || '';
-					if (msg.includes('unreachable') || msg.includes('HTTP')) {
-						imageError = t('imageErrorUrlUnreachable');
-					} else if (msg.includes('not a recognizable') || msg.includes('corrupt')) {
-						imageError = t('imageErrorUrlNotImage');
-					} else {
-						imageError = t('imageErrorUrlGeneric');
-					}
-				} else {
-					imageError = t('imageErrorUrlGeneric');
-				}
-				onerror(imageError);
-			});
-		}
-	}
 
 	// --- Upload tile (click-to-browse) ---
 
@@ -163,157 +73,11 @@
 		fileInput?.click();
 	}
 
-
-	function onFileInputChange(e: Event) {
-		const target = e.target as HTMLInputElement;
-		const file = target.files?.[0] ?? null;
-		stageImage(file);
-		target.value = '';
-	}
-
-	// --- Paste tile ---
-
-	function onPaste(e: ClipboardEvent) {
-		const cd = e.clipboardData;
-		if (!cd) return;
-
-		// Chrome/Edge populate clipboardData.files for image pastes.
-		if (cd.files.length > 0) {
-			const imageFile = Array.from(cd.files).find((f) => f.type.startsWith('image/'));
-			if (imageFile) {
-				e.preventDefault();
-				stageImage(imageFile);
-				return;
-			}
-		}
-
-		// Firefox (Linux/macOS): clipboardData.files is empty; DataTransferItemList
-		// has image items with kind='file'.
-		const items = cd.items;
-		for (let i = 0; i < items.length; i++) {
-			const item = items[i];
-			if (item.kind === 'file' && item.type.startsWith('image/')) {
-				const file = item.getAsFile();
-				if (file) {
-					e.preventDefault();
-					stageImage(file);
-					return;
-				}
-			}
-		}
-
-		// Firefox (Windows): OS screenshots arrive as text/html with an embedded
-		// <img> tag containing a data: URI (e.g. Win+Shift+S).
-		const html = cd.getData('text/html');
-		if (html) {
-			const doc = new DOMParser().parseFromString(html, 'text/html');
-			const img = doc.querySelector('img');
-			if (img?.src) {
-				const src = img.src;
-				if (src.startsWith('data:')) {
-					e.preventDefault();
-					const comma = src.indexOf(',');
-					if (comma === -1) return;
-					const header = src.slice(0, comma);
-					const mime = header.split(':')[1]?.split(';')[0] || 'image/png';
-					const b64 = src.slice(comma + 1);
-					try {
-						const binary = atob(b64);
-						const bytes = new Uint8Array(binary.length);
-						for (let j = 0; j < binary.length; j++) {
-							bytes[j] = binary.charCodeAt(j);
-						}
-						stageImage(new File([bytes], 'pasted.png', { type: mime }));
-					} catch {
-						// Invalid base64 — ignore.
-					}
-					return;
-				}
-				if (src.startsWith('blob:')) {
-					e.preventDefault();
-					fetch(src)
-						.then((r) => r.blob())
-						.then((blob) => {
-							stageImage(new File([blob], 'pasted.png', { type: blob.type || 'image/png' }));
-						})
-						.catch(() => {});
-					return;
-				}
-			}
-		}
-	}
-
-	// Click handler for the Paste tile: reads from the system clipboard via the
-	// async Clipboard API. Requires a user gesture (click), which is satisfied.
-	async function onPasteClick() {
-		try {
-			const clipboardItems = await navigator.clipboard.read();
-			for (const item of clipboardItems) {
-				for (const type of item.types) {
-					if (type.startsWith('image/')) {
-						const blob = await item.getType(type);
-						stageImage(new File([blob], 'pasted.png', { type }));
-						return;
-					}
-				}
-			}
-		} catch {
-			// Clipboard read not supported or denied — silent no-op.
-		}
-	}
-
-	function onPasteKeyDown(e: KeyboardEvent) {
-		if (e.key === 'Enter' || e.key === ' ') {
-			e.preventDefault();
-			onPasteClick();
-		}
-	}
-
-	// --- URL load ---
-
-	async function loadAndStageFromUrl(url: string): Promise<void> {
-		const resp = await loadImageFromUrl(url);
-		const bytes = Uint8Array.from(atob(resp.imageBase64), (c) => c.charCodeAt(0));
-		const file = new File([bytes], 'imported.jpg', { type: 'image/jpeg' });
-		stageImage(file);
-	}
-
-	async function onLoadImageUrl() {
-		imageUrlError = null;
-		const url = imageUrl.trim();
-		if (!url) return;
-		imageUrlLoading = true;
-		try {
-			await loadAndStageFromUrl(url);
-			imageUrl = '';
-			urlRowOpen = false;
-		} catch (err) {
-			if (err instanceof ApiError) {
-				const msg = err.message || '';
-				if (msg.includes('unreachable') || msg.includes('HTTP')) {
-					imageUrlError = t('imageErrorUrlUnreachable');
-				} else if (msg.includes('not a recognizable') || msg.includes('corrupt')) {
-					imageUrlError = t('imageErrorUrlNotImage');
-				} else {
-					imageUrlError = t('imageErrorUrlGeneric');
-				}
-			} else {
-				imageUrlError = t('imageErrorUrlGeneric');
-			}
-		} finally {
-			imageUrlLoading = false;
-		}
-	}
-
-	function toggleUrlRow() {
-		urlRowOpen = !urlRowOpen;
-	}
-
 	// --- Remove / restore existing image ---
 
 	function onRemoveImageClick() {
 		removeImage = true;
-		formImage = null;
+		capture.reset();
 		onchange(null, true);
 	}
 
@@ -332,15 +96,16 @@
 	const hasExisting = $derived(editMode && editingMeal?.has_image && !removeImage && !formImage);
 	const hasStaged = $derived(stagedImageUrl !== null);
 	const isInteractive = $derived(!removeImage);
+	const isDragging = $derived(capture.isDragging);
 </script>
 
 	<!-- svelte-ignore a11y_no_static_element_interactions -->
 <div
 	class="image-input"
-	ondragenter={isInteractive ? onDragEnter : undefined}
-	ondragover={isInteractive ? onDragOver : undefined}
-	ondragleave={isInteractive ? onDragLeave : undefined}
-	ondrop={isInteractive ? onDrop : undefined}
+	ondragenter={isInteractive ? (e) => capture.onDragEnter(e) : undefined}
+	ondragover={isInteractive ? (e) => capture.onDragOver(e) : undefined}
+	ondragleave={isInteractive ? () => capture.onDragLeave() : undefined}
+	ondrop={isInteractive ? (e) => capture.onDrop(e) : undefined}
 >
 	{#if isDragging && isInteractive}
 		<div class="image-input__drop-zone" aria-hidden="true" transition:fade={{ duration: 150 }}>
@@ -355,7 +120,7 @@
 		accept="image/*"
 		style="display:none"
 		bind:this={fileInput}
-		onchange={onFileInputChange}
+		onchange={(e) => capture.onFileInputChange(e)}
 		aria-label={formImage ? t('fieldImageReplace') : t('fieldImageChoose')}
 	/>
 
@@ -415,7 +180,7 @@
 			<button
 				type="button"
 				class="image-tile"
-				onclick={toggleUrlRow}
+				onclick={() => capture.toggleUrlRow()}
 			>
 				<Icon name="link" size={24} />
 				<span>{t('imageImportUrl')}</span>
@@ -425,8 +190,8 @@
 			<div
 				class="image-tile image-tile--paste"
 				tabindex="0"
-				onclick={onPasteClick}
-				onkeydown={onPasteKeyDown}
+				onclick={() => capture.onPasteClick()}
+				onkeydown={(e) => capture.onPasteKeyDown(e)}
 				role="button"
 			>
 				<Icon name="clipboard" size={24} />
@@ -445,37 +210,37 @@
 
 
 	<!-- URL input row -->
-	{#if urlRowOpen}
+	{#if capture.urlRowOpen}
 		<div class="image-url-row">
 			<input
 				type="url"
-				bind:value={imageUrl}
+				bind:value={capture.urlInput}
 				placeholder={t('fieldImageUrlPlaceholder')}
-				disabled={imageUrlLoading}
+				disabled={capture.urlLoading}
 			/>
 			<button
 				type="button"
 				class="btn btn--ghost"
-				onclick={onLoadImageUrl}
-				disabled={imageUrlLoading || !imageUrl.trim()}
+				onclick={() => capture.loadUrl()}
+				disabled={capture.urlLoading || !capture.urlInput.trim()}
 			>
-				{imageUrlLoading ? t('fieldImageUrlLoading') : t('fieldImageUrlLoad')}
+				{capture.urlLoading ? t('fieldImageUrlLoading') : t('fieldImageUrlLoad')}
 			</button>
 		</div>
 	{/if}
 
 	<!-- Error messages -->
-	{#if imageError}
+	{#if capture.error}
 		<p class="form-error" role="alert">
 			<Icon name="circle-alert" size={18} />
-			<span>{imageError}</span>
+			<span>{capture.error}</span>
 		</p>
 	{/if}
 
-	{#if imageUrlError}
+	{#if capture.urlError}
 		<p class="form-error" role="alert">
 			<Icon name="circle-alert" size={18} />
-			<span>{imageUrlError}</span>
+			<span>{capture.urlError}</span>
 		</p>
 	{/if}
 </div>

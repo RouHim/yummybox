@@ -169,16 +169,21 @@ pub fn provider_ids() -> Vec<&'static str> {
 /// API key, its API-key environment variable is set, or a key is stored in the
 /// settings for exactly this provider. `env_key_set` reports the environment
 /// variable alone, so the UI can distinguish a stored key from an inherited one.
-pub fn list_providers(stored_provider: Option<&str>, stored_key_set: bool) -> Vec<LlmProviderInfo> {
+/// `env_set` answers whether a named environment variable holds a usable value.
+pub fn list_providers(
+    stored_provider: Option<&str>,
+    stored_key_set: bool,
+    env_set: &dyn Fn(&str) -> bool,
+) -> Vec<LlmProviderInfo> {
     let mut providers: Vec<LlmProviderInfo> = PROVIDER_KINDS
         .iter()
         .map(|(kind, name)| {
             let id = kind.as_lower_str().to_string();
             let env_var = kind.default_key_env_name().unwrap_or("").to_string();
-            // A present-but-empty or whitespace-only variable counts as unset,
-            // matching `settings::provider_env_key`, so both endpoints agree.
-            let env_key_set = !env_var.is_empty()
-                && std::env::var(&env_var).is_ok_and(|value| !value.trim().is_empty());
+            // Whether the variable holds a usable value is the caller's
+            // decision (`settings::Current::providers` owns the "blank counts
+            // as unset" rule), so this module never reads the process env.
+            let env_key_set = !env_var.is_empty() && env_set(&env_var);
             let stored_applies = stored_key_set && stored_provider == Some(id.as_str());
             LlmProviderInfo {
                 configured: needs_no_api_key(&id) || env_key_set || stored_applies,
@@ -954,7 +959,7 @@ mod tests {
 
     #[test]
     fn list_providers_includes_all_providers() {
-        let providers = list_providers(None, false);
+        let providers = list_providers(None, false, &|_| false);
         let ids: Vec<&str> = providers.iter().map(|p| p.id.as_str()).collect();
         for expected in &[
             "openai",
@@ -975,7 +980,7 @@ mod tests {
 
     #[test]
     fn list_providers_ollama_always_configured() {
-        let providers = list_providers(None, false);
+        let providers = list_providers(None, false, &|_| false);
         let ollama = providers
             .iter()
             .find(|p| p.id == "ollama")
@@ -985,7 +990,7 @@ mod tests {
 
     #[test]
     fn list_providers_custom_supports_custom_endpoint() {
-        let providers = list_providers(None, false);
+        let providers = list_providers(None, false, &|_| false);
         let custom = providers
             .iter()
             .find(|p| p.id == "custom")

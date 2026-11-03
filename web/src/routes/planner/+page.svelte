@@ -1,8 +1,16 @@
 <script lang="ts">
-	import { listPlansForYear, getPlan, createPlan, updatePlan, deletePlan, listMeals, sendToBring, mealImageUrl, ApiError } from '$lib/api';
-	import type { Plan, PlanSummaryItem, Meal } from '$lib/types';
+	import { listMeals, sendToBring, mealImageUrl } from '$lib/api';
+	import type { Meal } from '$lib/types';
 	import { t, formatDate } from '$lib/i18n';
-	import { weekOfDate, mondaySundayOf, isPastWeek, monthGrid, type MonthCell } from '$lib/week';
+	import {
+		weekOfDate,
+		mondaySundayOf,
+		isPastWeek,
+		formatWeekRange,
+		localDateString
+	} from '$lib/week';
+	import { CalendarState } from '$lib/calendar.svelte';
+	import { PlannerState } from '$lib/planner.svelte';
 	import Icon from '$lib/Icon.svelte';
 	import { fly, fade, scale } from 'svelte/transition';
 	import { flip } from 'svelte/animate';
@@ -11,15 +19,8 @@
 import { focusTrap } from '$lib/focusTrap';
 	import { page } from '$app/state';
 
-	let viewYear = $state(new Date().getFullYear());
-	let viewMonth = $state(new Date().getMonth()); // 0-indexed
-	let plans = $state<PlanSummaryItem[]>([]);
-	let selectedWeek = $state<number | null>(null);
-	let selectedWeekYear = $state<number | null>(null);
-	let selectedPlan = $state<Plan | null>(null);
-	let loading = $state(false);
-	let planError = $state<string | null>(null);
-	let mealCount = $state(3);
+	const planner = new PlannerState();
+	const calendar = new CalendarState();
 	let calendarCollapsed = $state(false);
 
 	// Meal picker state
@@ -32,46 +33,30 @@ import { focusTrap } from '$lib/focusTrap';
 	let currentWeekInfo = $state(weekOfDate(new Date()));
 	const focusCurrent = $derived(page.url.searchParams.get('focus') === 'current');
 
-	// Calendar grid for the viewed month
-	const grid = $derived(monthGrid(viewYear, viewMonth));
-
-	// Group the 42 cells into 6 week rows of 7 days each.
-	// Each row's identity is the ISO week of its Monday (first cell).
-	const weekRows = $derived(
-		Array.from({ length: 6 }, (_, row) => {
-			const start = row * 7;
-			const cells = grid.slice(start, start + 7);
-			return { week: cells[0].week, cells };
-		})
-	);
-
 	// Derived today string for highlighting today's cell in the grid
 	const todayStr = $derived(new Date().toDateString());
 
 	$effect(() => {
-		loadPlans();
+		planner.loadSummaries(calendar.year, calendar.month);
 	});
 
 	$effect(() => {
-		if (selectedWeek !== null && selectedWeekYear !== null) {
-			loadPlan();
+		if (planner.selectedWeek !== null && planner.selectedWeekYear !== null) {
+			planner.loadSelected();
 		}
 	});
 
 	$effect(() => {
-		if (focusCurrent && selectedWeek === null) {
-			selectedWeek = currentWeekInfo.week;
-			selectedWeekYear = currentWeekInfo.year;
+		if (focusCurrent && planner.selectedWeek === null) {
+			planner.selectWeek(currentWeekInfo.year, currentWeekInfo.week);
 			const { monday } = mondaySundayOf(currentWeekInfo.year, currentWeekInfo.week);
-			viewYear = monday.getUTCFullYear();
-			viewMonth = monday.getUTCMonth();
-			mealCount = 3;
+			calendar.showMonthOf(monday.getUTCFullYear(), monday.getUTCMonth());
 		}
 	});
 
 	// Mobile: collapse calendar and scroll to plan when a week is selected
 	$effect(() => {
-		if (selectedWeek !== null && window.innerWidth < 768) {
+		if (planner.selectedWeek !== null && window.innerWidth < 768) {
 			calendarCollapsed = true;
 			requestAnimationFrame(() => {
 				document.querySelector('.planner-detail')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
@@ -79,67 +64,8 @@ import { focusTrap } from '$lib/focusTrap';
 		}
 	});
 
-	async function loadPlans() {
-		try {
-			const primaryPlans = await listPlansForYear(viewYear);
-			// For months near year boundaries, also fetch adjacent ISO year plans
-			// so that border-week badges render correctly.
-			if (viewMonth === 0 || viewMonth >= 10) {
-				const adjacentYear = viewMonth === 0 ? viewYear - 1 : viewYear + 1;
-				try {
-					const adjacentPlans = await listPlansForYear(adjacentYear);
-					const seen = new Set<string>();
-					const merged: PlanSummaryItem[] = [];
-					for (const p of [...primaryPlans, ...adjacentPlans]) {
-						const key = `${p.year}-${p.week_number}`;
-						if (!seen.has(key)) {
-							seen.add(key);
-							merged.push(p);
-						}
-					}
-					plans = merged;
-					planError = null;
-					return;
-				} catch {
-					// Fall through to primary only
-				}
-			}
-			plans = primaryPlans;
-			planError = null;
-		} catch {
-			// Keep the previously loaded plans — a failed reload must not make
-			// existing plans disappear.
-			planError = t('plannerError');
-		}
-	}
-
-	async function loadPlan() {
-		if (selectedWeek === null || selectedWeekYear === null) return;
-		loading = true;
-		planError = null;
-		try {
-			selectedPlan = await getPlan(selectedWeekYear, selectedWeek);
-		} catch (err) {
-			selectedPlan = null;
-			const isRequestFailed = err instanceof ApiError && err.code === 'REQUEST_FAILED';
-			planError = isRequestFailed
-				? t('plannerError')
-				: err instanceof Error ? err.message : String(err);
-		} finally {
-			loading = false;
-		}
-	}
-
 	async function onGenerate() {
-		planError = null;
-		try {
-			selectedPlan = await createPlan({ year: selectedWeekYear!, week_number: selectedWeek!, meal_count: mealCount });
-			await loadPlans();
-		} catch (err) {
-			planError = err instanceof ApiError && err.code === 'REQUEST_FAILED'
-				? t('plannerError')
-				: err instanceof Error ? err.message : String(err);
-		}
+		await planner.createSelected();
 	}
 
 	async function onDeletePlan() {
@@ -148,29 +74,11 @@ import { focusTrap } from '$lib/focusTrap';
 
 	async function confirmDeletePlan() {
 		planDeleteOpen = false;
-		if (selectedWeek === null || selectedWeekYear === null) return;
-		try {
-			await deletePlan(selectedWeekYear, selectedWeek);
-			selectedPlan = null;
-			await loadPlans();
-		} catch (err) {
-			planError = err instanceof ApiError && err.code === 'REQUEST_FAILED'
-				? t('plannerError')
-				: err instanceof Error ? err.message : String(err);
-		}
+		await planner.deleteSelected();
 	}
 
 	async function onRemoveMeal(mealId: number) {
-		if (!selectedPlan || selectedWeek === null || selectedWeekYear === null) return;
-		const mealIds = selectedPlan.meals.map(m => m.id).filter(id => id !== mealId);
-		try {
-			selectedPlan = await updatePlan(selectedWeekYear, selectedWeek, { meal_ids: mealIds });
-			await loadPlans();
-		} catch (err) {
-			planError = err instanceof ApiError && err.code === 'REQUEST_FAILED'
-				? t('plannerError')
-				: err instanceof Error ? err.message : String(err);
-		}
+		await planner.removeMeal(mealId);
 	}
 
 	async function openMealPicker() {
@@ -188,62 +96,14 @@ import { focusTrap } from '$lib/focusTrap';
 	}
 
 	async function onAddMeal(mealId: number) {
-		if (!selectedPlan || selectedWeek === null || selectedWeekYear === null) return;
-		const existing = selectedPlan.meals.map(m => m.id);
-		if (existing.includes(mealId)) return; // already in plan
-		try {
-			selectedPlan = await updatePlan(selectedWeekYear, selectedWeek, { meal_ids: [...existing, mealId] });
-			await loadPlans();
-		} catch (err) {
-			planError = err instanceof ApiError && err.code === 'REQUEST_FAILED'
-				? t('plannerError')
-				: err instanceof Error ? err.message : String(err);
-		}
-	}
-
-	/** Format the Mon–Sun date range for a given ISO week. */
-	function formatDateRange(year: number, week: number): string {
-		const { monday, sunday } = mondaySundayOf(year, week);
-		const opts: Intl.DateTimeFormatOptions = { month: 'short', day: 'numeric' };
-		return `${monday.toLocaleDateString(undefined, opts)} to ${sunday.toLocaleDateString(undefined, opts)}`;
-	}
-
-	/** Cell date as a local date string for "today" comparison. */
-	function cellLocalDateStr(cell: MonthCell): string {
-		return new Date(cell.date.getUTCFullYear(), cell.date.getUTCMonth(), cell.date.getUTCDate()).toDateString();
+		await planner.addMeal(mealId);
 	}
 
 	// Weekday header dates (Mon–Sun reference week: Jan 5–11 2026)
 	const weekdayDates = Array.from({ length: 7 }, (_, i) => new Date(2026, 0, 5 + i));
 
-	function prevMonth() {
-		if (viewMonth === 0) {
-			viewMonth = 11;
-			viewYear--;
-		} else {
-			viewMonth--;
-		}
-	}
-
-	function nextMonth() {
-		if (viewMonth === 11) {
-			viewMonth = 0;
-			viewYear++;
-		} else {
-			viewMonth++;
-		}
-	}
-
-	function goToday() {
-		const now = new Date();
-		viewYear = now.getFullYear();
-		viewMonth = now.getMonth();
-	}
-
 	function onWeekClick(week: { year: number; week: number }) {
-		selectedWeekYear = week.year;
-		selectedWeek = week.week;
-		mealCount = 3;
+		planner.selectWeek(week.year, week.week);
 	}
 
 	// Bring! integration state — per-ingredient send tracking by ingredient name
@@ -274,14 +134,14 @@ import { focusTrap } from '$lib/focusTrap';
 
 	<!-- Month navigation -->
 	<div class="cal-nav glass">
-		<button class="btn btn--ghost btn--icon" onclick={prevMonth} aria-label={t('plannerMonthPrev')} title={t('plannerMonthPrev')}>
+		<button class="btn btn--ghost btn--icon" onclick={() => calendar.prevMonth()} aria-label={t('plannerMonthPrev')} title={t('plannerMonthPrev')}>
 			<Icon name="chevron-left" size={20} />
 		</button>
-		<span class="cal-nav__label">{formatDate(new Date(viewYear, viewMonth, 1), { month: 'long', year: 'numeric' })}</span>
-		<button class="btn btn--ghost btn--icon" onclick={nextMonth} aria-label={t('plannerMonthNext')} title={t('plannerMonthNext')}>
+		<span class="cal-nav__label">{formatDate(new Date(calendar.year, calendar.month, 1), { month: 'long', year: 'numeric' })}</span>
+		<button class="btn btn--ghost btn--icon" onclick={() => calendar.nextMonth()} aria-label={t('plannerMonthNext')} title={t('plannerMonthNext')}>
 			<Icon name="chevron-right" size={20} />
 		</button>
-		<button class="btn btn--ghost btn--icon" onclick={goToday} aria-label={t('plannerToday')} title={t('plannerToday')}>
+		<button class="btn btn--ghost btn--icon" onclick={() => calendar.showToday()} aria-label={t('plannerToday')} title={t('plannerToday')}>
 			<Icon name="calendar" size={20} />
 		</button>
 	</div>
@@ -291,11 +151,11 @@ import { focusTrap } from '$lib/focusTrap';
 		<aside class="planner-weeks" class:planner-weeks--collapsed={calendarCollapsed}>
 
 			<!-- Compact selected week bar (mobile collapsed) -->
-			{#if selectedWeek !== null && selectedWeekYear !== null}
+			{#if planner.selectedWeek !== null && planner.selectedWeekYear !== null}
 				<button class="planner-weeks__compact" onclick={() => calendarCollapsed = false} aria-label={t('plannerChangeWeek')}>
 					<span class="planner-weeks__compact-info">
-						<span class="planner-weeks__week">{t('plannerWeek', { week: String(selectedWeek) })}</span>
-						<span class="planner-weeks__range">{formatDateRange(selectedWeekYear, selectedWeek)}</span>
+						<span class="planner-weeks__week">{t('plannerWeek', { week: String(planner.selectedWeek) })}</span>
+						<span class="planner-weeks__range">{formatWeekRange(planner.selectedWeekYear!, planner.selectedWeek!)}</span>
 					</span>
 					<Icon name="chevron-down" size={14} />
 				</button>
@@ -311,11 +171,11 @@ import { focusTrap } from '$lib/focusTrap';
 					{/each}
 				</div>
 
-				{#each weekRows as row}
-					{@const weekPlan = plans.find(p => p.year === row.week.year && p.week_number === row.week.week)}
+				{#each calendar.rows as row}
+					{@const weekPlan = planner.plans.find(p => p.year === row.week.year && p.week_number === row.week.week)}
 					{@const isCurrent = row.week.year === currentWeekInfo.year && row.week.week === currentWeekInfo.week}
 					{@const isPast = isPastWeek(row.week.year, row.week.week, currentWeekInfo)}
-					{@const isActive = selectedWeek === row.week.week && selectedWeekYear === row.week.year}
+					{@const isActive = planner.selectedWeek === row.week.week && planner.selectedWeekYear === row.week.year}
 					<button
 						class="week-cell"
 						class:week-cell--past={isPast}
@@ -323,13 +183,13 @@ import { focusTrap } from '$lib/focusTrap';
 						class:week-cell--active={isActive}
 						class:week-cell--has-plan={!!weekPlan}
 						onclick={() => onWeekClick(row.week)}
-						aria-label={t('plannerWeekAria', { week: String(row.week.week), range: formatDateRange(row.week.year, row.week.week) })}
+						aria-label={t('plannerWeekAria', { week: String(row.week.week), range: formatWeekRange(row.week.year, row.week.week) })}
 					>
 						{#each row.cells as cell}
 							<span
 								class="cal-day"
 								class:cal-day--out={!cell.inMonth}
-								class:cal-day--today={cellLocalDateStr(cell) === todayStr}
+								class:cal-day--today={localDateString(cell.date) === todayStr}
 							>
 								<span class="cal-day__chip">{cell.date.getUTCDate()}</span>
 							</span>
@@ -340,10 +200,10 @@ import { focusTrap } from '$lib/focusTrap';
 					</button>
 				{/each}
 
-				{#if selectedWeek !== null && selectedWeekYear !== null}
+				{#if planner.selectedWeek !== null && planner.selectedWeekYear !== null}
 					<div class="planner-weeks__info">
-						<span class="planner-weeks__week">{t('plannerWeek', { week: String(selectedWeek) })}</span>
-						<span class="planner-weeks__range">{formatDateRange(selectedWeekYear, selectedWeek)}</span>
+						<span class="planner-weeks__week">{t('plannerWeek', { week: String(planner.selectedWeek) })}</span>
+						<span class="planner-weeks__range">{formatWeekRange(planner.selectedWeekYear!, planner.selectedWeek!)}</span>
 					</div>
 				{/if}
 			</div>
@@ -351,30 +211,30 @@ import { focusTrap } from '$lib/focusTrap';
 
 		<!-- Plan detail -->
 		<div class="planner-detail">
-			{#if selectedWeek !== null}
+			{#if planner.selectedWeek !== null}
 				<section class="plan-detail glass" in:fly={{ y: 8, duration: tierDuration(250) }}>
 					<header class="plan-detail__header">
-						<h2>{t('plannerWeek', { week: String(selectedWeek) })}</h2>
-						{#if selectedWeekYear !== null}
+						<h2>{t('plannerWeek', { week: String(planner.selectedWeek) })}</h2>
+						{#if planner.selectedWeekYear !== null}
 							<p class="plan-detail__date-range">
-								{formatDateRange(selectedWeekYear, selectedWeek)}
+								{formatWeekRange(planner.selectedWeekYear!, planner.selectedWeek!)}
 							</p>
 						{/if}
 					</header>
 
-					{#if loading}
+					{#if planner.loading}
 						<div class="planner-loading">
 							<Icon name="loader-circle" size={24} spin={true} />
 							<span>{t('plannerLoading')}</span>
 						</div>
-					{:else if selectedPlan}
+					{:else if planner.selectedPlan}
 						<!-- Existing plan -->
 						<div class="plan-meals">
-							{#if selectedPlan.meals.length === 0}
+							{#if planner.selectedPlan.meals.length === 0}
 								<p class="plan-empty-msg">{t('plannerNoMeals')}</p>
 							{:else}
 								<div class="plan-meal-grid">
-									{#each selectedPlan.meals as meal (meal.id)}
+									{#each planner.selectedPlan.meals as meal (meal.id)}
 										<article class="plan-meal-card" animate:flip={{ duration: tierDuration(200) }}>
 											<a href="/meals/{meal.id}" class="plan-meal-card__link" aria-label={t('mealCardCookAria', { name: meal.name })}>
 												<div class="plan-meal-card__media">
@@ -417,11 +277,11 @@ import { focusTrap } from '$lib/focusTrap';
 						</div>
 
 						<!-- Ingredient summary -->
-						{#if selectedPlan.ingredient_summary.length > 0}
+						{#if planner.selectedPlan.ingredient_summary.length > 0}
 							<div class="plan-summary">
 								<h3>{t('plannerIngredientSummary')}</h3>
 								<div class="summary-grid">
-									{#each selectedPlan.ingredient_summary as entry (entry.name)}
+									{#each planner.selectedPlan.ingredient_summary as entry (entry.name)}
 										{@const bs = bringStates[entry.name] ?? { loading: false, error: null, success: false }}
 										<div class="summary-card" class:summary-card--ok={bs.success}>
 											<div class="summary-card__main">
@@ -478,7 +338,7 @@ import { focusTrap } from '$lib/focusTrap';
 							<p class="plan-empty-msg">{t('plannerEmptyState')}</p>
 							<label class="field">
 								<span class="field__label">{t('plannerCount')}</span>
-								<input type="number" bind:value={mealCount} min={1} max={20} class="plan-count-input" />
+								<input type="number" bind:value={planner.mealCount} min={1} max={20} class="plan-count-input" />
 							</label>
 							<button class="btn btn--primary" onclick={onGenerate} aria-label={t('plannerGenerateAria')}>
 								<Icon name="sparkles" size={16} />
@@ -487,10 +347,10 @@ import { focusTrap } from '$lib/focusTrap';
 						</div>
 					{/if}
 
-					{#if planError}
+					{#if planner.planError}
 						<p class="form-error" role="alert">
 							<Icon name="circle-alert" size={18} />
-							<span>{planError}</span>
+							<span>{planner.planError}</span>
 						</p>
 					{/if}
 				</section>

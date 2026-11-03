@@ -1,5 +1,5 @@
 use std::collections::HashMap;
-use std::io::{Cursor, Read, Write};
+use std::io::{Cursor, Write};
 use std::sync::Arc;
 
 use axum::Json;
@@ -10,24 +10,20 @@ use chrono::Utc;
 use serde::{Deserialize, Serialize};
 use tracing::instrument;
 use zip::CompressionMethod;
-use zip::read::ZipArchive;
 use zip::write::ZipWriter;
 
 use crate::db;
 use crate::error::AppError;
-use crate::image;
-use crate::import::map_multipart_error;
+use crate::intake;
+use crate::jsonld;
 use crate::model::{Meal, NewIngredientLine, NewMeal};
 use crate::recipe;
 use crate::state::AppState;
+use crate::zip_intake;
 
 // ---------------------------------------------------------------------------
 // Constants
 // ---------------------------------------------------------------------------
-
-const IMPORT_MAX_ARCHIVE_SIZE: u64 = 50 * 1024 * 1024; // 50 MB
-const IMPORT_MAX_RECIPES: usize = 500;
-const IMPORT_MAX_IMAGE_SIZE: u64 = 20 * 1024 * 1024; // 20 MB per image
 
 // ---------------------------------------------------------------------------
 // Import result types
@@ -74,14 +70,23 @@ pub async fn export_meals_zip(State(state): State<Arc<AppState>>) -> Result<Resp
         }
     }
 
-    // Build JSON-LD graph — one Recipe per meal, image paths relative
+    // Build JSON-LD graph — one Recipe per meal, image paths relative to the
+    // archive. A meal whose image blob is missing from the export omits the
+    // image, so the JSON never points at a file that is not in the archive.
     let recipes: Vec<serde_json::Value> = meals
         .iter()
-        .map(|meal| build_recipe_json(meal, &images))
+        .map(|meal| {
+            let image = if images.iter().any(|(id, _)| *id == meal.id) {
+                jsonld::ImageRef::Relative("images")
+            } else {
+                jsonld::ImageRef::Omit
+            };
+            jsonld::meal_to_recipe(meal, image)
+        })
         .collect();
 
     let jsonld = serde_json::json!({
-        "@context": "https://schema.org",
+        "@context": jsonld::SCHEMA_CONTEXT,
         "@graph": recipes,
     });
 
@@ -103,70 +108,6 @@ pub async fn export_meals_zip(State(state): State<Arc<AppState>>) -> Result<Resp
         )
         .body(axum::body::Body::from(zip_bytes))
         .map_err(|e| AppError::Internal(format!("failed to build response: {e}")))
-}
-
-/// Build a schema.org `Recipe` JSON-LD object for one meal.
-///
-/// Image references use the relative path `images/<id>.jpg` when the meal's
-/// image is included in the export; otherwise the `image` key is omitted.
-pub(crate) fn build_recipe_json(meal: &Meal, images: &[(i64, Vec<u8>)]) -> serde_json::Value {
-    use serde_json::{Map, Value};
-
-    let mut obj = Map::new();
-
-    obj.insert(
-        "@context".into(),
-        Value::String("https://schema.org".into()),
-    );
-    obj.insert("@type".into(), Value::String("Recipe".into()));
-    obj.insert("name".into(), Value::String(meal.name.clone()));
-
-    let ingredients: Vec<Value> = meal
-        .ingredients
-        .iter()
-        .map(|i| {
-            let line = match &i.quantity {
-                Some(q) if !q.trim().is_empty() => format!("{} {}", q.trim(), i.name),
-                _ => i.name.clone(),
-            };
-            Value::String(line)
-        })
-        .collect();
-    obj.insert("recipeIngredient".into(), Value::Array(ingredients));
-
-    obj.insert(
-        "recipeInstructions".into(),
-        Value::String(meal.instructions.clone()),
-    );
-    obj.insert(
-        "datePublished".into(),
-        Value::String(meal.created_at.to_rfc3339()),
-    );
-    obj.insert(
-        "dateModified".into(),
-        Value::String(meal.updated_at.to_rfc3339()),
-    );
-
-    if let Some(p) = meal.portions {
-        obj.insert("recipeYield".into(), Value::String(p.to_string()));
-    }
-
-    if let Some(url) = &meal.source_url {
-        let trimmed = url.trim();
-        if !trimmed.is_empty() {
-            obj.insert("url".into(), Value::String(trimmed.to_string()));
-        }
-    }
-
-    // Relative image path (omitted when meal has no image)
-    if images.iter().any(|(id, _)| *id == meal.id) {
-        obj.insert(
-            "image".into(),
-            Value::String(format!("images/{}.jpg", meal.id)),
-        );
-    }
-
-    Value::Object(obj)
 }
 
 /// Serialize the JSON-LD string and image blobs into a ZIP archive in memory.
@@ -216,27 +157,13 @@ pub async fn import_meals_zip(
     State(state): State<Arc<AppState>>,
     mut multipart: Multipart,
 ) -> Result<(StatusCode, Json<ZipImportResult>), AppError> {
-    // Extract the file field from multipart
-    let zip_bytes = read_zip_file_from_multipart(&mut multipart).await?;
-
-    // Validate archive size
-    if zip_bytes.len() as u64 > IMPORT_MAX_ARCHIVE_SIZE {
-        return Err(AppError::PayloadTooLarge(format!(
-            "archive exceeds maximum size of {} MB",
-            IMPORT_MAX_ARCHIVE_SIZE / (1024 * 1024)
-        )));
-    }
-
-    // Parse the ZIP and extract recipes.json + image map
-    let cursor = Cursor::new(&zip_bytes[..]);
-    let mut archive = ZipArchive::new(cursor)
-        .map_err(|e| AppError::BadRequest(format!("invalid zip file: {e}")))?;
+    let mut archive = zip_intake::open(&mut multipart).await?;
 
     // Read recipes.json
-    let recipes_json = read_zip_entry_to_string(&mut archive, "recipes.json")?;
+    let recipes_json = zip_intake::read_string(&mut archive, "recipes.json")?;
 
     // Pre-load all image entries into memory (avoids borrow issues with the archive)
-    let image_map = preload_images(&mut archive)?;
+    let image_map = zip_intake::read_images(&mut archive, &|name| name.starts_with("images/"))?;
 
     // Parse the JSON-LD graph
     let graph: serde_json::Value = serde_json::from_str(&recipes_json)
@@ -249,9 +176,10 @@ pub async fn import_meals_zip(
             AppError::BadRequest("recipes.json must be an object with an @graph array".into())
         })?;
 
-    if recipes.len() > IMPORT_MAX_RECIPES {
+    if recipes.len() > zip_intake::MAX_RECIPES {
         return Err(AppError::BadRequest(format!(
-            "too many recipes: maximum {IMPORT_MAX_RECIPES} allowed, got {}",
+            "too many recipes: maximum {} allowed, got {}",
+            zip_intake::MAX_RECIPES,
             recipes.len()
         )));
     }
@@ -280,69 +208,6 @@ pub async fn import_meals_zip(
 }
 
 // ---------------------------------------------------------------------------
-// Multipart / ZIP helpers
-// ---------------------------------------------------------------------------
-
-/// Extract the first `file` field from a multipart stream as raw bytes.
-async fn read_zip_file_from_multipart(multipart: &mut Multipart) -> Result<Vec<u8>, AppError> {
-    while let Some(field) = multipart
-        .next_field()
-        .await
-        .map_err(|e| map_multipart_error(e, "invalid multipart data"))?
-    {
-        if field.name() == Some("file") {
-            let data = field
-                .bytes()
-                .await
-                .map_err(|e| map_multipart_error(e, "failed to read file"))?;
-            return Ok(data.to_vec());
-        }
-    }
-    Err(AppError::BadRequest("missing 'file' field".into()))
-}
-
-/// Read a named entry from a ZIP archive as a UTF-8 string, or return a 400.
-fn read_zip_entry_to_string<R: Read + std::io::Seek>(
-    archive: &mut ZipArchive<R>,
-    name: &str,
-) -> Result<String, AppError> {
-    let mut file = archive
-        .by_name(name)
-        .map_err(|_| AppError::BadRequest(format!("zip must contain a {name} entry")))?;
-    let mut s = String::new();
-    file.read_to_string(&mut s)
-        .map_err(|e| AppError::BadRequest(format!("failed to read {name}: {e}")))?;
-    Ok(s)
-}
-
-/// Pre-load every `images/*` entry from the archive into a map.
-///
-/// Entries exceeding [`IMPORT_MAX_IMAGE_SIZE`] are silently skipped (the
-/// caller treats them as best-effort — meal is created without the image).
-pub(crate) fn preload_images<R: Read + std::io::Seek>(
-    archive: &mut ZipArchive<R>,
-) -> Result<HashMap<String, Vec<u8>>, AppError> {
-    let mut map = HashMap::new();
-    for i in 0..archive.len() {
-        let mut entry = archive
-            .by_index(i)
-            .map_err(|e| AppError::BadRequest(format!("zip read error: {e}")))?;
-        let name = entry.name().to_string();
-        if name.starts_with("images/") {
-            if entry.size() > IMPORT_MAX_IMAGE_SIZE {
-                continue; // best-effort: skip oversized images
-            }
-            let mut buf = Vec::with_capacity(entry.size() as usize);
-            entry
-                .read_to_end(&mut buf)
-                .map_err(|e| AppError::BadRequest(format!("failed to read {name}: {e}")))?;
-            map.insert(name, buf);
-        }
-    }
-    Ok(map)
-}
-
-// ---------------------------------------------------------------------------
 // Single-recipe import
 // ---------------------------------------------------------------------------
 
@@ -368,16 +233,13 @@ async fn import_single_recipe(
         return Err("'name' field is empty".to_string());
     }
 
-    // --- duplicate check ----------------------------------------------------
-    let normalized = db::normalize_meal_name(trimmed_name);
-    let existing = db::list_meals(&state.pool, None)
+    // Duplicates are skipped before parsing, so a malformed copy of an
+    // existing recipe is still reported as skipped rather than failed.
+    if intake::name_taken(&state.pool, trimmed_name)
         .await
-        .map_err(|e| format!("database error: {e}"))?;
-    if existing
-        .iter()
-        .any(|m| db::normalize_meal_name(&m.name) == normalized)
+        .map_err(|e| format!("database error: {e}"))?
     {
-        return Ok(None); // skipped
+        return Ok(None);
     }
 
     // --- ingredients --------------------------------------------------------
@@ -449,31 +311,16 @@ async fn import_single_recipe(
         })
         .filter(|s| !s.is_empty())
         .find(|s| db::validate_source_url(Some(s)).is_ok());
-    // --- validate -----------------------------------------------------------
-    if let Err(e) = db::validate_meal(
-        trimmed_name,
-        &ingredients,
-        &instructions,
-        portions,
-        source_url.as_deref(),
-    ) {
-        let msg = e.to_string();
-        return Err(format!("validation failed: {msg}"));
-    }
-
     // --- image (best-effort) ------------------------------------------------
-    let jpeg_bytes: Option<Vec<u8>> = recipe
+    let image_bytes = recipe
         .get("image")
         .and_then(|v| v.as_str())
-        .and_then(|img_path| image_map.get(img_path))
-        .and_then(|raw| image::convert_to_jpeg(raw).ok());
-
-    let image_change = match &jpeg_bytes {
-        Some(bytes) => db::ImageChange::Set(bytes),
-        None => db::ImageChange::Keep,
+        .and_then(|img_path| image_map.get(&img_path.to_ascii_lowercase()));
+    let image = match image_bytes {
+        Some(raw) => intake::ImageInput::TryAny(&[raw]),
+        None => intake::ImageInput::Keep,
     };
 
-    // --- insert -------------------------------------------------------------
     let new_meal = NewMeal {
         name: trimmed_name.to_string(),
         ingredients,
@@ -481,11 +328,11 @@ async fn import_single_recipe(
         portions,
         source_url,
     };
-    let meal = db::insert_meal(&state.pool, new_meal, image_change)
-        .await
-        .map_err(|e| format!("database error: {e}"))?;
-
-    Ok(Some(meal))
+    match intake::insert(&state.pool, new_meal, image).await {
+        Ok(intake::IntakeOutcome::Created(meal)) => Ok(Some(meal)),
+        Ok(intake::IntakeOutcome::Duplicate) => Ok(None),
+        Err(e) => Err(intake::failure_reason(&e)),
+    }
 }
 
 /// Extract ingredient strings from a `Recipe` JSON value.

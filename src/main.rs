@@ -9,6 +9,7 @@ mod export_import;
 mod export_import_tests;
 mod image;
 mod import;
+mod intake;
 mod jsonld;
 mod llm_import;
 mod mealie;
@@ -20,6 +21,7 @@ mod model;
 mod recipe;
 #[cfg(test)]
 mod recipe_tests;
+mod router;
 mod routes;
 #[cfg(test)]
 mod routes_tests;
@@ -29,14 +31,13 @@ mod settings;
 mod settings_tests;
 mod state;
 mod static_assets;
+mod zip_intake;
 
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Duration;
 
 use axum::Router;
-use axum::extract::DefaultBodyLimit;
-use axum::routing::{get, post, put};
 use tracing::info;
 use tracing_subscriber::EnvFilter;
 
@@ -108,41 +109,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     })?;
 
     let state = Arc::new(AppState { pool });
-    let api = Router::new()
-        .route("/meals", get(routes::list_meals).post(routes::create_meal))
-        .route(
-            "/meals/{id}",
-            get(routes::get_meal)
-                .put(routes::update_meal)
-                .delete(routes::delete_meal),
-        )
-        .route("/meals/{id}/image", get(routes::get_meal_image))
-        .route("/import/url", post(import::import_from_url))
-        .route("/import/llm", post(import::import_from_llm))
-        .route("/import/generate", post(import::generate_meal))
-        .route("/llm/providers", get(import::llm_providers))
-        .route("/llm/models", get(import::llm_models))
-        .route("/llm/polish", post(import::polish_instructions))
-        .route("/import/paste", post(import::import_from_paste))
-        .route("/import/bulk", post(import::import_bulk))
-        .route("/import/image-url", post(import::load_image_from_url))
-        .route("/export/meals.zip", get(export_import::export_meals_zip))
-        .route("/import/mealie", post(mealie::import_mealie_zip))
-        .route("/import/zip", post(export_import::import_meals_zip))
-        .route("/plans", get(routes::get_plans).post(routes::create_plan))
-        .route(
-            "/plans/{year}/{week}",
-            put(routes::update_plan).delete(routes::delete_plan),
-        )
-        .route("/bring/items", post(routes::add_bring_item))
-        .route("/bring/status", get(routes::get_bring_status))
-        .route(
-            "/settings",
-            get(routes::get_settings).patch(routes::patch_settings),
-        )
-        .route("/version", get(routes::get_version))
-        .layer(DefaultBodyLimit::max(MAX_BODY_BYTES))
-        .with_state(state);
+    let api = router::api(state);
 
     let app = Router::new()
         .nest("/api", api)

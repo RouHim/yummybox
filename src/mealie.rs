@@ -5,27 +5,21 @@
 //! entry to a [`Meal`](crate::model::Meal) via the shared validation/insert path.
 
 use std::collections::HashMap;
-use std::io::{Cursor, Read};
 use std::sync::Arc;
 
 use axum::Json;
 use axum::extract::{Multipart, State};
 use axum::http::StatusCode;
 use tracing::instrument;
-use zip::read::ZipArchive;
 
 use crate::db;
 use crate::error::AppError;
 use crate::export_import::{ZipImportFailure, ZipImportResult};
-use crate::image;
-use crate::import::map_multipart_error;
+use crate::intake;
 use crate::model::{Meal, NewIngredientLine, NewMeal};
 use crate::recipe;
 use crate::state::AppState;
-
-const IMPORT_MAX_ARCHIVE_SIZE: u64 = 50 * 1024 * 1024;
-const IMPORT_MAX_RECIPES: usize = 500;
-const IMPORT_MAX_IMAGE_SIZE: u64 = 20 * 1024 * 1024;
+use crate::zip_intake;
 
 /// `POST /api/import/mealie`.
 ///
@@ -37,18 +31,7 @@ pub async fn import_mealie_zip(
     State(state): State<Arc<AppState>>,
     mut multipart: Multipart,
 ) -> Result<(StatusCode, Json<ZipImportResult>), AppError> {
-    let zip_bytes = read_zip_file_from_multipart(&mut multipart).await?;
-
-    if zip_bytes.len() as u64 > IMPORT_MAX_ARCHIVE_SIZE {
-        return Err(AppError::PayloadTooLarge(format!(
-            "archive exceeds maximum size of {} MB",
-            IMPORT_MAX_ARCHIVE_SIZE / (1024 * 1024)
-        )));
-    }
-
-    let cursor = Cursor::new(&zip_bytes[..]);
-    let mut archive = ZipArchive::new(cursor)
-        .map_err(|e| AppError::BadRequest(format!("invalid zip file: {e}")))?;
+    let mut archive = zip_intake::open(&mut multipart).await?;
 
     let recipe_paths: Vec<String> = archive
         .file_names()
@@ -62,14 +45,15 @@ pub async fn import_mealie_zip(
         ));
     }
 
-    if recipe_paths.len() > IMPORT_MAX_RECIPES {
+    if recipe_paths.len() > zip_intake::MAX_RECIPES {
         return Err(AppError::BadRequest(format!(
-            "too many recipes: maximum {IMPORT_MAX_RECIPES} allowed, got {}",
+            "too many recipes: maximum {} allowed, got {}",
+            zip_intake::MAX_RECIPES,
             recipe_paths.len()
         )));
     }
 
-    let image_map = preload_mealie_images(&mut archive)?;
+    let image_map = zip_intake::read_images(&mut archive, &is_mealie_image_entry)?;
 
     let mut created: Vec<Meal> = Vec::new();
     let mut skipped: usize = 0;
@@ -77,7 +61,7 @@ pub async fn import_mealie_zip(
 
     for path in &recipe_paths {
         let source = path.clone();
-        let text = match read_archive_entry_to_string(&mut archive, path) {
+        let text = match zip_intake::read_string(&mut archive, path) {
             Ok(t) => t,
             Err(e) => {
                 failed.push(ZipImportFailure {
@@ -529,57 +513,6 @@ fn is_mealie_image_entry(name: &str) -> bool {
         || lower.ends_with(".png")
 }
 
-fn read_archive_entry_to_string<R: Read + std::io::Seek>(
-    archive: &mut ZipArchive<R>,
-    name: &str,
-) -> Result<String, String> {
-    let mut file = archive.by_name(name).map_err(|e| e.to_string())?;
-    let mut s = String::new();
-    file.read_to_string(&mut s).map_err(|e| e.to_string())?;
-    Ok(s)
-}
-
-fn preload_mealie_images<R: Read + std::io::Seek>(
-    archive: &mut ZipArchive<R>,
-) -> Result<HashMap<String, Vec<u8>>, AppError> {
-    let mut map = HashMap::new();
-    for i in 0..archive.len() {
-        let mut entry = archive
-            .by_index(i)
-            .map_err(|e| AppError::BadRequest(format!("zip read error: {e}")))?;
-        let name = entry.name().to_string();
-        if !is_mealie_image_entry(&name) {
-            continue;
-        }
-        if entry.size() > IMPORT_MAX_IMAGE_SIZE {
-            continue;
-        }
-        let mut buf = Vec::with_capacity(entry.size() as usize);
-        entry
-            .read_to_end(&mut buf)
-            .map_err(|e| AppError::BadRequest(format!("failed to read {name}: {e}")))?;
-        map.insert(name.to_ascii_lowercase(), buf);
-    }
-    Ok(map)
-}
-
-async fn read_zip_file_from_multipart(multipart: &mut Multipart) -> Result<Vec<u8>, AppError> {
-    while let Some(field) = multipart
-        .next_field()
-        .await
-        .map_err(|e| map_multipart_error(e, "invalid multipart data"))?
-    {
-        if field.name() == Some("file") {
-            let data = field
-                .bytes()
-                .await
-                .map_err(|e| map_multipart_error(e, "failed to read file"))?;
-            return Ok(data.to_vec());
-        }
-    }
-    Err(AppError::BadRequest("missing 'file' field".into()))
-}
-
 async fn import_single_mealie_recipe(
     state: &Arc<AppState>,
     recipe: &serde_json::Value,
@@ -595,13 +528,9 @@ async fn import_single_mealie_recipe(
         return Err("'name' field is empty".to_string());
     }
 
-    let normalized = db::normalize_meal_name(trimmed_name);
-    let existing = db::list_meals(&state.pool, None)
+    if intake::name_taken(&state.pool, trimmed_name)
         .await
-        .map_err(|e| format!("database error: {e}"))?;
-    if existing
-        .iter()
-        .any(|m| db::normalize_meal_name(&m.name) == normalized)
+        .map_err(|e| format!("database error: {e}"))?
     {
         return Ok(None);
     }
@@ -617,39 +546,29 @@ async fn import_single_mealie_recipe(
     let portions = parse_portions(recipe);
     let source_url = parse_source_url(recipe);
 
-    if let Err(e) = db::validate_meal(
-        trimmed_name,
-        &ingredients,
-        &instructions,
-        portions,
-        source_url.as_deref(),
-    ) {
-        return Err(format!("validation failed: {e}"));
-    }
-
-    let jpeg_bytes: Option<Vec<u8>> = mealie_image_candidates(slug)
+    // Candidate files in preference order; the intake keeps the first one
+    // that decodes, so a corrupt original still falls back to its variant.
+    let candidates: Vec<&[u8]> = mealie_image_candidates(slug)
         .iter()
         .filter_map(|path| image_map.get(path.to_ascii_lowercase().as_str()))
-        .find_map(|raw| image::convert_to_jpeg(raw).ok());
-
-    let image_change = match &jpeg_bytes {
-        Some(bytes) => db::ImageChange::Set(bytes),
-        None => db::ImageChange::Keep,
+        .map(Vec::as_slice)
+        .collect();
+    let image = if candidates.is_empty() {
+        intake::ImageInput::Keep
+    } else {
+        intake::ImageInput::TryAny(&candidates)
     };
 
-    let meal = db::insert_meal(
-        &state.pool,
-        NewMeal {
-            name: trimmed_name.to_string(),
-            ingredients,
-            instructions,
-            portions,
-            source_url,
-        },
-        image_change,
-    )
-    .await
-    .map_err(|e| format!("database error: {e}"))?;
-
-    Ok(Some(meal))
+    let new_meal = NewMeal {
+        name: trimmed_name.to_string(),
+        ingredients,
+        instructions,
+        portions,
+        source_url,
+    };
+    match intake::insert(&state.pool, new_meal, image).await {
+        Ok(intake::IntakeOutcome::Created(meal)) => Ok(Some(meal)),
+        Ok(intake::IntakeOutcome::Duplicate) => Ok(None),
+        Err(e) => Err(intake::failure_reason(&e)),
+    }
 }

@@ -1511,8 +1511,8 @@ pub(crate) async fn try_download_image(client: &reqwest::Client, url: &str) -> O
 /// (`convert_to_jpeg`, q82, 3840px max long edge). Returns a structured error
 /// on any failure so callers can surface actionable messages to the user.
 pub(crate) async fn download_image_from_url(url: &str) -> Result<Vec<u8>, AppError> {
-    let parsed_url =
-        reqwest::Url::parse(url).map_err(|_| AppError::BadRequest("invalid image URL".into()))?;
+    let parsed_url = reqwest::Url::parse(url)
+        .map_err(|_| AppError::Image("invalid image URL".into(), "image_url_invalid"))?;
 
     let client = reqwest::Client::builder()
         .timeout(Duration::from_secs(30))
@@ -1521,26 +1521,33 @@ pub(crate) async fn download_image_from_url(url: &str) -> Result<Vec<u8>, AppErr
         .build()
         .map_err(|e| AppError::Internal(format!("failed to build HTTP client: {e}")))?;
 
-    let resp = client
-        .get(parsed_url)
-        .send()
-        .await
-        .map_err(|e| AppError::BadRequest(format!("image URL unreachable: {e}")))?;
+    let resp = client.get(parsed_url).send().await.map_err(|e| {
+        AppError::Image(
+            format!("image URL unreachable: {e}"),
+            "image_url_unreachable",
+        )
+    })?;
 
     if !resp.status().is_success() {
-        return Err(AppError::BadRequest(format!(
-            "image URL returned HTTP {}",
-            resp.status()
-        )));
+        return Err(AppError::Image(
+            format!("image URL returned HTTP {}", resp.status()),
+            "image_url_unreachable",
+        ));
     }
 
-    let bytes = resp
-        .bytes()
-        .await
-        .map_err(|e| AppError::BadRequest(format!("failed to download image: {e}")))?;
+    let bytes = resp.bytes().await.map_err(|e| {
+        AppError::Image(
+            format!("failed to download image: {e}"),
+            "image_url_unreachable",
+        )
+    })?;
 
-    let jpeg = crate::image::convert_to_jpeg(&bytes)?;
-    Ok(jpeg)
+    crate::image::convert_to_jpeg(&bytes).map_err(|_| {
+        AppError::Image(
+            "image URL did not return a supported image".into(),
+            "image_url_not_image",
+        )
+    })
 }
 
 /// Sanitize HTML in imported instructions to a safe whitelist.

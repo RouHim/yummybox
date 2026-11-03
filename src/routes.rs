@@ -13,6 +13,7 @@ use crate::bring;
 use crate::db;
 use crate::error::AppError;
 use crate::image;
+use crate::intake;
 use crate::jsonld;
 use crate::model::{Meal, MealPatch, NewMeal, NewPlanRequest, Plan, PlanPatch, PlanSummaryItem};
 use crate::state::AppState;
@@ -162,7 +163,7 @@ pub async fn list_meals(
         let base = base_url(&headers);
         Ok(jsonld_response(jsonld::meals_to_graph(
             &meals,
-            base.as_deref(),
+            jsonld::ImageRef::from_base(base.as_deref()),
         )))
     } else {
         Ok(Json(meals).into_response())
@@ -180,7 +181,7 @@ pub async fn get_meal(
         let base = base_url(&headers);
         Ok(jsonld_response(jsonld::meal_to_recipe(
             &meal,
-            base.as_deref(),
+            jsonld::ImageRef::from_base(base.as_deref()),
         )))
     } else {
         Ok(Json(meal).into_response())
@@ -198,13 +199,10 @@ pub async fn create_meal(
         serde_json::from_str(&parsed.ingredients_json)
             .map_err(|e| AppError::BadRequest(format!("invalid ingredients JSON: {e}")))?;
 
-    let jpeg_bytes;
-    let image = match parsed.image_data {
-        Some(bytes) => {
-            jpeg_bytes = image::convert_to_jpeg(&bytes)?;
-            db::ImageChange::Set(&jpeg_bytes)
-        }
-        None => db::ImageChange::Keep,
+    let image_bytes = parsed.image_data;
+    let image = match &image_bytes {
+        Some(bytes) => intake::ImageInput::Set(bytes),
+        None => intake::ImageInput::Keep,
     };
 
     let new = NewMeal {
@@ -214,11 +212,10 @@ pub async fn create_meal(
         portions: parsed.portions,
         source_url: parsed.source_url,
     };
-    if db::meal_name_exists(&state.pool, &new.name, None).await? {
-        return Err(AppError::DuplicateName);
+    match intake::insert(&state.pool, new, image).await? {
+        intake::IntakeOutcome::Created(meal) => Ok((StatusCode::CREATED, Json(meal))),
+        intake::IntakeOutcome::Duplicate => Err(AppError::DuplicateName),
     }
-    let meal = db::insert_meal(&state.pool, new, image).await?;
-    Ok((StatusCode::CREATED, Json(meal)))
 }
 
 #[instrument(skip(state))]
@@ -411,8 +408,9 @@ pub async fn add_bring_item(
     State(state): State<Arc<AppState>>,
     Json(req): Json<BringItemRequest>,
 ) -> Result<Json<serde_json::Value>, AppError> {
-    let stored = crate::settings::load(&state.pool).await?;
-    let creds = crate::settings::resolve_bring(&stored, &crate::settings::env_lookup)
+    let creds = crate::settings::current(&state.pool)
+        .await?
+        .bring()
         .ok_or_else(|| AppError::BadRequest(BRING_NOT_CONFIGURED.to_string()))?;
     bring::push_item_to_bring(&creds, &req.name, req.spec.as_deref()).await?;
     Ok(Json(serde_json::json!({"sent": true})))
@@ -422,8 +420,7 @@ pub async fn add_bring_item(
 pub async fn get_bring_status(
     State(state): State<Arc<AppState>>,
 ) -> Result<Json<BringStatusResponse>, AppError> {
-    let stored = crate::settings::load(&state.pool).await?;
-    let creds = crate::settings::resolve_bring(&stored, &crate::settings::env_lookup);
+    let creds = crate::settings::current(&state.pool).await?.bring();
     Ok(Json(BringStatusResponse::from(
         bring::check_bring_status(creds.as_ref()).await,
     )))
@@ -448,11 +445,9 @@ pub async fn get_version(State(_state): State<Arc<AppState>>) -> Json<crate::mod
 pub async fn get_settings(
     State(state): State<Arc<AppState>>,
 ) -> Result<Json<crate::settings::SettingsSnapshot>, AppError> {
-    let stored = crate::settings::load(&state.pool).await?;
-    Ok(Json(crate::settings::snapshot(
-        &stored,
-        &crate::settings::env_lookup,
-    )))
+    Ok(Json(
+        crate::settings::current(&state.pool).await?.snapshot(),
+    ))
 }
 
 /// Commit stored AI and Bring! settings, returning the new effective snapshot.
@@ -477,9 +472,7 @@ pub async fn patch_settings(
         }
     })?;
     crate::settings::apply(&state.pool, &patch).await?;
-    let stored = crate::settings::load(&state.pool).await?;
-    Ok(Json(crate::settings::snapshot(
-        &stored,
-        &crate::settings::env_lookup,
-    )))
+    Ok(Json(
+        crate::settings::current(&state.pool).await?.snapshot(),
+    ))
 }

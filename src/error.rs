@@ -34,6 +34,9 @@ pub enum AppError {
     BringNoLists,
 
     #[error("{0}")]
+    Image(String, &'static str), // (message, error_code)
+
+    #[error("{0}")]
     Llm(String, &'static str), // (message, error_code)
     #[error("a meal with this name already exists")]
     DuplicateName,
@@ -53,6 +56,7 @@ impl IntoResponse for AppError {
             AppError::Validation(msg) => (StatusCode::BAD_REQUEST, msg.clone(), None),
             AppError::BadRequest(msg) => (StatusCode::BAD_REQUEST, msg.clone(), None),
             AppError::PayloadTooLarge(msg) => (StatusCode::PAYLOAD_TOO_LARGE, msg.clone(), None),
+            AppError::Image(msg, code) => (StatusCode::BAD_REQUEST, msg.clone(), Some(*code)),
             AppError::Database(err) => {
                 tracing::error!(%err, "database error");
                 (
@@ -301,6 +305,20 @@ mod tests {
             StatusCode::INTERNAL_SERVER_ERROR,
             "request failed",
             "llm_request_failed",
+        )
+        .await;
+    }
+
+    #[tokio::test]
+    async fn given_image_url_not_image_when_into_response_then_returns_400_with_code() {
+        assert_response_code(
+            AppError::Image(
+                "image URL did not return a supported image".into(),
+                "image_url_not_image",
+            ),
+            StatusCode::BAD_REQUEST,
+            "image URL did not return a supported image",
+            "image_url_not_image",
         )
         .await;
     }

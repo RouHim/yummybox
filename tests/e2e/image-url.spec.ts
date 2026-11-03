@@ -43,12 +43,12 @@ test.describe('Meal image via URL', () => {
 	});
 
 	test('given_image_url_unreachable_when_loaded_then_error_shown', async ({ page }) => {
-		// The frontend maps an error message containing 'unreachable' to t('imageErrorUrlUnreachable').
+		// The frontend maps the image_url_unreachable code to t('imageErrorUrlUnreachable').
 		await page.route('**/api/import/image-url', async (route) => {
 			await route.fulfill({
 				status: 422,
 				contentType: 'application/json',
-				body: JSON.stringify({ error: 'image URL unreachable' }),
+				body: JSON.stringify({ error: 'image URL unreachable', code: 'image_url_unreachable' }),
 			});
 		});
 

@@ -11,6 +11,7 @@
 	import AiConfigNotice from '$lib/components/AiConfigNotice.svelte';
 	import { aiConfigNoticeVisible, aiFlowReady } from '$lib/settings.svelte';
 	import GenerateImageInput from '$lib/components/GenerateImageInput.svelte';
+	import { clearCookDraft, encodeDraftImage, writeCookDraft } from '$lib/cook-draft';
 
 	let meals = $state<Meal[]>([]);
 	let existingMealNames = $derived(
@@ -86,7 +87,7 @@
 			settingsCollapsed = true;
 			// A freshly generated draft supersedes any previously stored cook draft;
 			// otherwise a direct visit to /spontaneous/cook would render stale data.
-			sessionStorage.removeItem('yummybox-cook-draft');
+			clearCookDraft();
 			draftToken++;
 			await tick();
 			const prefersReduced = typeof window !== 'undefined' && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
@@ -103,7 +104,7 @@
 		draftImage = null;
 		draftToken++;
 		cookError = null;
-		sessionStorage.removeItem('yummybox-cook-draft');
+		clearCookDraft();
 	}
 
 	async function onSave(payload: MealFormPayload) {
@@ -119,67 +120,26 @@
 				},
 				payload.image,
 			);
-			sessionStorage.removeItem('yummybox-cook-draft');
+			clearCookDraft();
 			await goto('/meals');
 		} finally {
 			saving = false;
 		}
 	}
 
-	// Bound the draft image before storing it: generated JPEGs and user photos
-	// routinely exceed the ~5 MB sessionStorage quota as base64 data URLs, so
-	// re-encode to a downscaled JPEG that always fits.
-	const COOK_DRAFT_MAX_EDGE = 1280;
-
-	function downscaleImage(file: File): Promise<string> {
-		return new Promise((resolve, reject) => {
-			const url = URL.createObjectURL(file);
-			const img = new Image();
-			img.onload = () => {
-				URL.revokeObjectURL(url);
-				const scale = Math.min(
-					1,
-					COOK_DRAFT_MAX_EDGE / Math.max(img.naturalWidth, img.naturalHeight)
-				);
-				const canvas = document.createElement('canvas');
-				canvas.width = Math.max(1, Math.round(img.naturalWidth * scale));
-				canvas.height = Math.max(1, Math.round(img.naturalHeight * scale));
-				const ctx = canvas.getContext('2d');
-				if (!ctx) {
-					reject(new Error('could not create canvas context'));
-					return;
-				}
-				// Flatten transparency onto white so JPEG re-encoding keeps a clean background.
-				ctx.fillStyle = '#fff';
-				ctx.fillRect(0, 0, canvas.width, canvas.height);
-				ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
-				resolve(canvas.toDataURL('image/jpeg', 0.8));
-			};
-			img.onerror = () => {
-				URL.revokeObjectURL(url);
-				reject(new Error('could not load image'));
-			};
-			img.src = url;
-		});
-	}
-
 	async function onCook(payload: MealFormPayload) {
 		cookError = null;
 		try {
-			const imageDataUrl = payload.image ? await downscaleImage(payload.image) : null;
-			const sourceVal = payload.source_url?.trim() ? payload.source_url.trim() : null;
-			sessionStorage.setItem(
-				'yummybox-cook-draft',
-				JSON.stringify({
-					name: payload.name,
-					ingredients: payload.ingredients,
-					instructions: payload.instructions,
-					portions: payload.portions,
-					imageDataUrl,
-					sourceUrl: sourceVal,
-					source_url: sourceVal,
-				})
-			);
+			const imageDataUrl = payload.image ? await encodeDraftImage(payload.image) : null;
+			const sourceUrl = payload.source_url?.trim() ? payload.source_url.trim() : null;
+			writeCookDraft({
+				name: payload.name,
+				ingredients: payload.ingredients,
+				instructions: payload.instructions,
+				portions: payload.portions,
+				imageDataUrl,
+				sourceUrl,
+			});
 		} catch {
 			cookError = t('cookDraftSaveError');
 			return;

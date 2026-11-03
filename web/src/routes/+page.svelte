@@ -1,6 +1,6 @@
 <script lang="ts">
     import { getPlan, mealImageUrl, ApiError } from '$lib/api';
-	import { weekOfDate, mondaySundayOf } from '$lib/week';
+	import { weekOfDate, formatWeekRange } from '$lib/week';
 	import { t } from '$lib/i18n';
 	import { fly, scale } from 'svelte/transition';
 	import { tierDuration, staggerDuration } from '$lib/motion';
@@ -12,12 +12,6 @@
 	let loading = $state(true);
 	let loadError = $state<string | null>(null);
 	const currentWeekInfo = weekOfDate(new Date());
-
-	function formatDateRange(): string {
-		const { monday, sunday } = mondaySundayOf(currentWeekInfo.year, currentWeekInfo.week);
-		const opts: Intl.DateTimeFormatOptions = { month: 'short', day: 'numeric' };
-		return `${monday.toLocaleDateString(undefined, opts)} to ${sunday.toLocaleDateString(undefined, opts)}`;
-	}
 
 	async function loadCurrentWeek() {
 		loading = true;
@@ -54,7 +48,7 @@
 	{:else if plan}
 		<header class="week-header">
 			<h1 class="week-header__title">{t('currentWeekMeals')}</h1>
-			<p class="week-header__range">{formatDateRange()}</p>
+			<p class="week-header__range">{formatWeekRange(currentWeekInfo.year, currentWeekInfo.week)}</p>
 		</header>
 
 		<section class="week-meals">
