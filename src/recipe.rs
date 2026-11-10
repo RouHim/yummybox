@@ -38,6 +38,46 @@ pub fn parse_recipe(text: &str) -> Result<ImportDraft, AppError> {
     })
 }
 
+/// Largest HTML page accepted from an imported URL.
+const MAX_PAGE_BYTES: usize = 2_000_000;
+/// Largest image body accepted from an imported image URL.
+const MAX_IMAGE_BYTES: usize = 8 * 1024 * 1024;
+
+/// Outcome of a capped body read, translated per call site.
+enum BodyReadError {
+    /// The body grew past the caller's cap.
+    TooLarge,
+    /// The transport failed while streaming.
+    Transport(String),
+}
+
+/// Read a response body while enforcing `max_bytes`, so a missing or lying
+/// `Content-Length` cannot make a single import exhaust memory.
+async fn read_body_capped(
+    mut resp: reqwest::Response,
+    max_bytes: usize,
+) -> Result<Vec<u8>, BodyReadError> {
+    if resp
+        .content_length()
+        .is_some_and(|len| len > max_bytes as u64)
+    {
+        return Err(BodyReadError::TooLarge);
+    }
+
+    let mut body = Vec::new();
+    while let Some(chunk) = resp
+        .chunk()
+        .await
+        .map_err(|e| BodyReadError::Transport(e.to_string()))?
+    {
+        if body.len() + chunk.len() > max_bytes {
+            return Err(BodyReadError::TooLarge);
+        }
+        body.extend_from_slice(&chunk);
+    }
+    Ok(body)
+}
+
 /// Fetch a URL and return the HTML body as a `String`. Used by both
 /// [`fetch_and_parse`] (recipe-scraper path) and [`import_from_llm`]
 /// (LLM URL expansion path).
@@ -76,16 +116,14 @@ pub async fn fetch_page_html(url: &str) -> Result<String, AppError> {
         )));
     }
 
-    if let Some(len) = resp.content_length()
-        && len > 2_000_000
-    {
-        return Err(AppError::BadRequest("page too large (max 2MB)".into()));
-    }
-
-    let bytes = resp
-        .bytes()
+    let bytes = read_body_capped(resp, MAX_PAGE_BYTES)
         .await
-        .map_err(|e| AppError::BadRequest(format!("failed to read page body: {e}")))?;
+        .map_err(|e| match e {
+            BodyReadError::TooLarge => AppError::BadRequest("page too large (max 2MB)".into()),
+            BodyReadError::Transport(err) => {
+                AppError::BadRequest(format!("failed to read page body: {err}"))
+            }
+        })?;
 
     std::str::from_utf8(&bytes)
         .map(|s| s.to_string())
@@ -1512,7 +1550,7 @@ pub(crate) async fn try_download_image(client: &reqwest::Client, url: &str) -> O
     if !resp.status().is_success() {
         return None;
     }
-    let bytes = resp.bytes().await.ok()?;
+    let bytes = read_body_capped(resp, MAX_IMAGE_BYTES).await.ok()?;
     let jpeg = crate::image::convert_to_jpeg(&bytes).ok()?;
     Some(jpeg)
 }
@@ -1545,12 +1583,21 @@ pub(crate) async fn download_image_from_url(url: &str) -> Result<Vec<u8>, AppErr
         ));
     }
 
-    let bytes = resp.bytes().await.map_err(|e| {
-        AppError::Image(
-            format!("failed to download image: {e}"),
-            "image_url_unreachable",
-        )
-    })?;
+    let bytes = read_body_capped(resp, MAX_IMAGE_BYTES)
+        .await
+        .map_err(|e| match e {
+            BodyReadError::TooLarge => AppError::Image(
+                format!(
+                    "image URLs are limited to {} MB",
+                    MAX_IMAGE_BYTES / (1024 * 1024)
+                ),
+                "image_url_too_large",
+            ),
+            BodyReadError::Transport(err) => AppError::Image(
+                format!("failed to download image: {err}"),
+                "image_url_unreachable",
+            ),
+        })?;
 
     crate::image::convert_to_jpeg(&bytes).map_err(|_| {
         AppError::Image(

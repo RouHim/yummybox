@@ -88,8 +88,20 @@ export async function createMealViaApi(
 
 export async function resetPlans(request: APIRequestContext): Promise<void> {
 	const year = new Date().getUTCFullYear();
-	const res = await request.get(`/api/plans?year=${year}`);
-	if (!res.ok()) return;
-	const summaries = (await res.json()) as Array<{ year: number; week_number: number }>;
-	await Promise.all(summaries.map((p) => request.delete(`/api/plans/${p.year}/${p.week_number}`).catch(() => {})));
+	// Weeks at a year boundary render in the neighbouring ISO year, so a plan
+	// on such a row survives a current-year-only reset and breaks later runs.
+	const years = [year - 1, year, year + 1];
+	const responses = await Promise.all(years.map((y) => request.get(`/api/plans?year=${y}`).catch(() => null)));
+	const summaries: Array<{ year: number; week_number: number }> = (
+		await Promise.all(
+			responses.map(async (res) => {
+				if (!res || !res.ok()) return [];
+				return (await res.json()) as Array<{ year: number; week_number: number }>;
+			})
+		)
+	).flat();
+	const unique = new Map(summaries.map((p) => [`${p.year}-${p.week_number}`, p]));
+	await Promise.all(
+		[...unique.values()].map((p) => request.delete(`/api/plans/${p.year}/${p.week_number}`).catch(() => {}))
+	);
 }

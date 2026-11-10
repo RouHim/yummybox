@@ -80,6 +80,7 @@ export type TranslationKey =
 	| 'imageErrorUrlGeneric'
 	| 'imageErrorUrlNotImage'
 	| 'imageErrorUrlUnreachable'
+	| 'imageErrorUrlTooLarge'
 	| 'imageStaged'
 	| 'imageStagedRemove'
 	| 'imageErrorNotImage'

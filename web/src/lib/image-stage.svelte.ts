@@ -47,6 +47,7 @@ export interface ImageCaptureCallbacks {
 const IMAGE_URL_ERROR_KEYS: Record<string, TranslationKey> = {
 	image_url_unreachable: 'imageErrorUrlUnreachable',
 	image_url_not_image: 'imageErrorUrlNotImage',
+	image_url_too_large: 'imageErrorUrlTooLarge',
 };
 
 /** Map a failed URL load to a user-facing message. */

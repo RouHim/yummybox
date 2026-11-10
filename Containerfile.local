@@ -1,4 +1,15 @@
 ARG YUMMYBOX_VERSION
+
+# Build the SPA first: the musl cross image below has no Node.js, so build.rs
+# must find a pre-built web/build/ and skip npm.
+FROM docker.io/node:26-alpine AS web-build
+
+WORKDIR /web
+COPY web/package.json web/package-lock.json web/.npmrc ./
+RUN npm ci
+COPY web ./
+RUN rm -rf build && npm run build
+
 FROM ghcr.io/rust-cross/rust-musl-cross:x86_64-musl AS builder
 
 WORKDIR /app
@@ -9,6 +20,10 @@ COPY src ./src
 COPY web ./web
 COPY build.rs ./
 COPY migrations ./migrations
+
+# Replace any local web/build/ from the build context with the freshly built SPA
+RUN rm -rf ./web/build
+COPY --from=web-build /web/build ./web/build
 
 RUN YUMMYBOX_VERSION="$YUMMYBOX_VERSION" cargo build --release --target x86_64-unknown-linux-musl
 

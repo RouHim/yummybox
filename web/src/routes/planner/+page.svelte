@@ -368,8 +368,8 @@ import { focusTrap } from '$lib/focusTrap';
 
 	<!-- Meal picker overlay -->
 	{#if mealPickerOpen}
-		<div class="meal-picker-overlay glass--strong" transition:fade={{ duration: tierDuration(200) }} onclick={() => mealPickerOpen = false} onkeydown={(e) => { if (e.key === 'Escape') mealPickerOpen = false; }} role="dialog" aria-label={t('plannerPickMeals')} tabindex="-1">
-			<div class="meal-picker" use:focusTrap in:scale={{ duration: tierDuration(250), start: 0.95 }} onclick={(e) => e.stopPropagation()} onkeydown={() => {}}>
+		<div class="meal-picker-overlay glass--strong" transition:fade={{ duration: tierDuration(200) }} onclick={(e) => { if (e.target === e.currentTarget) mealPickerOpen = false; }} onkeydown={(e) => { if (e.key === 'Escape') mealPickerOpen = false; }} role="dialog" aria-label={t('plannerPickMeals')} tabindex="-1">
+			<div class="meal-picker" use:focusTrap in:scale={{ duration: tierDuration(250), start: 0.95 }}>
 				<div class="meal-picker__header">
 					<h3>{t('plannerPickMeals')}</h3>
 					<button class="btn btn--ghost btn--icon" onclick={() => mealPickerOpen = false} aria-label={t('plannerClose')} title={t('plannerClose')}>

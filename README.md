@@ -28,7 +28,9 @@ YummyBox is a personal meal manager that runs entirely on your computer: no clou
 
 - **Manage your meals**: add, edit, search, and delete. Each meal has a name, ingredients with quantities, optional image, and creation/update times.
 - **Cooking view**: open a meal to see ingredients and instructions rendered for cooking. HTML instructions are sanitised and rendered as formatted paragraphs; plain text preserves newlines.
+- **Portions**: a meal can state how many servings it makes. The cooking view shows **Serves N** and scales the ingredient quantities to any serving count you pick.
 - **Add meal images**: paste from clipboard, load from a URL, or drop a file. Non-image files are rejected inline; oversized PNGs are downscaled to JPEG (max 3840×2160). Only meals with images display a thumbnail.
+- **Spontaneous cooking**: list the ingredients you have and let a vision-capable LLM draft a recipe. Edit it, save it to your collection, or open it in the cooking view without saving it.
 
 ### Plan and shop
 
@@ -38,8 +40,10 @@ YummyBox is a personal meal manager that runs entirely on your computer: no clou
 ### Import recipes
 
 - **From URL or paste**: paste a link to any recipe website, or drop in raw HTML/JSON-LD markup. YummyBox fetches and extracts the recipe automatically. Imported recipes land in a review form before saving.
+- **From Cookidoo**: paste a Cookidoo recipe link. Cookidoo hides preparation steps from anonymous visitors, so YummyBox reads the recipe through its mobile API and falls back to the page markup when that fails.
 - **From photo or text (AI)**: attach a photo of a dish or recipe card, optionally add a text hint, and a vision-capable LLM parses it into a structured recipe. This requires an API key from a supported provider (see [Configuration](#configuration)).
 - **Bulk import**: paste a list of recipe URLs at once; each is fetched and parsed, with successes and failures summarised.
+- **From a Mealie backup**: import a Mealie export `.zip`; each recipe is validated and saved, and names you already have are skipped.
 
 ### Runs anywhere
 
@@ -51,15 +55,15 @@ YummyBox is a personal meal manager that runs entirely on your computer: no clou
 
 ### Download a pre-built binary
 
-Grab the latest release for your platform from the [Releases page](https://github.com/RouHim/yummybox/releases/latest):
+Grab the latest release from the [Releases page](https://github.com/RouHim/yummybox/releases/latest). Published artifacts are static Linux builds (musl) for `x86_64` and `aarch64`; other platforms build [from source](#build-from-source).
 
 ```bash
-# Linux / macOS (x86_64)
+# Linux x86_64 (static musl)
 curl -L -o yummybox https://github.com/RouHim/yummybox/releases/latest/download/yummybox-x86_64-unknown-linux-musl
 chmod +x yummybox
 ./yummybox
 
-# Linux / macOS (arm64 / Apple Silicon)
+# Linux arm64 (static musl)
 curl -L -o yummybox https://github.com/RouHim/yummybox/releases/latest/download/yummybox-aarch64-unknown-linux-musl
 chmod +x yummybox
 ./yummybox
@@ -146,6 +150,8 @@ Quantity text (e.g. `200g`, `2 cups`, `a pinch`) is preserved and used by the pl
 
 Click any meal to open its cooking view at `/meals/{id}`. You'll see the full ingredient list and instructions rendered for cooking. HTML instructions are sanitised and displayed as formatted paragraphs; plain text preserves newlines. Use the **Polish instructions** action to have an LLM rewrite rough steps into clean numbered steps before saving.
 
+A meal can also record its portions. When it does, the cooking view shows **Serves N** above the ingredients with a stepper next to it; changing the count scales every ingredient quantity that has one, and setting it back to the stored value restores the original amounts.
+
 ### Meal images
 
 Add images to your meals three ways: paste from clipboard, load from a URL, or drop a file onto the image upload area. Non-image files are rejected with an inline error message. Oversized PNGs are automatically downscaled to JPEG (max 3840×2160). Only meals with images display a thumbnail.
@@ -156,9 +162,13 @@ Switch to the **Planner** tab to generate a weekly meal plan. Pick a week, choos
 
 The ingredient summary merges identical ingredients across all planned meals and sums numeric quantities, ready for your shopping list.
 
+### Spontaneous cooking
+
+The **Spontaneous cooking** button in the top bar opens `/spontaneous`, where you list what you have: ingredients one per line, optionally with extra instructions and up to five photos. A vision-capable LLM drafts a recipe, which you can edit and then save to your collection or open in the cooking view with **Cook now** without saving it first. The draft travels through `sessionStorage`, so reloading keeps it and **Start over** discards it.
+
 ### Recipe import
 
-**From URL**: paste a link to any recipe website. YummyBox fetches the page and extracts the recipe automatically.
+**From URL**: paste a link to any recipe website. YummyBox fetches the page and extracts the recipe automatically. Cookidoo links are read through the Cookidoo mobile API, because its public pages hide the preparation steps from anonymous visitors; if that call fails, YummyBox falls back to parsing the page.
 
 **From paste**: drop in raw HTML or JSON-LD markup if you already have the source.
 
@@ -184,6 +194,10 @@ Select "Custom OpenAI-compatible" as the provider to use any server with an Open
 
 Paste a list of recipe URLs (one per line) to import multiple recipes at once. Each URL is fetched and parsed automatically. The result shows which imports succeeded and which failed, so you can retry or skip problematic URLs. The meal list reloads automatically on success.
 
+#### Mealie backup import
+
+Choose a Mealie export `.zip` in the import dialog to bring your Mealie recipes over. Each recipe is validated and saved; entries whose name already exists in your collection are skipped, and the result reports how many were imported or skipped.
+
 #### Troubleshooting AI import
 
 - **"No providers available"**: the provider list could not be loaded; reload the page or use **Retry**.
@@ -194,7 +208,7 @@ Paste a list of recipe URLs (one per line) to import multiple recipes at once. E
 
 ### Export and backup
 
-Export your entire meal collection as a `.zip` file and re-import it on another machine via the same endpoint. Useful for moving between computers or taking a snapshot before making bulk changes.
+Export your entire meal collection as a `.zip` file and re-import it on another machine through the **ZIP file** tab of the import dialog (`POST /api/import/zip`). Useful for moving between computers or taking a snapshot before making bulk changes.
 
 ### Appearance and language
 

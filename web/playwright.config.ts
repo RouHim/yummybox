@@ -4,6 +4,7 @@ export default defineConfig({
 	testDir: './e2e',
 	timeout: 15000,
 	retries: 0,
+	forbidOnly: !!process.env.CI,
 	use: {
 		baseURL: 'http://127.0.0.1:11341',
 		headless: true,
