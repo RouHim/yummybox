@@ -1,17 +1,8 @@
 import { test, expect } from '@playwright/test';
 import { resetMeals, setLocale, createMealViaApi } from './_helpers';
-
-/** ISO week-of-year (Monday-start, week 1 contains Jan 4). Matches the backend's weekOfDate. */
-function currentWeek(): { year: number; week: number } {
-	const d = new Date();
-	const year = d.getUTCFullYear();
-	const jan1 = new Date(Date.UTC(year, 0, 1, 12, 0, 0));
-	const day = jan1.getUTCDay();
-	const daysFromMon = day === 0 ? 6 : day - 1;
-	const mon = new Date(Date.UTC(year, 0, 1 - daysFromMon, 12, 0, 0));
-	const diffDays = Math.floor((d.getTime() - mon.getTime()) / 86400000);
-	return { year, week: Math.floor(diffDays / 7) + 1 };
-}
+// The app's own ISO-week logic, so the spec never recomputes the calendar
+// itself and only depends on the host clock exactly as the app does.
+import { weekOfDate } from '../../web/src/lib/week';
 
 test.describe('Home page current-week view', () => {
 	test.beforeEach(async ({ request, page }) => {
@@ -35,7 +26,7 @@ test.describe('Home page current-week view', () => {
 		await createMealViaApi(request, 'Salad', [{ name: 'lettuce' }]);
 
 		// Create a plan for the current week via direct API call.
-		const { year, week } = currentWeek();
+		const { year, week } = weekOfDate(new Date());
 		// Delete any existing plan first to avoid conflict.
 		await request.delete(`/api/plans/${year}/${week}`).catch(() => {});
 		await request.post('/api/plans', {
@@ -50,7 +41,7 @@ test.describe('Home page current-week view', () => {
 	});
 
 	test('given_empty_plan_for_current_week_when_home_loaded_then_empty_state_shown', async ({ page }) => {
-		const { year, week } = currentWeek();
+		const { year, week } = weekOfDate(new Date());
 
 		await page.route('**/api/plans?*', async (route) => {
 			await route.fulfill({

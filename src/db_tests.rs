@@ -1629,3 +1629,144 @@ async fn given_meal_in_plan_when_delete_meal_then_plan_meals_row_removed_and_pla
     let pm_meals: Vec<i64> = rows.iter().map(|r| r.get(0)).collect();
     assert_eq!(pm_meals, vec![m2.id]);
 }
+
+// -----------------------------------------------------------------------
+// validate_source_url
+// -----------------------------------------------------------------------
+
+#[test]
+fn given_no_source_url_when_validate_source_url_then_ok() {
+    assert!(validate_source_url(None).is_ok());
+}
+
+#[test]
+fn given_empty_source_url_when_validate_source_url_then_ok() {
+    assert!(validate_source_url(Some("")).is_ok());
+}
+
+#[test]
+fn given_whitespace_only_source_url_when_validate_source_url_then_ok() {
+    // Trimmed to nothing, which is treated as "no URL" rather than invalid.
+    assert!(validate_source_url(Some("   \t\n")).is_ok());
+}
+
+#[test]
+fn given_https_url_when_validate_source_url_then_ok() {
+    assert!(validate_source_url(Some("https://example.com/recipe/1?x=2#step")).is_ok());
+}
+
+#[test]
+fn given_http_url_when_validate_source_url_then_ok() {
+    assert!(validate_source_url(Some("http://example.com")).is_ok());
+}
+
+#[test]
+fn given_uppercase_scheme_when_validate_source_url_then_ok() {
+    assert!(validate_source_url(Some("HTTPS://Example.com/Recipe")).is_ok());
+}
+
+#[test]
+fn given_surrounding_whitespace_when_validate_source_url_then_ok() {
+    assert!(validate_source_url(Some("  https://example.com  ")).is_ok());
+}
+
+#[test]
+fn given_scheme_relative_url_when_validate_source_url_then_error() {
+    let err = validate_source_url(Some("//example.com/recipe")).unwrap_err();
+    assert!(
+        matches!(&err, AppError::Validation(msg) if msg.contains("http")),
+        "got {err:?}"
+    );
+}
+
+#[test]
+fn given_javascript_url_when_validate_source_url_then_error() {
+    assert!(matches!(
+        validate_source_url(Some("javascript:alert(1)")),
+        Err(AppError::Validation(_))
+    ));
+}
+
+#[test]
+fn given_data_url_when_validate_source_url_then_error() {
+    assert!(matches!(
+        validate_source_url(Some("data:text/html,<script>alert(1)</script>")),
+        Err(AppError::Validation(_))
+    ));
+}
+
+#[test]
+fn given_ftp_url_when_validate_source_url_then_error() {
+    assert!(matches!(
+        validate_source_url(Some("ftp://example.com/recipe")),
+        Err(AppError::Validation(_))
+    ));
+}
+
+#[test]
+fn given_url_without_host_when_validate_source_url_then_error() {
+    for url in ["https://", "http://", "https:///recipe", "https://?q=1"] {
+        assert!(
+            matches!(validate_source_url(Some(url)), Err(AppError::Validation(_))),
+            "expected rejection for {url}"
+        );
+    }
+}
+
+#[test]
+fn given_url_with_inner_whitespace_when_validate_source_url_then_error() {
+    assert!(matches!(
+        validate_source_url(Some("https://example.com/a b")),
+        Err(AppError::Validation(_))
+    ));
+}
+
+#[test]
+fn given_url_with_quote_or_angle_bracket_when_validate_source_url_then_error() {
+    for url in [
+        "https://example.com/\"x\"",
+        "https://example.com/'x'",
+        "https://example.com/<x>",
+        "https://example.com/`x`",
+    ] {
+        assert!(
+            matches!(validate_source_url(Some(url)), Err(AppError::Validation(_))),
+            "expected rejection for {url}"
+        );
+    }
+}
+
+#[test]
+fn given_url_with_control_char_when_validate_source_url_then_error() {
+    assert!(matches!(
+        validate_source_url(Some("https://example.com/a\u{7f}b")),
+        Err(AppError::Validation(_))
+    ));
+}
+
+#[test]
+fn given_url_at_exactly_2048_chars_when_validate_source_url_then_ok() {
+    let prefix = "https://example.com/";
+    let url = format!("{prefix}{}", "a".repeat(2048 - prefix.len()));
+    assert_eq!(url.chars().count(), 2048);
+    assert!(validate_source_url(Some(&url)).is_ok());
+}
+
+#[test]
+fn given_url_at_2049_chars_when_validate_source_url_then_error() {
+    let prefix = "https://example.com/";
+    let url = format!("{prefix}{}", "a".repeat(2049 - prefix.len()));
+    assert_eq!(url.chars().count(), 2049);
+    match validate_source_url(Some(&url)) {
+        Err(AppError::Validation(msg)) => assert!(msg.contains("2048"), "msg: {msg}"),
+        other => panic!("expected Validation, got {other:?}"),
+    }
+}
+
+#[test]
+fn given_multibyte_url_at_2048_chars_when_validate_source_url_then_ok() {
+    // The limit counts characters, not bytes.
+    let prefix = "https://example.com/";
+    let url = format!("{prefix}{}", "ä".repeat(2048 - prefix.len()));
+    assert!(validate_source_url(Some(&url)).is_ok());
+}
