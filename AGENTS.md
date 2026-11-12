@@ -116,7 +116,7 @@ For the higher-level engineering principles (SOLID, YAGNI, error surfacing) see 
 - Keep external crates as low as possible; prefer `std` and built-in features (e.g., `sqlx`'s `SqlitePool` is already in the tree — use its connection pool, not a standalone connection manager).
 - Before adding a third-party crate, evaluate the trade-off: maintenance burden, transitive deps, MSRV impact, and whether `std` or an existing dep already covers it.
 - Pin the very latest stable version available on crates.io at the time of introduction; bump via `cargo upgrade` and review changelogs for breaking changes.
-- Current set: `axum` (http1+json+query+multipart+macros), `sqlx` (sqlite+runtime-tokio+chrono+migrate+macros), `serde`/`serde_json`, `chrono`, `tokio`, `tracing`/`tracing-subscriber`, `thiserror`, `rust-embed`, `reqwest` (rustls+json+form), `image` (jpeg+png+gif+bmp+webp), `scraper`, `recipe-scraper`, `genai`, `base64`, `rand`, `ammonia`, `zip`. Dev: `tempfile`, `tower` (util only).
+- Current set: `axum` (http1+json+query+multipart+macros), `sqlx` (sqlite+runtime-tokio+chrono+migrate+macros), `serde`/`serde_json`, `chrono`, `tokio`, `tracing`/`tracing-subscriber`, `thiserror`, `rust-embed`, `reqwest` (rustls+json+form), `image` (jpeg+png+gif+bmp+webp), `scraper`, `genai`, `base64`, `rand`, `ammonia`, `zip`. Dev: `tempfile`, `tower` (util only).
 
 ### Frontend (Svelte 5 + TypeScript)
 

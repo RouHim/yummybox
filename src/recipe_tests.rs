@@ -565,6 +565,29 @@ fn given_mixed_steps_and_section_when_parse_then_all_steps_joined() {
     assert_eq!(draft.portions, Some(2));
 }
 
+#[test]
+fn given_untyped_recipe_shape_when_parse_then_draft_from_fields() {
+    // Some pages omit `@type` on the recipe node. It still counts as a recipe
+    // because it carries the recipe fields, so the import must not regress to
+    // `import_no_recipe`.
+    let html = r#"<html><head><script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "name": "Rezept ohne Typ",
+  "description": "Ohne @type.",
+  "image": "https://example.com/kuchen.jpg",
+  "recipeYield": "4",
+  "recipeIngredient": ["2 Eier", "100 g Mehl"],
+  "recipeInstructions": ["Verruehren.", "Backen."]
+}
+</script></head><body></body></html>"#;
+    let draft = parse_recipe(html).expect("should parse an untyped recipe node");
+    assert_eq!(draft.name, "Rezept ohne Typ");
+    assert_eq!(draft.ingredients.len(), 2);
+    assert_eq!(draft.instructions, "Verruehren.\nBacken.");
+    assert_eq!(draft.portions, Some(4));
+}
+
 // -----------------------------------------------------------------------
 // Recipe parser fixes: entities, object-form ingredients, image shapes
 // -----------------------------------------------------------------------
