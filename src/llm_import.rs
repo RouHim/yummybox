@@ -60,13 +60,17 @@ impl LlmTarget<'_> {
 
     /// Client with the resolved key installed as the auth resolver. Without a
     /// key the client falls back to genai's environment resolution.
-    fn client(&self) -> genai::Client {
-        match self.auth() {
-            Some(auth) => genai::Client::builder()
-                .with_auth_resolver_fn(move |_model_iden: genai::ModelIden| Ok(Some(auth.clone())))
-                .build(),
-            None => genai::Client::default(),
-        }
+    fn client(&self) -> Result<genai::Client, AppError> {
+        let builder = genai::Client::builder();
+        let builder = match self.auth() {
+            Some(auth) => builder
+                .with_auth_resolver_fn(move |_model_iden: genai::ModelIden| Ok(Some(auth.clone()))),
+            None => builder,
+        };
+        let client = builder
+            .build()
+            .map_err(|e| AppError::Internal(format!("failed to build LLM client: {e}")))?;
+        Ok(client)
     }
 
     /// Adapter kind for a standard provider.
@@ -228,7 +232,8 @@ fn needs_no_api_key(id: &str) -> bool {
 /// Uses a 15-second timeout to avoid hanging the UI.
 pub async fn list_models(target: &LlmTarget<'_>) -> Result<Vec<String>, AppError> {
     require_api_key(target)?;
-    let client = genai::Client::default();
+    let client = genai::Client::new()
+        .map_err(|e| AppError::Internal(format!("failed to build LLM client: {e}")))?;
     let (adapter_kind, provider_config) = target.listing_config()?;
 
     let models_fut = client.all_model_names(adapter_kind, provider_config);
@@ -313,7 +318,7 @@ pub async fn import_via_llm(
     skip_image_download: bool,
 ) -> Result<recipe::ImportDraft, AppError> {
     require_api_key(target)?;
-    let client = target.client();
+    let client = target.client()?;
     let user_content = build_user_content(hint, &images);
 
     let chat_req = genai::chat::ChatRequest::new(vec![
@@ -381,7 +386,7 @@ pub async fn generate_meal_via_llm(
     images: Vec<LlmImage>,
 ) -> Result<recipe::ImportDraft, AppError> {
     require_api_key(target)?;
-    let client = target.client();
+    let client = target.client()?;
     let user_content = build_user_content(
         build_generate_hint(ingredients, extra_instructions).as_deref(),
         &images,
@@ -432,7 +437,7 @@ pub async fn polish_instructions(
     instructions: &str,
 ) -> Result<String, AppError> {
     require_api_key(target)?;
-    let client = target.client();
+    let client = target.client()?;
 
     let mut user_text = format!("Meal: {meal_name}\n\nIngredients:\n");
     for ing in ingredients {
@@ -841,6 +846,7 @@ mod tests {
         };
         let service_target = target
             .client()
+            .expect("client")
             .resolve_service_target(genai::ModelIden::new(AdapterKind::OpenAI, "gpt-4o-mini"))
             .await
             .expect("service target");
