@@ -42,10 +42,9 @@ pub(crate) async fn import_from_url(
     // User-supplied image URL takes precedence over the recipe's own image.
     // Best-effort: failure falls back to whatever fetch_and_parse returned.
     if let Some(image_url) = &req.image_url
-        && let Ok(jpeg) = recipe::download_image_from_url(image_url).await
+        && let Ok(image_base64) = recipe::download_image_base64(image_url).await
     {
-        let b64 = base64::engine::general_purpose::STANDARD.encode(&jpeg);
-        draft.image_base64 = Some(b64);
+        draft.image_base64 = Some(image_base64);
     }
     Ok(Json(draft))
 }
@@ -67,10 +66,9 @@ pub(crate) async fn import_from_paste(
     // Paste mode has no recipe image; user-supplied URL is the only source.
     // Best-effort: failure means the draft stays with no image.
     if let Some(image_url) = &req.image_url
-        && let Ok(jpeg) = recipe::download_image_from_url(image_url).await
+        && let Ok(image_base64) = recipe::download_image_base64(image_url).await
     {
-        let b64 = base64::engine::general_purpose::STANDARD.encode(&jpeg);
-        draft.image_base64 = Some(b64);
+        draft.image_base64 = Some(image_base64);
     }
     Ok(Json(draft))
 }
@@ -100,9 +98,8 @@ pub(crate) async fn load_image_from_url(
     State(_state): State<Arc<AppState>>,
     Json(req): Json<ImageFromUrlRequest>,
 ) -> Result<Json<ImageFromUrlResponse>, AppError> {
-    let jpeg = recipe::download_image_from_url(&req.url).await?;
-    let b64 = base64::engine::general_purpose::STANDARD.encode(&jpeg);
-    Ok(Json(ImageFromUrlResponse { image_base64: b64 }))
+    let image_base64 = recipe::download_image_base64(&req.url).await?;
+    Ok(Json(ImageFromUrlResponse { image_base64 }))
 }
 
 /// Map a multipart error to an `AppError`. Body-size-limit violations are

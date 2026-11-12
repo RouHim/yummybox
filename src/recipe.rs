@@ -1484,6 +1484,13 @@ pub(crate) async fn try_download_image(client: &reqwest::Client, url: &str) -> O
     Some(jpeg)
 }
 
+/// Download an image URL and return it as base64-encoded JPEG, the shape a
+/// draft's `image_base64` field expects.
+pub(crate) async fn download_image_base64(url: &str) -> Result<String, AppError> {
+    let jpeg = download_image_from_url(url).await?;
+    Ok(base64::engine::general_purpose::STANDARD.encode(&jpeg))
+}
+
 /// Download an image URL and convert to JPEG bytes via the standard pipeline
 /// (`convert_to_jpeg`, q82, 3840px max long edge). Returns a structured error
 /// on any failure so callers can surface actionable messages to the user.
