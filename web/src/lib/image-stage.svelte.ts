@@ -11,11 +11,13 @@ import type { TranslationKey } from './i18n/types';
  * re-implement how a file gets staged.
  */
 
-/** Files whose MIME type or extension marks them as images. */
+/** Files whose MIME type or extension marks them as images. The extension
+ * list mirrors what the backend can decode (jpeg, png, webp, gif, bmp);
+ * formats it cannot read are rejected here instead of failing the upload. */
 export function looksLikeImage(file: File): boolean {
 	if (file.type.startsWith('image/')) return true;
 	const ext = file.name.split('.').pop()?.toLowerCase();
-	return ['png', 'jpg', 'jpeg', 'webp', 'gif', 'avif', 'bmp', 'tiff'].includes(ext ?? '');
+	return ['png', 'jpg', 'jpeg', 'webp', 'gif', 'bmp'].includes(ext ?? '');
 }
 
 export interface ImageCapturePolicy {
