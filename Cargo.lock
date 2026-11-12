@@ -4087,7 +4087,7 @@ version = "0.1.0"
 dependencies = [
  "ammonia",
  "axum",
- "base64 0.22.1",
+ "base64 0.23.1",
  "chrono",
  "genai",
  "image",
