@@ -258,6 +258,27 @@ const TOOL_NAME: &str = "extract_recipe";
 /// Timeout for LLM chat requests (import, generate, polish).
 const LLM_CHAT_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(60);
 
+/// Run one chat request under the shared timeout and error mapping.
+async fn exec_chat(
+    client: &genai::Client,
+    target: &LlmTarget<'_>,
+    model: &str,
+    chat_req: genai::chat::ChatRequest,
+) -> Result<genai::chat::ChatResponse, AppError> {
+    let model_spec = target.model_spec(model)?;
+    let chat_fut = client.exec_chat(model_spec, chat_req, None);
+    let chat_res = match tokio::time::timeout(LLM_CHAT_TIMEOUT, chat_fut).await {
+        Ok(res) => res,
+        Err(_) => {
+            return Err(AppError::Llm(
+                "LLM request timed out after 60 seconds".into(),
+                "llm_timeout",
+            ));
+        }
+    };
+    chat_res.map_err(map_genai_error)
+}
+
 const SYSTEM_PROMPT: &str = "You are a recipe extraction assistant. Extract the recipe from the user's input (one or more images of a meal, a text description, a recipe URL, or any combination) and call the extract_recipe tool with the result. When the input contains multiple images — for example the front and back of a recipe card, or several pages of a recipe — treat all of them as parts of ONE recipe and merge their content into a single complete recipe: take the dish name and any dish photo from whichever image shows them, and combine ingredients and instructions from all images without duplicating entries. Always call the tool. If you can identify a photo URL of the finished dish from the recipe context (page text or your own knowledge for description-only inputs), provide it in the imageUrl field; otherwise omit it. When candidate dish image URLs are listed in the input, pick the most relevant one for imageUrl. Never invent a URL you are not confident exists.";
 
 fn recipe_tool() -> genai::chat::Tool {
@@ -326,19 +347,7 @@ pub async fn import_via_llm(
         genai::chat::ChatMessage::user(user_content),
     ])
     .with_tools(vec![recipe_tool()]);
-    let model_spec = target.model_spec(model)?;
-    let chat_fut = client.exec_chat(model_spec, chat_req, None);
-
-    let chat_res = match tokio::time::timeout(LLM_CHAT_TIMEOUT, chat_fut).await {
-        Ok(r) => r,
-        Err(_) => {
-            return Err(AppError::Llm(
-                "LLM request timed out after 60 seconds".into(),
-                "llm_timeout",
-            ));
-        }
-    };
-    let chat_res = chat_res.map_err(map_genai_error)?;
+    let chat_res = exec_chat(&client, target, model, chat_req).await?;
 
     let tool_calls = chat_res.into_tool_calls();
     let first = tool_calls.first().ok_or_else(|| {
@@ -397,19 +406,7 @@ pub async fn generate_meal_via_llm(
         genai::chat::ChatMessage::user(user_content),
     ])
     .with_tools(vec![recipe_tool()]);
-    let model_spec = target.model_spec(model)?;
-    let chat_fut = client.exec_chat(model_spec, chat_req, None);
-
-    let chat_res = match tokio::time::timeout(LLM_CHAT_TIMEOUT, chat_fut).await {
-        Ok(r) => r,
-        Err(_) => {
-            return Err(AppError::Llm(
-                "LLM request timed out after 60 seconds".into(),
-                "llm_timeout",
-            ));
-        }
-    };
-    let chat_res = chat_res.map_err(map_genai_error)?;
+    let chat_res = exec_chat(&client, target, model, chat_req).await?;
 
     let tool_calls = chat_res.into_tool_calls();
     let first = tool_calls.first().ok_or_else(|| {
@@ -453,19 +450,7 @@ pub async fn polish_instructions(
         genai::chat::ChatMessage::system(POLISH_SYSTEM_PROMPT),
         genai::chat::ChatMessage::user(user_text),
     ]);
-    let model_spec = target.model_spec(model)?;
-    let chat_fut = client.exec_chat(model_spec, chat_req, None);
-
-    let chat_res = match tokio::time::timeout(LLM_CHAT_TIMEOUT, chat_fut).await {
-        Ok(r) => r,
-        Err(_) => {
-            return Err(AppError::Llm(
-                "LLM request timed out after 60 seconds".into(),
-                "llm_timeout",
-            ));
-        }
-    };
-    let chat_res = chat_res.map_err(map_genai_error)?;
+    let chat_res = exec_chat(&client, target, model, chat_req).await?;
 
     let text = chat_res.into_first_text().ok_or_else(|| {
         AppError::Llm(
