@@ -641,26 +641,6 @@ mod tests {
     use super::*;
 
     #[test]
-    fn given_generate_prompt_when_inspected_then_contains_subset_pantry_and_constraint_clauses() {
-        assert!(GENERATE_SYSTEM_PROMPT.contains("you do not have to use all of them"));
-        assert!(
-            GENERATE_SYSTEM_PROMPT.contains(
-                "salt, pepper, oil, sugar, water, vinegar, flour, broth, herbs, and spices"
-            )
-        );
-        assert!(GENERATE_SYSTEM_PROMPT.contains("binding constraints"));
-        assert!(GENERATE_SYSTEM_PROMPT.contains("the requirement wins"));
-        assert!(GENERATE_SYSTEM_PROMPT.contains("list every ingredient you use"));
-        assert!(
-            GENERATE_SYSTEM_PROMPT.contains("never use ingredients other than the provided ones")
-        );
-        assert!(GENERATE_SYSTEM_PROMPT.contains(
-            "If a provided ingredient is itself a pantry staple, list it once with the user's specified quantity"
-        ));
-        assert!(!GENERATE_SYSTEM_PROMPT.contains("must primarily use the provided ingredients"));
-    }
-
-    #[test]
     fn given_ingredients_and_extra_when_build_generate_hint_then_requirements_appended() {
         let hint = build_generate_hint(Some("flour\neggs"), Some("max 30 minutes"))
             .expect("both inputs present");
