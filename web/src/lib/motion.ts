@@ -3,10 +3,6 @@ export function prefersReducedMotion(): boolean {
 	return window.matchMedia('(prefers-reduced-motion: reduce)').matches;
 }
 
-export function transitionDuration(ms: number): number {
-	return prefersReducedMotion() ? 0 : ms;
-}
-
 export function isLowPowerDevice(): boolean {
 	if (typeof window === 'undefined') return false;
 	const coarse = window.matchMedia('(any-pointer: coarse)').matches;

@@ -26,11 +26,6 @@ export function mondaySundayOf(year: number, week: number): { monday: Date; sund
 	return { monday, sunday };
 }
 
-export function weeksInYear(year: number): number {
-	const dec31 = new Date(Date.UTC(year, 11, 31, 12, 0, 0));
-	return weekOfDate(dec31).week;
-}
-
 export function isPastWeek(
 	year: number,
 	week: number,

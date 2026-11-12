@@ -2,7 +2,6 @@ import { describe, it, expect } from 'vitest';
 import {
 	weekOfDate,
 	mondaySundayOf,
-	weeksInYear,
 	isPastWeek,
 	monthGrid,
 	weekRows,
@@ -30,20 +29,6 @@ describe('mondaySundayOf', () => {
 		const { monday, sunday } = mondaySundayOf(2026, 25);
 		expect(monday.toISOString().slice(0, 10)).toBe('2026-06-15');
 		expect(sunday.toISOString().slice(0, 10)).toBe('2026-06-21');
-	});
-});
-
-describe('weeksInYear', () => {
-	it('returns 53 for 2026', () => {
-		expect(weeksInYear(2026)).toBe(53);
-	});
-
-	it('returns 53 for 2023', () => {
-		// Lock in determinism
-		const actual = weeksInYear(2023);
-		expect(actual).toBe(weeksInYear(2023));
-		expect(actual).toBeGreaterThanOrEqual(52);
-		expect(actual).toBeLessThanOrEqual(53);
 	});
 });
 

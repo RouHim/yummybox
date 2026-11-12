@@ -83,14 +83,6 @@ export interface ImportDraft {
 	sourceUrl: string | null;
 }
 
-export interface ImportFromUrlRequest {
-	url: string;
-}
-
-export interface ImportFromPasteRequest {
-	content: string;
-}
-
 export interface BulkImportRequest {
 	urls: string[];
 }

@@ -21,7 +21,6 @@ import {
 	detectInitialLocale,
 	initLocale,
 	setLocale,
-	formatNumber,
 	formatDate,
 	dictionaries,
 } from './index';
@@ -236,18 +235,6 @@ describe('setLocale', () => {
 		localStorage.setItem = () => { throw new Error('quota'); };
 		expect(() => setLocale('en')).not.toThrow();
 		localStorage.setItem = orig;
-	});
-});
-
-describe('formatNumber', () => {
-	it('formats number in English locale', () => {
-		withLocale('en');
-		expect(formatNumber(1234.56)).toBe('1,234.56');
-	});
-
-	it('formats number in German locale', () => {
-		withLocale('de');
-		expect(formatNumber(1234.56)).toBe('1.234,56');
 	});
 });
 

@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, afterEach } from 'vitest';
-import { prefersReducedMotion, transitionDuration, isLowPowerDevice, tierDuration, staggerDuration } from './motion';
+import { prefersReducedMotion, isLowPowerDevice, tierDuration, staggerDuration } from './motion';
 
 afterEach(() => {
 	vi.unstubAllGlobals();
@@ -24,18 +24,6 @@ describe('prefersReducedMotion', () => {
 	it('returns false when the user does not prefer reduced motion', () => {
 		stubWindow(false);
 		expect(prefersReducedMotion()).toBe(false);
-	});
-});
-
-describe('transitionDuration', () => {
-	it('returns the given duration when motion is not reduced', () => {
-		stubWindow(false);
-		expect(transitionDuration(250)).toBe(250);
-	});
-
-	it('returns 0 when motion is reduced', () => {
-		stubWindow(true);
-		expect(transitionDuration(250)).toBe(0);
 	});
 });
 

@@ -4,7 +4,6 @@ export {
 	getLocale,
 	getLocalePreference,
 	t,
-	formatNumber,
 	formatDate,
 	detectInitialLocale,
 	initLocale,
