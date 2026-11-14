@@ -130,6 +130,8 @@ pub struct BulkImportResult {
 pub struct AppVersion {
     pub version: &'static str,
 }
+
+#[cfg(test)]
 mod tests {
     #[allow(unused_imports)]
     use super::*;

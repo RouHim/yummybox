@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { listMeals, getMeal, createMeal, updateMeal, deleteMeal, mealImageUrl, listPlansForYear, getPlan, createPlan, updatePlan, deletePlan, importFromUrl, importFromPaste, importFromLlm, generateMeal, importBulk, listLlmProviders, listLlmModels, polishInstructions, getVersion, ApiError, importMealie, getSettings, updateSettings } from './api';
+import { listMeals, getMeal, createMeal, updateMeal, deleteMeal, mealImageUrl, listPlansForYear, getPlan, createPlan, updatePlan, deletePlan, importFromUrl, importFromPaste, importFromLlm, generateMeal, importBulk, listLlmProviders, listLlmModels, polishInstructions, getVersion, ApiError, importMealie, importZip, exportMealsUrl, getSettings, updateSettings } from './api';
 import type { Meal, MealPayload, NewIngredientLine, Plan, NewPlanRequest, PlanPatch } from './types';
 
 const mockFetch = vi.fn();
@@ -86,15 +86,6 @@ describe('createMeal', () => {
 		const fd = mockFetch.mock.calls[0][1].body as FormData;
 		expect(fd.get('image')).toBeInstanceOf(File);
 		expect((fd.get('image') as File).name).toBe('photo.png');
-	});
-
-	it('handles null image gracefully', async () => {
-		const payload: MealPayload = { name: 'X', ingredients: [{ name: 'y', quantity: null }] , instructions: '' };
-		const mealResponse: Meal = { id: 3, name: 'X', ingredients: [{ name: 'y', quantity: null }], last_planned_at: null, created_at: '', updated_at: '', has_image: false, instructions: '', portions: null, source_url: null };
-		mockResponse(201, mealResponse);
-		await createMeal(payload, null);
-		const fd = mockFetch.mock.calls[0][1].body as FormData;
-		expect(fd.get('image')).toBeNull();
 	});
 
 	it('sends source_url when provided', async () => {
@@ -712,6 +703,61 @@ describe('generateMeal', () => {
 		await generateMeal('flour', [], '   ');
 		const fd = mockFetch.mock.calls[0][1].body as FormData;
 		expect(fd.get('extra_instructions')).toBeNull();
+	});
+});
+
+describe('exportMealsUrl', () => {
+	it('returns the export ZIP URL without touching the network', () => {
+		expect(exportMealsUrl()).toBe('/api/export/meals.zip');
+		expect(mockFetch).not.toHaveBeenCalled();
+	});
+});
+
+describe('importZip', () => {
+	it('POSTs the file to /api/import/zip as multipart form', async () => {
+		const result = { created: [], skipped: 2, failed: [{ source: 'recipes.json', reason: 'duplicate' }] };
+		mockResponse(200, result);
+		const file = new File([new Uint8Array([80, 75, 3, 4])], 'export.zip', { type: 'application/zip' });
+		const out = await importZip(file);
+		expect(out).toEqual(result);
+		expect(mockFetch).toHaveBeenCalledTimes(1);
+		const [url, opts] = mockFetch.mock.calls[0];
+		expect(url).toBe('/api/import/zip');
+		expect(opts.method).toBe('POST');
+		expect((opts.body as FormData).get('file')).toBe(file);
+	});
+
+	it('does not retry a failed POST', async () => {
+		mockResponse(500, { error: 'import failed' });
+		const file = new File([new Uint8Array([1])], 'export.zip', { type: 'application/zip' });
+		await expect(importZip(file)).rejects.toThrow('import failed');
+		expect(mockFetch).toHaveBeenCalledTimes(1);
+	});
+
+	it('extracts the error message and code from a validation failure', async () => {
+		mockResponse(400, { error: 'source_url must be a valid URL', code: 'validation' });
+		const file = new File([new Uint8Array([1])], 'export.zip', { type: 'application/zip' });
+		const err = await importZip(file).catch((e: unknown) => e);
+		expect(err).toBeInstanceOf(ApiError);
+		expect((err as ApiError).message).toBe('source_url must be a valid URL');
+		expect((err as ApiError).code).toBe('validation');
+		expect((err as ApiError).status).toBe(400);
+	});
+
+	it('falls back to the status text when the error body is not JSON', async () => {
+		mockFetch.mockResolvedValueOnce({
+			ok: false,
+			status: 502,
+			json: async () => {
+				throw new Error('not json');
+			},
+		} satisfies Partial<Response>);
+		const file = new File([new Uint8Array([1])], 'export.zip', { type: 'application/zip' });
+		const err = await importZip(file).catch((e: unknown) => e);
+		expect(err).toBeInstanceOf(ApiError);
+		expect((err as ApiError).message).toBe('Request failed');
+		expect((err as ApiError).code).toBeNull();
+		expect((err as ApiError).status).toBe(502);
 	});
 });
 

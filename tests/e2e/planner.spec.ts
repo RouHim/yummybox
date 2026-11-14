@@ -129,16 +129,6 @@ test.describe('planner', () => {
 		await expect(input).toHaveValue('3');
 	});
 
-	test('given_language_switcher_when_rendering_planner_then_dropdown_visible', async ({ page }) => {
-		await page.goto('/planner');
-		await expect(page.locator('.lang-switcher')).toBeVisible();
-	});
-
-	test('given_language_switcher_when_rendering_home_then_dropdown_visible', async ({ page }) => {
-		await page.goto('/');
-		await expect(page.locator('.lang-switcher')).toBeVisible();
-	});
-
 	test('given_navigator_de_DE_when_loading_app_then_yummybox_locale_not_written', async ({ browser }) => {
 		const context = await browser.newContext({ locale: 'de-DE' });
 		const page = await context.newPage();

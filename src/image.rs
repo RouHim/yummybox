@@ -16,14 +16,28 @@ pub const JPEG_CONTENT_TYPE: &str = "image/jpeg";
 /// preserving aspect ratio. This is a downscale-only cap — smaller
 /// images pass through unchanged.
 pub const MAX_LONG_EDGE: u32 = 3840;
+/// Longest edge a decoder will accept before giving up. Well above any
+/// real camera output, far below what a decompression bomb would ask for.
+const MAX_DECODE_EDGE: u32 = 12_000;
+/// Ceiling for the decoded pixel buffer. A 12k x 12k RGBA image needs
+/// 576 MB, so this rejects the top of the allowed range before allocating.
+const MAX_DECODE_ALLOC: u64 = 512 * 1024 * 1024;
 
 /// Decode `bytes` (any common format), downscale to [`MAX_LONG_EDGE`] on
 /// the longer edge (preserving aspect ratio), re-encode as JPEG at
 /// [`JPEG_QUALITY`], and return the JPEG bytes.
 pub fn convert_to_jpeg(bytes: &[u8]) -> Result<Vec<u8>, AppError> {
-    let img = ImageReader::new(Cursor::new(bytes))
+    let mut limits = image::Limits::default();
+    limits.max_alloc = Some(MAX_DECODE_ALLOC);
+    limits.max_image_width = Some(MAX_DECODE_EDGE);
+    limits.max_image_height = Some(MAX_DECODE_EDGE);
+
+    let mut reader = ImageReader::new(Cursor::new(bytes))
         .with_guessed_format()
-        .map_err(|_| AppError::BadRequest("file is not a recognizable image format".into()))?
+        .map_err(|_| AppError::BadRequest("file is not a recognizable image format".into()))?;
+    reader.limits(limits);
+
+    let img = reader
         .decode()
         .map_err(|_| AppError::BadRequest("image data is corrupt or unsupported".into()))?;
 

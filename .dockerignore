@@ -23,3 +23,8 @@ web/playwright-report/
 # Documentation and CI
 *.md
 .github/
+
+# Local secrets and certificates — never part of a build context
+.env*
+*.pem
+*.key

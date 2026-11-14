@@ -74,6 +74,7 @@ export const de: Record<TranslationKey, string> = {
 	imageErrorUrlGeneric: 'Bild konnte nicht von URL geladen werden',
 	imageErrorUrlNotImage: 'URL zeigt kein g\u00fcltiges Bild',
 	imageErrorUrlUnreachable: 'Bild-URL nicht erreichbar',
+	imageErrorUrlTooLarge: 'Bild-URL ist größer als das 8-MB-Limit',
 	imageStaged: 'Neues Bild ausgewählt',
 	imageStagedRemove: 'Bild wird entfernt',
 	imageErrorNotImage: 'Es sind nur Bilddateien erlaubt',

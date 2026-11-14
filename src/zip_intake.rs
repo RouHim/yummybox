@@ -60,11 +60,14 @@ pub(crate) fn read_string<R: Read + std::io::Seek>(
     archive: &mut ZipArchive<R>,
     name: &str,
 ) -> Result<String, AppError> {
-    let mut file = archive
+    let file = archive
         .by_name(name)
         .map_err(|_| AppError::BadRequest(format!("zip must contain a {name} entry")))?;
     let mut text = String::new();
-    file.read_to_string(&mut text)
+    // A declared size cannot be trusted; cap the inflated bytes so a
+    // compression bomb cannot exhaust memory.
+    file.take(MAX_ARCHIVE_SIZE)
+        .read_to_string(&mut text)
         .map_err(|e| AppError::BadRequest(format!("failed to read {name}: {e}")))?;
     Ok(text)
 }
@@ -78,7 +81,7 @@ pub(crate) fn read_images<R: Read + std::io::Seek>(
 ) -> Result<HashMap<String, Vec<u8>>, AppError> {
     let mut images = HashMap::new();
     for index in 0..archive.len() {
-        let mut entry = archive
+        let entry = archive
             .by_index(index)
             .map_err(|e| AppError::BadRequest(format!("zip read error: {e}")))?;
         let name = entry
@@ -88,8 +91,9 @@ pub(crate) fn read_images<R: Read + std::io::Seek>(
         if !is_image(&name) || entry.size() > MAX_IMAGE_SIZE {
             continue;
         }
-        let mut bytes = Vec::with_capacity(entry.size() as usize);
+        let mut bytes = Vec::with_capacity(entry.size().min(MAX_IMAGE_SIZE) as usize);
         entry
+            .take(MAX_IMAGE_SIZE)
             .read_to_end(&mut bytes)
             .map_err(|e| AppError::BadRequest(format!("failed to read {name}: {e}")))?;
         images.insert(name, bytes);

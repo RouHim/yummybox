@@ -33,6 +33,12 @@ mod state;
 mod static_assets;
 mod zip_intake;
 
+/// musl builds link mimalloc instead of the system allocator: the static
+/// binary then avoids musl's slower malloc on the import and image paths.
+#[cfg(target_env = "musl")]
+#[global_allocator]
+static GLOBAL: mimalloc::MiMalloc = mimalloc::MiMalloc;
+
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Duration;

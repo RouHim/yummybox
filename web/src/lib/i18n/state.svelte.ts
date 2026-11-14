@@ -29,10 +29,6 @@ export function t(key: TranslationKey, params?: Record<string, string | undefine
 	return value;
 }
 
-export function formatNumber(value: number, options?: Intl.NumberFormatOptions): string {
-	return new Intl.NumberFormat(_locale, options).format(value);
-}
-
 export function formatDate(value: Date | string | number, options?: Intl.DateTimeFormatOptions): string {
 	const date = value instanceof Date ? value : new Date(value);
 	return new Intl.DateTimeFormat(_locale, options).format(date);

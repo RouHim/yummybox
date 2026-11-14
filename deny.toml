@@ -2,6 +2,13 @@
 db-path = "~/.cargo/advisory-dbs"
 yanked = "deny"
 unmaintained = "workspace"
+ignore = [
+    # libsqlite3-sys 0.37 is pinned by sqlx 0.9, so the fix (0.39+) is not
+    # reachable from here. The advisory requires an attacker able to write the
+    # database's -wal file; the data directory belongs to the app user in a
+    # single-user local deployment, so the exposure does not apply.
+    "RUSTSEC-2026-0459",
+]
 
 [licenses]
 allow = [

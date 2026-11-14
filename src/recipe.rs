@@ -2,8 +2,6 @@ use std::collections::HashSet;
 use std::time::Duration;
 
 use base64::Engine;
-use recipe_scraper::Extract;
-use recipe_scraper::SchemaOrgEntry;
 
 use crate::error::AppError;
 use crate::model::NewIngredientLine;
@@ -38,8 +36,48 @@ pub fn parse_recipe(text: &str) -> Result<ImportDraft, AppError> {
     })
 }
 
+/// Largest HTML page accepted from an imported URL.
+const MAX_PAGE_BYTES: usize = 2_000_000;
+/// Largest image body accepted from an imported image URL.
+const MAX_IMAGE_BYTES: usize = 8 * 1024 * 1024;
+
+/// Outcome of a capped body read, translated per call site.
+enum BodyReadError {
+    /// The body grew past the caller's cap.
+    TooLarge,
+    /// The transport failed while streaming.
+    Transport(String),
+}
+
+/// Read a response body while enforcing `max_bytes`, so a missing or lying
+/// `Content-Length` cannot make a single import exhaust memory.
+async fn read_body_capped(
+    mut resp: reqwest::Response,
+    max_bytes: usize,
+) -> Result<Vec<u8>, BodyReadError> {
+    if resp
+        .content_length()
+        .is_some_and(|len| len > max_bytes as u64)
+    {
+        return Err(BodyReadError::TooLarge);
+    }
+
+    let mut body = Vec::new();
+    while let Some(chunk) = resp
+        .chunk()
+        .await
+        .map_err(|e| BodyReadError::Transport(e.to_string()))?
+    {
+        if body.len() + chunk.len() > max_bytes {
+            return Err(BodyReadError::TooLarge);
+        }
+        body.extend_from_slice(&chunk);
+    }
+    Ok(body)
+}
+
 /// Fetch a URL and return the HTML body as a `String`. Used by both
-/// [`fetch_and_parse`] (recipe-scraper path) and [`import_from_llm`]
+/// [`fetch_and_parse`] (recipe JSON-LD path) and [`import_from_llm`]
 /// (LLM URL expansion path).
 pub async fn fetch_page_html(url: &str) -> Result<String, AppError> {
     let parsed_url =
@@ -76,16 +114,14 @@ pub async fn fetch_page_html(url: &str) -> Result<String, AppError> {
         )));
     }
 
-    if let Some(len) = resp.content_length()
-        && len > 2_000_000
-    {
-        return Err(AppError::BadRequest("page too large (max 2MB)".into()));
-    }
-
-    let bytes = resp
-        .bytes()
+    let bytes = read_body_capped(resp, MAX_PAGE_BYTES)
         .await
-        .map_err(|e| AppError::BadRequest(format!("failed to read page body: {e}")))?;
+        .map_err(|e| match e {
+            BodyReadError::TooLarge => AppError::BadRequest("page too large (max 2MB)".into()),
+            BodyReadError::Transport(err) => {
+                AppError::BadRequest(format!("failed to read page body: {err}"))
+            }
+        })?;
 
     std::str::from_utf8(&bytes)
         .map(|s| s.to_string())
@@ -892,118 +928,40 @@ pub(crate) fn cookidoo_image_url(json: &serde_json::Value) -> Option<String> {
 /// Parse recipe and return the draft plus the raw image URL (if found in JSON-LD).
 /// `fetch_and_parse` uses the image URL to download; `parse_recipe` discards it.
 fn parse_recipe_with_image_url(text: &str) -> Result<(ImportDraft, Option<String>), AppError> {
-    // Use scraper to find all JSON-LD script blocks
+    // JSON of every JSON-LD block, in document order. Blocks without a usable
+    // recipe node are skipped, so keeping all of them is safe: the first block
+    // that yields a recipe draft wins.
+    let mut blocks: Vec<serde_json::Value> = Vec::new();
+
     let document = scraper::Html::parse_document(text);
     let selector =
         scraper::Selector::parse(r#"script[type="application/ld+json"]"#).expect("static selector");
 
-    // Collect (raw_json_value, schema_entry) pairs for blocks that parse successfully
-    let mut pairs: Vec<(serde_json::Value, SchemaOrgEntry)> = Vec::new();
-    // Raw JSON of every block that parses as JSON. Fallback parse below runs
-    // only when the `recipe-scraper` path finds no recipe at all, so keeping
-    // all blocks is safe: a block can deserialize yet yield zero recipes
-    // (e.g. a WPRM `Recipe` node with mixed `HowToStep`/`HowToSection`
-    // instructions falls into the catch-all `Nonsense` variant via its `@id`).
-    let mut raw_blocks: Vec<serde_json::Value> = Vec::new();
-
     for element in document.select(&selector) {
         let block_text = element.text().collect::<String>();
-        // Try serde_json parse for image extraction
-        if let Ok(json_value) = serde_json::from_str::<serde_json::Value>(&block_text) {
-            // Try recipe_scraper parse for recipe extraction
-            if let Ok(entry) = SchemaOrgEntry::from_json_str(&block_text) {
-                pairs.push((json_value.clone(), entry));
-            }
-            raw_blocks.push(json_value);
+        if let Ok(json) = serde_json::from_str::<serde_json::Value>(&block_text) {
+            blocks.push(json);
         }
     }
 
     // Fallback: if no script blocks found, try parsing the text directly as raw JSON-LD
-    if pairs.is_empty()
-        && raw_blocks.is_empty()
-        && let Ok(json_value) = serde_json::from_str::<serde_json::Value>(text)
+    if blocks.is_empty()
+        && let Ok(json) = serde_json::from_str::<serde_json::Value>(text)
     {
-        if let Ok(entry) = SchemaOrgEntry::from_json_str(text) {
-            pairs.push((json_value.clone(), entry));
-        }
-        raw_blocks.push(json_value);
+        blocks.push(json);
     }
 
-    // Extract the first Recipe from all SchemaEntry objects
-    for (json_value, entry) in &pairs {
-        let recipes: Vec<_> = entry.extract_recipes();
-        if let Some(recipe) = recipes.into_iter().next() {
-            let name = recipe.name().to_string();
-            let ingredients = recipe
-                .ingredients()
-                .clone()
-                .into_iter()
-                .filter_map(|line| {
-                    let trimmed = line.trim();
-                    if trimmed.is_empty() {
-                        None
-                    } else {
-                        Some(split_ingredient_line(trimmed))
-                    }
-                })
-                .collect();
-            let raw_instructions = recipe
-                .directions()
-                .as_ref()
-                .map_or_else(String::new, |list| {
-                    if let Some(dirs) = list.directions() {
-                        dirs.iter()
-                            .map(|d| d.to_string())
-                            .collect::<Vec<_>>()
-                            .join("\n")
-                    } else if let Some(sections) = list.sections() {
-                        sections
-                            .cloned()
-                            .flat_map(|s| s.into_iter().map(|d| d.to_string()).collect::<Vec<_>>())
-                            .collect::<Vec<_>>()
-                            .join("\n")
-                    } else {
-                        String::new()
-                    }
-                });
-            let instructions = decode_html_entities(&sanitize_instructions(&raw_instructions));
-
-            let image_url =
-                extract_image_url(json_value).or_else(|| find_sibling_image_url(json_value));
-
-            let portions = recipe.yields().as_ref().and_then(|y| {
-                let s = y.to_string();
-                let num_str: String = s
-                    .chars()
-                    .skip_while(|c| !c.is_ascii_digit())
-                    .take_while(|c| c.is_ascii_digit())
-                    .collect();
-                num_str.parse::<i32>().ok()
-            });
-
-            return Ok((
-                ImportDraft {
-                    name,
-                    ingredients,
-                    instructions,
-                    image_base64: None,
-                    portions,
-                    source_url: None,
-                },
-                image_url,
-            ));
-        }
-    }
-
-    // Fallback for blocks `recipe-scraper` rejects (e.g. WPRM output mixing
-    // `HowToStep` entries with a trailing `HowToSection`): parse the raw
-    // JSON manually and flatten the instructions.
-    for block in &raw_blocks {
+    // The first recipe node in document order wins. Instruction flattener
+    // handles the shapes sites emit, including blocks that mix `HowToStep`
+    // entries with a trailing `HowToSection` (WPRM output).
+    for block in &blocks {
         let mut nodes = Vec::new();
         collect_recipe_nodes(block, &mut nodes);
         for node in nodes {
             if let Some((draft, image_url)) = draft_from_recipe_json(node) {
-                let image_url = image_url.or_else(|| find_sibling_image_url(block));
+                let image_url = image_url
+                    .or_else(|| extract_image_url(block))
+                    .or_else(|| find_sibling_image_url(block));
                 return Ok((draft, image_url));
             }
         }
@@ -1015,21 +973,30 @@ fn parse_recipe_with_image_url(text: &str) -> Result<(ImportDraft, Option<String
     ))
 }
 
-/// Collect `Recipe`-typed nodes from a raw JSON-LD block (handles `@graph`
-/// objects, bare `Recipe` objects, and arrays of either).
+/// Collect recipe nodes from a raw JSON-LD block (handles `@graph` objects,
+/// bare `Recipe` objects, and arrays of either).
 fn collect_recipe_nodes<'a>(json: &'a serde_json::Value, out: &mut Vec<&'a serde_json::Value>) {
     if let Some(graph) = json.get("@graph").and_then(|g| g.as_array()) {
-        out.extend(graph.iter().filter(|item| is_recipe_type(item)));
+        out.extend(graph.iter().filter(|item| is_recipe_candidate(item)));
     } else if let Some(arr) = json.as_array() {
         for item in arr {
             collect_recipe_nodes(item, out);
         }
-    } else if is_recipe_type(json) {
+    } else if is_recipe_candidate(json) {
         out.push(json);
     }
 }
 
-/// Build a draft from a raw `Recipe` JSON object without `recipe-scraper`.
+/// A node is a recipe candidate when it is typed `Recipe` or carries the
+/// `name` + `recipeIngredient` fields every recipe JSON-LD node has; some
+/// pages omit `@type`, so matching on the fields as well keeps them importable.
+fn is_recipe_candidate(json: &serde_json::Value) -> bool {
+    is_recipe_type(json)
+        || (json.get("name").is_some_and(|name| name.as_str().is_some())
+            && json.get("recipeIngredient").is_some())
+}
+
+/// Build a draft from a raw `Recipe` JSON object.
 /// Returns `None` when the node has no usable name (not a recipe draft).
 fn draft_from_recipe_json(json: &serde_json::Value) -> Option<(ImportDraft, Option<String>)> {
     let name = json.get("name")?.as_str()?.trim().to_string();
@@ -1121,7 +1088,7 @@ fn flatten_instruction_texts(json: &serde_json::Value, out: &mut Vec<String>) {
 }
 
 /// Extract the serving count from a `recipeYield` value (string, number, or
-/// array — first element wins), mirroring the `recipe-scraper` path.
+/// array — first element wins).
 fn parse_yield_portions(yield_value: Option<&serde_json::Value>) -> Option<i32> {
     fn yield_to_str(v: &serde_json::Value) -> Option<String> {
         match v {
@@ -1512,9 +1479,16 @@ pub(crate) async fn try_download_image(client: &reqwest::Client, url: &str) -> O
     if !resp.status().is_success() {
         return None;
     }
-    let bytes = resp.bytes().await.ok()?;
+    let bytes = read_body_capped(resp, MAX_IMAGE_BYTES).await.ok()?;
     let jpeg = crate::image::convert_to_jpeg(&bytes).ok()?;
     Some(jpeg)
+}
+
+/// Download an image URL and return it as base64-encoded JPEG, the shape a
+/// draft's `image_base64` field expects.
+pub(crate) async fn download_image_base64(url: &str) -> Result<String, AppError> {
+    let jpeg = download_image_from_url(url).await?;
+    Ok(base64::engine::general_purpose::STANDARD.encode(&jpeg))
 }
 
 /// Download an image URL and convert to JPEG bytes via the standard pipeline
@@ -1545,12 +1519,21 @@ pub(crate) async fn download_image_from_url(url: &str) -> Result<Vec<u8>, AppErr
         ));
     }
 
-    let bytes = resp.bytes().await.map_err(|e| {
-        AppError::Image(
-            format!("failed to download image: {e}"),
-            "image_url_unreachable",
-        )
-    })?;
+    let bytes = read_body_capped(resp, MAX_IMAGE_BYTES)
+        .await
+        .map_err(|e| match e {
+            BodyReadError::TooLarge => AppError::Image(
+                format!(
+                    "image URLs are limited to {} MB",
+                    MAX_IMAGE_BYTES / (1024 * 1024)
+                ),
+                "image_url_too_large",
+            ),
+            BodyReadError::Transport(err) => AppError::Image(
+                format!("failed to download image: {err}"),
+                "image_url_unreachable",
+            ),
+        })?;
 
     crate::image::convert_to_jpeg(&bytes).map_err(|_| {
         AppError::Image(

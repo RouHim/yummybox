@@ -45,16 +45,16 @@ Browser (SPA) ──fetch──▶ axum (Rust) ──async──▶ SQLite (via 
 | `src/settings.rs` | Stored AI and Bring! settings, effective-configuration resolution, validation |
 | `migrations/` | SQLx migration files for schema evolution |
 | `web/` | SvelteKit project (frontend) |
-| `web/src/routes/` | Svelte page components: `+page.svelte` (home), `meals/` (list/create), `meals/[id]/` (detail/edit/cooking), `planner/` (weekly planner) |
+| `web/src/routes/` | Svelte page components: `+page.svelte` (home), `meals/` (list/create), `meals/[id]/` (detail/edit/cooking), `planner/` (weekly planner), `spontaneous/` (AI recipe generation) with `spontaneous/cook/` (cooking view for an unsaved draft) |
 | `web/src/routes/settings/` | Settings page: AI provider/model/endpoint/key and Bring! credentials |
-| `web/src/lib/` | Shared modules: `api.ts` (fetch client), `validation.ts`, `week.ts` (week model), `calendar.svelte.ts` (month view state), `planner.svelte.ts` (plan editor), `cook-draft.ts` (sessionStorage handoff), `image-stage.svelte.ts` (image capture), `types.ts`, i18n, components |
+| `web/src/lib/` | Shared modules: `api.ts` (fetch client), `validation.ts`, `week.ts` (week model), `calendar.svelte.ts` (month view state), `planner.svelte.ts` (plan editor), `settings.svelte.ts` (settings state and secret policy), `cook-draft.ts` (sessionStorage handoff), `image-stage.svelte.ts` (image capture), `multi-image.ts` (photo limits), `llm-error.ts` (LLM code mapping), `motion.ts`, `focusTrap.ts`, `theme.ts`/`theme.svelte.ts` (theme state), `types.ts`, i18n, components; each module has a sibling `*.test.ts` |
 | `web/build/` | Build output (embedded into binary at compile time) |
 
 ## Development Commands
 
 ```bash
 # Build and run (production)
-# Run all Rust tests (483 tests)
+# Run all Rust tests (487 tests)
 cargo test
 
 # Run all frontend tests (234 tests)
@@ -97,7 +97,7 @@ For the higher-level engineering principles (SOLID, YAGNI, error surfacing) see 
 
 **Error handling**: Use `thiserror`-derived `AppError` enum. Every variant maps to an HTTP status code and JSON body `{"error": "..."}` via `IntoResponse`. No `unwrap`/`expect` in non-test code. Convert `sqlx::Error` with `#[from]`, `serde_json::Error` with a manual `From` impl.
 
-**Async pattern**: Handlers are `async fn` returning `Result<Json<T>, AppError>` or `Result<(StatusCode, Json<T>), AppError>`. DB access uses `SqlitePool` with `sqlx::query!` / `sqlx::query_as!` macros — no manual locking needed.
+**Async pattern**: Handlers are `async fn` returning `Result<Json<T>, AppError>` or `Result<(StatusCode, Json<T>), AppError>`. DB access uses the `SqlitePool` runtime query API: `sqlx::query(...)` for writes and `sqlx::query_as::<_, Row>(...)` for reads, with `.bind(...)` plus `.execute` / `.fetch_*`, so no manual locking is needed. The compile-time checked `sqlx::query!` / `sqlx::query_as!` macros are not used, so a build needs no database connection and no offline `.sqlx` query data.
 
 **State injection**: Axum `State(Arc<AppState>)` extractor. `AppState` holds a `SqlitePool`.
 
@@ -116,7 +116,7 @@ For the higher-level engineering principles (SOLID, YAGNI, error surfacing) see 
 - Keep external crates as low as possible; prefer `std` and built-in features (e.g., `sqlx`'s `SqlitePool` is already in the tree — use its connection pool, not a standalone connection manager).
 - Before adding a third-party crate, evaluate the trade-off: maintenance burden, transitive deps, MSRV impact, and whether `std` or an existing dep already covers it.
 - Pin the very latest stable version available on crates.io at the time of introduction; bump via `cargo upgrade` and review changelogs for breaking changes.
-- Current set: `axum` (http1+json+query+multipart+macros), `sqlx` (sqlite+runtime-tokio+chrono+migrate+macros), `serde`/`serde_json`, `chrono`, `tokio`, `tracing`/`tracing-subscriber`, `thiserror`, `rust-embed`, `reqwest` (rustls+json+form), `image` (jpeg+png+gif+bmp+webp), `scraper`, `recipe-scraper`, `genai`, `base64`, `rand`, `ammonia`, `zip`. Dev: `tempfile`, `tower` (util only).
+- Current set: `axum` (http1+json+query+multipart+macros), `sqlx` (sqlite+runtime-tokio+chrono+migrate+macros), `serde`/`serde_json`, `chrono`, `tokio`, `tracing`/`tracing-subscriber`, `thiserror`, `rust-embed`, `reqwest` (rustls+json+form), `image` (jpeg+png+gif+bmp+webp), `scraper`, `genai`, `base64`, `rand`, `ammonia`, `zip`. Dev: `tempfile`, `tower` (util only).
 
 ### Frontend (Svelte 5 + TypeScript)
 
@@ -160,7 +160,7 @@ If a function has no call site, delete it — no commented-out scaffolds, no `#[
 
 | File | Role |
 |------|------|
-| `Cargo.toml` | Binary name `yummybox`, edition 2024, Rust 1.88+, sqlx with compile-time checked queries |
+| `Cargo.toml` | Binary name `yummybox`, edition 2024, Rust 1.88+, sqlx (SQLite, runtime query API, migrations) |
 | `build.rs` | Auto-runs `npm install && npm run build` in `web/` |
 | `src/main.rs` | Port binding, logging init, subcommand dispatch, SPA mount |
 | `src/router.rs` | The `/api` route table |
@@ -177,16 +177,22 @@ If a function has no call site, delete it — no commented-out scaffolds, no `#[
 | `web/package.json` | Scripts: `dev`, `build`, `test`, `check` |
 | `web/vite.config.ts` | SvelteKit plugin, adapter-static, SSR disabled |
 | `web/vitest.config.ts` | Test include pattern: `src/**/*.test.ts` |
-| `web/src/routes/` | Svelte page components: home, meals list/detail/cooking, weekly planner |
+| `web/src/routes/` | Svelte page components: home, meals list/detail/cooking, weekly planner, settings, spontaneous cooking and its draft cooking view |
 | `web/src/lib/api.ts` | Fetch client for all API endpoints |
 | `web/src/lib/planner.svelte.ts` | Plan-editor state: selection, mutations, summary refresh |
 | `web/src/lib/week.ts` | Week identity, month grid, week rows and display ranges |
 | `web/src/lib/calendar.svelte.ts` | Month view state: paging, grid rows |
 | `web/src/lib/image-stage.svelte.ts` | Image capture and validation shared by the pickers |
 | `web/src/lib/cook-draft.ts` | Versioned sessionStorage handoff between spontaneous cooking and its cooking view |
+| `web/src/lib/settings.svelte.ts` | Settings snapshot types, `isAiConfigured`, secret-source labels, commit-status helpers |
+| `web/src/lib/llm-error.ts` | Maps `AppError::Llm` codes to localized messages for the AI import and generate flows |
+| `web/src/lib/multi-image.ts` | Photo count, size and MIME limits shared by the AI flows |
+| `web/src/lib/motion.ts` | Reduced-motion and low-power detection for animations |
+| `web/src/lib/focusTrap.ts` | Svelte action keeping Tab focus inside dialogs |
+| `web/src/lib/theme.ts` | Re-exports the theme state (`light`/`dark`/`system`) from `theme.svelte.ts` |
 | `web/playwright.config.ts` | E2E config: visual tests on :11341 (release binary) |
 | `tests/playwright.config.ts` | E2E config: workflow tests on :11342 (auto-build, isolated DB) |
-| `tests/e2e/_helpers.ts` | Shared E2E helpers: `createMeal`, `resetMeals`, `setLocale` |
+| `tests/e2e/_helpers.ts` | Shared E2E helpers: `createMeal`, `createMealViaApi`, `resetMeals`, `resetPlans`, `resetSettings`, `setLocale` |
 
 ## Workflow Practices
 
@@ -249,17 +255,35 @@ E2E tests use Playwright with headless Chromium. Each config auto-starts the `yu
 - Dark mode image variance (URL contains `ambient-dark`, pixel variance)
 - Dark mode `backgroundColor` — each RGB channel < 80
 
-#### Workflow suite (`tests/e2e/`, 31 tests across 8 spec files)
+#### Workflow suite (`tests/e2e/`, 145 tests across 26 spec files)
 
 | File | Tests | Coverage |
 |------|-------|----------|
-| `add-meal.spec.ts` | 3 | Happy path, empty-name validation, empty-ingredients validation |
-| `view-meals.spec.ts` | 2 | Empty state message, meal name + ingredient previews |
-| `edit-meal.spec.ts` | 2 | Pre-populated form values, update reflects in list |
-| `delete-meal.spec.ts` | 2 | Confirm delete removes meal, cancel keeps it |
-| `search-meals.spec.ts` | 3 | Filter by name (case-insensitive), by ingredient, clear search restores all |
-| `meal-images.spec.ts` | 7 | Upload shows thumbnail, edit-to-add sets `has_image`, replace image, remove image, non-image error inline, no-image meals have no `<img>`, oversized PNG downscaled to ≤3840×2160 JPEG |
-| `planner.spec.ts` | 9 | Future week click, past-week CSS class, past year all muted, meal count defaults to 3, count resets on new week, no lang toggle, navigator language → no localStorage |
-| `i18n.spec.ts` | 3 | `de-DE` → German strings, `fr-FR` → English fallback, full German UI string audit |
+| `add-meal.spec.ts` | 3 | Meal appears in the list, empty-name validation, empty-ingredients validation |
+| `bring-integration.spec.ts` | 3 | Configured send shows success, unconfigured load stays quiet, stored error surfaces on load |
+| `clipboard-paste.spec.ts` | 1 | Pasted image file shows a thumbnail |
+| `cooking-view.spec.ts` | 3 | Sanitised HTML instructions as paragraphs, plain text keeps newlines, long source URL does not overflow a narrow viewport |
+| `delete-meal.spec.ts` | 2 | Confirm removes the meal, dismiss keeps it |
+| `edit-meal-detail.spec.ts` | 1 | Editing from the detail view stays on the detail page |
+| `edit-meal-full.spec.ts` | 2 | Edited ingredients reach the list, edited instructions reach the cooking view |
+| `edit-meal.spec.ts` | 2 | Form pre-populated with current values, update reflected in the list |
+| `generate-meal.spec.ts` | 9 | Top-bar entry, generate enablement, AI recipe saved, extra instructions and pantry hint, config commit ordered before generation, photos-only generation, 5-photo limit, config restored on revisit, edited draft cooked without saving |
+| `home-page.spec.ts` | 3 | No plan for the current week redirects to the planner, planned meals shown, empty plan shows the empty state |
+| `i18n.spec.ts` | 3 | German `Accept-Language` detected, non-German falls back to English, full German string audit |
+| `image-url.spec.ts` | 2 | Reachable image URL sets the thumbnail and saves, unreachable URL shows an error |
+| `import-bulk.spec.ts` | 3 | Several URLs import and close the modal, failure summary shown, 51 URLs rejected before any request |
+| `import-llm.spec.ts` | 18 | Parse fills the form, provider/model commits ordered across parse, collapse and tab switch, no-providers error, model listing with a stored key, stale custom models dropped, remount and queued-write races |
+| `import-meal.spec.ts` | 2 | Single URL navigates to the detail view, network error keeps the modal |
+| `language-switcher.spec.ts` | 3 | English to German, German back to English, system follows the browser locale |
+| `llm-image.spec.ts` | 5 | Stage and remove a photo, parse with a photo and no hint, 6th photo rejected, all photos sent in order, parse disabled without hint or photos |
+| `meal-images.spec.ts` | 11 | Upload thumbnail, edit-to-add sets `has_image`, replace, remove, non-image error inline, no `<img>` without an image, drag highlight, dropped file staged, oversized image downscaled, URL drag staged |
+| `network-errors.spec.ts` | 2 | Save failure keeps the input, add-to-plan failure keeps the plan |
+| `planner-ops.spec.ts` | 4 | Generate plan, add meal, remove meal, delete plan |
+| `planner.spec.ts` | 11 | Future-week form, empty state, muted past weeks, muted past year, meal count defaults to 3 and resets, language switcher on planner and home, navigator locale not persisted, picker thumbnails |
+| `portions.spec.ts` | 14 | `Serves N`, hidden without portions, stepper bounds at 1 and 10000, quantity scaling and reset, missing quantity untouched, persistence, API rejects ≤0 and >10000, cleared field, fractional scaling |
+| `search-meals.spec.ts` | 3 | Case-insensitive name filter, ingredient filter, clearing restores all |
+| `settings.spec.ts` | 32 | Gear opens the page, provider/model/key commits persisted, rejected commits keep typed values, read and commit races, base-URL rejection, secret values never rendered, clearing, failure notices and retries, generate-page notices |
+| `theme-toggle.spec.ts` | 1 | Three cycles return to the system theme |
+| `view-meals.spec.ts` | 2 | Empty state, meal name and ingredient previews |
 
-Shared helper (`tests/e2e/_helpers.ts`): `setLocale(page, locale)`, `resetMeals(request)`, `createMeal(page, name, ingredients, instructions?)`.
+Shared helper (`tests/e2e/_helpers.ts`): `setLocale(page, locale)`, `resetMeals(request)`, `resetSettings(request)`, `resetPlans(request)`, `createMeal(page, name, ingredients, instructions?)`, `createMealViaApi(request, ...)`.

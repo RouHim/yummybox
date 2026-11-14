@@ -74,6 +74,7 @@ export const en: Record<TranslationKey, string> = {
 	plannerChangeWeek: 'Change week',
 	imageErrorUrlNotImage: 'URL does not point to a valid image',
 	imageErrorUrlUnreachable: 'Could not reach image URL',
+	imageErrorUrlTooLarge: 'Image URL is larger than the 8 MB limit',
 	imageStaged: 'New image selected',
 	imageStagedRemove: 'Image will be removed',
 	imageErrorNotImage: 'Only image files are accepted',

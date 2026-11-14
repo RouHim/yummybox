@@ -3014,6 +3014,217 @@ fn given_no_recipe_error_when_classify_fetch_then_no_recipe_found() {
 }
 
 // -----------------------------------------------------------------------
+// URL import tests
+//
+// Both handlers build their own `reqwest` client against the URL in the
+// request, so the upstream has to be a real socket. These tests serve exactly
+// one canned HTTP/1.1 response from an ephemeral loopback port and pass that
+// URL in the request body.
+// -----------------------------------------------------------------------
+
+/// A minimal schema.org `Recipe` JSON-LD page without an `image`, so the fetch
+/// stays a single request (no best-effort image download).
+const IMPORT_URL_PAGE_HTML: &str = r#"<html><head>
+<script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@type": "Recipe",
+  "name": "Oven Potatoes",
+  "recipeIngredient": ["1 kg potatoes", "2 tbsp olive oil", "salt"],
+  "recipeInstructions": [
+    {"@type": "HowToStep", "text": "Cut the potatoes into wedges."},
+    {"@type": "HowToStep", "text": "Bake at 200 C for 40 minutes."}
+  ]
+}
+</script>
+</head><body></body></html>"#;
+
+/// Serve one canned HTTP/1.1 response on an ephemeral loopback port and
+/// return the origin (`http://127.0.0.1:<port>`) to call.
+async fn serve_http_once(status: u16, reason: &str, content_type: &str, body: Vec<u8>) -> String {
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let addr = listener.local_addr().expect("local_addr");
+    let head = format!(
+        "HTTP/1.1 {status} {reason}\r\nContent-Type: {content_type}\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+        body.len()
+    );
+    tokio::spawn(async move {
+        let Ok((mut stream, _)) = listener.accept().await else {
+            return;
+        };
+        // Read the request head so the client has finished sending before the
+        // response goes out.
+        let mut buf = [0u8; 1024];
+        let _ = stream.read(&mut buf).await;
+        let _ = stream.write_all(head.as_bytes()).await;
+        let _ = stream.write_all(&body).await;
+        let _ = stream.shutdown().await;
+    });
+    format!("http://{addr}")
+}
+
+#[tokio::test]
+async fn given_recipe_page_when_post_import_url_then_draft_returned() {
+    let ctx = setup().await;
+    let origin = serve_http_once(
+        200,
+        "OK",
+        "text/html; charset=utf-8",
+        IMPORT_URL_PAGE_HTML.as_bytes().to_vec(),
+    )
+    .await;
+    let url = format!("{origin}/recipe");
+
+    let response = ctx
+        .app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method(Method::POST)
+                .uri("/import/url")
+                .header(header::CONTENT_TYPE, "application/json")
+                .body(axum::body::Body::from(json!({ "url": url }).to_string()))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), StatusCode::OK);
+    let bytes = to_bytes(response.into_body(), 8192).await.unwrap();
+    let draft: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
+    assert_eq!(draft["name"], "Oven Potatoes");
+    let ingredients = draft["ingredients"].as_array().expect("ingredients array");
+    assert_eq!(ingredients.len(), 3, "draft: {draft}");
+    assert_eq!(ingredients[0]["name"], "potatoes");
+    assert_eq!(ingredients[0]["quantity"], "1 kg");
+    assert!(
+        draft["instructions"]
+            .as_str()
+            .unwrap()
+            .contains("Bake at 200 C"),
+        "draft: {draft}"
+    );
+    assert_eq!(
+        draft["sourceUrl"], url,
+        "the originate URL must be preserved on the draft"
+    );
+}
+
+#[tokio::test]
+async fn given_upstream_500_when_post_import_url_then_400_with_error_body() {
+    let ctx = setup().await;
+    let origin = serve_http_once(
+        500,
+        "Internal Server Error",
+        "text/plain; charset=utf-8",
+        b"upstream boom".to_vec(),
+    )
+    .await;
+
+    let response = ctx
+        .app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method(Method::POST)
+                .uri("/import/url")
+                .header(header::CONTENT_TYPE, "application/json")
+                .body(axum::body::Body::from(
+                    json!({ "url": format!("{origin}/recipe") }).to_string(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+    let bytes = to_bytes(response.into_body(), 8192).await.unwrap();
+    let error: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
+    let message = error["error"].as_str().expect("error message");
+    assert!(
+        message.contains("fetch returned HTTP 500"),
+        "the upstream status must reach the user: {error}"
+    );
+}
+
+#[tokio::test]
+async fn given_png_upstream_when_post_import_image_url_then_base64_jpeg_returned() {
+    let ctx = setup().await;
+    let png = build_test_png(10, 10);
+    let origin = serve_http_once(200, "OK", "image/png", png).await;
+
+    let response = ctx
+        .app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method(Method::POST)
+                .uri("/import/image-url")
+                .header(header::CONTENT_TYPE, "application/json")
+                .body(axum::body::Body::from(
+                    json!({ "url": format!("{origin}/photo.png") }).to_string(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), StatusCode::OK);
+    let bytes = to_bytes(response.into_body(), usize::MAX).await.unwrap();
+    let body: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
+    let encoded = body["imageBase64"].as_str().expect("imageBase64 field");
+    let jpeg = {
+        use base64::Engine;
+        base64::engine::general_purpose::STANDARD
+            .decode(encoded)
+            .expect("valid base64")
+    };
+    assert_eq!(
+        jpeg.get(..2),
+        Some(&[0xFFu8, 0xD8][..]),
+        "the handler must convert the PNG to JPEG"
+    );
+}
+
+#[tokio::test]
+async fn given_upstream_404_when_post_import_image_url_then_400_image_url_unreachable() {
+    let ctx = setup().await;
+    let origin = serve_http_once(
+        404,
+        "Not Found",
+        "text/plain; charset=utf-8",
+        b"missing".to_vec(),
+    )
+    .await;
+
+    let response = ctx
+        .app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method(Method::POST)
+                .uri("/import/image-url")
+                .header(header::CONTENT_TYPE, "application/json")
+                .body(axum::body::Body::from(
+                    json!({ "url": format!("{origin}/photo.png") }).to_string(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+    let bytes = to_bytes(response.into_body(), 8192).await.unwrap();
+    let error: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
+    assert_eq!(
+        error["code"], "image_url_unreachable",
+        "an unreachable image URL must answer with the actionable code: {error}"
+    );
+}
+
+// -----------------------------------------------------------------------
 // Polish instructions tests
 // -----------------------------------------------------------------------
 

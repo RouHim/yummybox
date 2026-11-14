@@ -35,15 +35,11 @@
 	$effect(() => {
 		checkBringStatus()
 			.then((res) => {
-				if (!res.configured) {
-					console.log('[Bring!] not configured — set BRING_EMAIL and BRING_PASSWORD to enable shopping list sync');
-					bringError = null;
-				} else if (res.connected) {
-					console.log('[Bring!] connected');
-					bringError = null;
-				} else {
+				if (res.configured && !res.connected) {
 					console.warn('[Bring!] error:', res.error);
 					bringError = res.error;
+				} else {
+					bringError = null;
 				}
 			})
 			.catch((e) => {

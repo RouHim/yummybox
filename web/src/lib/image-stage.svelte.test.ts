@@ -49,7 +49,12 @@ describe('looksLikeImage', () => {
 	});
 
 	it('accepts a known extension when the browser omits the MIME type', () => {
-		expect(looksLikeImage(file('scan.TIFF', ''))).toBe(true);
+		expect(looksLikeImage(file('scan.PNG', ''))).toBe(true);
+	});
+
+	it('rejects an extension the backend cannot decode', () => {
+		expect(looksLikeImage(file('scan.TIFF', ''))).toBe(false);
+		expect(looksLikeImage(file('photo.avif', ''))).toBe(false);
 	});
 
 	it('rejects a file that is neither an image type nor a known extension', () => {

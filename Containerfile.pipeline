@@ -1,9 +1,10 @@
 ARG TARGETARCH
 ARG YUMMYBOX_VERSION
 
-# Map Docker TARGETARCH (amd64/arm64) to Rust cross images
-FROM docker.io/messense/rust-musl-cross:x86_64-musl AS builder-amd64
-FROM docker.io/messense/rust-musl-cross:aarch64-musl AS builder-arm64
+# Map Docker TARGETARCH (amd64/arm64) to Rust cross images. Same registry as
+# the release matrix in .github/workflows/ci.yml.
+FROM ghcr.io/rust-cross/rust-musl-cross:x86_64-musl AS builder-amd64
+FROM ghcr.io/rust-cross/rust-musl-cross:aarch64-musl AS builder-arm64
 FROM builder-${TARGETARCH:-amd64} AS builder
 
 WORKDIR /app

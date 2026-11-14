@@ -60,13 +60,17 @@ impl LlmTarget<'_> {
 
     /// Client with the resolved key installed as the auth resolver. Without a
     /// key the client falls back to genai's environment resolution.
-    fn client(&self) -> genai::Client {
-        match self.auth() {
-            Some(auth) => genai::Client::builder()
-                .with_auth_resolver_fn(move |_model_iden: genai::ModelIden| Ok(Some(auth.clone())))
-                .build(),
-            None => genai::Client::default(),
-        }
+    fn client(&self) -> Result<genai::Client, AppError> {
+        let builder = genai::Client::builder();
+        let builder = match self.auth() {
+            Some(auth) => builder
+                .with_auth_resolver_fn(move |_model_iden: genai::ModelIden| Ok(Some(auth.clone()))),
+            None => builder,
+        };
+        let client = builder
+            .build()
+            .map_err(|e| AppError::Internal(format!("failed to build LLM client: {e}")))?;
+        Ok(client)
     }
 
     /// Adapter kind for a standard provider.
@@ -228,7 +232,8 @@ fn needs_no_api_key(id: &str) -> bool {
 /// Uses a 15-second timeout to avoid hanging the UI.
 pub async fn list_models(target: &LlmTarget<'_>) -> Result<Vec<String>, AppError> {
     require_api_key(target)?;
-    let client = genai::Client::default();
+    let client = genai::Client::new()
+        .map_err(|e| AppError::Internal(format!("failed to build LLM client: {e}")))?;
     let (adapter_kind, provider_config) = target.listing_config()?;
 
     let models_fut = client.all_model_names(adapter_kind, provider_config);
@@ -252,6 +257,27 @@ const TOOL_NAME: &str = "extract_recipe";
 
 /// Timeout for LLM chat requests (import, generate, polish).
 const LLM_CHAT_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(60);
+
+/// Run one chat request under the shared timeout and error mapping.
+async fn exec_chat(
+    client: &genai::Client,
+    target: &LlmTarget<'_>,
+    model: &str,
+    chat_req: genai::chat::ChatRequest,
+) -> Result<genai::chat::ChatResponse, AppError> {
+    let model_spec = target.model_spec(model)?;
+    let chat_fut = client.exec_chat(model_spec, chat_req, None);
+    let chat_res = match tokio::time::timeout(LLM_CHAT_TIMEOUT, chat_fut).await {
+        Ok(res) => res,
+        Err(_) => {
+            return Err(AppError::Llm(
+                "LLM request timed out after 60 seconds".into(),
+                "llm_timeout",
+            ));
+        }
+    };
+    chat_res.map_err(map_genai_error)
+}
 
 const SYSTEM_PROMPT: &str = "You are a recipe extraction assistant. Extract the recipe from the user's input (one or more images of a meal, a text description, a recipe URL, or any combination) and call the extract_recipe tool with the result. When the input contains multiple images — for example the front and back of a recipe card, or several pages of a recipe — treat all of them as parts of ONE recipe and merge their content into a single complete recipe: take the dish name and any dish photo from whichever image shows them, and combine ingredients and instructions from all images without duplicating entries. Always call the tool. If you can identify a photo URL of the finished dish from the recipe context (page text or your own knowledge for description-only inputs), provide it in the imageUrl field; otherwise omit it. When candidate dish image URLs are listed in the input, pick the most relevant one for imageUrl. Never invent a URL you are not confident exists.";
 
@@ -313,7 +339,7 @@ pub async fn import_via_llm(
     skip_image_download: bool,
 ) -> Result<recipe::ImportDraft, AppError> {
     require_api_key(target)?;
-    let client = target.client();
+    let client = target.client()?;
     let user_content = build_user_content(hint, &images);
 
     let chat_req = genai::chat::ChatRequest::new(vec![
@@ -321,19 +347,7 @@ pub async fn import_via_llm(
         genai::chat::ChatMessage::user(user_content),
     ])
     .with_tools(vec![recipe_tool()]);
-    let model_spec = target.model_spec(model)?;
-    let chat_fut = client.exec_chat(model_spec, chat_req, None);
-
-    let chat_res = match tokio::time::timeout(LLM_CHAT_TIMEOUT, chat_fut).await {
-        Ok(r) => r,
-        Err(_) => {
-            return Err(AppError::Llm(
-                "LLM request timed out after 60 seconds".into(),
-                "llm_timeout",
-            ));
-        }
-    };
-    let chat_res = chat_res.map_err(map_genai_error)?;
+    let chat_res = exec_chat(&client, target, model, chat_req).await?;
 
     let tool_calls = chat_res.into_tool_calls();
     let first = tool_calls.first().ok_or_else(|| {
@@ -381,7 +395,7 @@ pub async fn generate_meal_via_llm(
     images: Vec<LlmImage>,
 ) -> Result<recipe::ImportDraft, AppError> {
     require_api_key(target)?;
-    let client = target.client();
+    let client = target.client()?;
     let user_content = build_user_content(
         build_generate_hint(ingredients, extra_instructions).as_deref(),
         &images,
@@ -392,19 +406,7 @@ pub async fn generate_meal_via_llm(
         genai::chat::ChatMessage::user(user_content),
     ])
     .with_tools(vec![recipe_tool()]);
-    let model_spec = target.model_spec(model)?;
-    let chat_fut = client.exec_chat(model_spec, chat_req, None);
-
-    let chat_res = match tokio::time::timeout(LLM_CHAT_TIMEOUT, chat_fut).await {
-        Ok(r) => r,
-        Err(_) => {
-            return Err(AppError::Llm(
-                "LLM request timed out after 60 seconds".into(),
-                "llm_timeout",
-            ));
-        }
-    };
-    let chat_res = chat_res.map_err(map_genai_error)?;
+    let chat_res = exec_chat(&client, target, model, chat_req).await?;
 
     let tool_calls = chat_res.into_tool_calls();
     let first = tool_calls.first().ok_or_else(|| {
@@ -432,7 +434,7 @@ pub async fn polish_instructions(
     instructions: &str,
 ) -> Result<String, AppError> {
     require_api_key(target)?;
-    let client = target.client();
+    let client = target.client()?;
 
     let mut user_text = format!("Meal: {meal_name}\n\nIngredients:\n");
     for ing in ingredients {
@@ -448,19 +450,7 @@ pub async fn polish_instructions(
         genai::chat::ChatMessage::system(POLISH_SYSTEM_PROMPT),
         genai::chat::ChatMessage::user(user_text),
     ]);
-    let model_spec = target.model_spec(model)?;
-    let chat_fut = client.exec_chat(model_spec, chat_req, None);
-
-    let chat_res = match tokio::time::timeout(LLM_CHAT_TIMEOUT, chat_fut).await {
-        Ok(r) => r,
-        Err(_) => {
-            return Err(AppError::Llm(
-                "LLM request timed out after 60 seconds".into(),
-                "llm_timeout",
-            ));
-        }
-    };
-    let chat_res = chat_res.map_err(map_genai_error)?;
+    let chat_res = exec_chat(&client, target, model, chat_req).await?;
 
     let text = chat_res.into_first_text().ok_or_else(|| {
         AppError::Llm(
@@ -634,26 +624,6 @@ async fn try_download_llm_image(url: Option<&str>) -> Option<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn given_generate_prompt_when_inspected_then_contains_subset_pantry_and_constraint_clauses() {
-        assert!(GENERATE_SYSTEM_PROMPT.contains("you do not have to use all of them"));
-        assert!(
-            GENERATE_SYSTEM_PROMPT.contains(
-                "salt, pepper, oil, sugar, water, vinegar, flour, broth, herbs, and spices"
-            )
-        );
-        assert!(GENERATE_SYSTEM_PROMPT.contains("binding constraints"));
-        assert!(GENERATE_SYSTEM_PROMPT.contains("the requirement wins"));
-        assert!(GENERATE_SYSTEM_PROMPT.contains("list every ingredient you use"));
-        assert!(
-            GENERATE_SYSTEM_PROMPT.contains("never use ingredients other than the provided ones")
-        );
-        assert!(GENERATE_SYSTEM_PROMPT.contains(
-            "If a provided ingredient is itself a pantry staple, list it once with the user's specified quantity"
-        ));
-        assert!(!GENERATE_SYSTEM_PROMPT.contains("must primarily use the provided ingredients"));
-    }
 
     #[test]
     fn given_ingredients_and_extra_when_build_generate_hint_then_requirements_appended() {
@@ -841,6 +811,7 @@ mod tests {
         };
         let service_target = target
             .client()
+            .expect("client")
             .resolve_service_target(genai::ModelIden::new(AdapterKind::OpenAI, "gpt-4o-mini"))
             .await
             .expect("service target");

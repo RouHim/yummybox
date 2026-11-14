@@ -382,7 +382,7 @@
 * remove 'All meals' label, fix theme toggle contrast ([5284082](https://github.com/RouHim/mealme/commit/5284082a03821de93c26a811991dc5027f1cf559))
 * run npm ci before playwright install to match project version ([571c197](https://github.com/RouHim/mealme/commit/571c19738b7d2c9b9f1fe69ac5d506f655f3ea52))
 * update E2E tests for redesigned multi-route app ([b04ba8c](https://github.com/RouHim/mealme/commit/b04ba8ce255624c264e8967fdfda0b6f4d08daa8))
-* upgrade sqlx 0.8 → 0.9 to prevent WorkerCrashed on cancelled begin ([78aacd1](https://github.com/RouHim/mealme/commit/78aacd187a502dd9b209fc699f833f21859f7502)), closes [#3932](https://github.com/RouHim/mealme/issues/3932)
+* upgrade sqlx 0.8 → 0.9 to prevent WorkerCrashed on cancelled begin ([78aacd1](https://github.com/RouHim/mealme/commit/78aacd187a502dd9b209fc699f833f21859f7502)), closes [#3932](https://github.com/transact-rs/sqlx/issues/3932)
 * use exact label matching for Name field in E2E tests ([6bf18d4](https://github.com/RouHim/mealme/commit/6bf18d4090193d75fdd17b3a5551f8f932821e4b))
 * use GITHUB_TOKEN instead of RELEASE_TOKEN for semantic-release ([03095a5](https://github.com/RouHim/mealme/commit/03095a520d03fc80b851a3c79940d1a74c939ee7))
 
