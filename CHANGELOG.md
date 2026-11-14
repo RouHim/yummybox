@@ -1,3 +1,9 @@
+## [1.26.3](https://github.com/RouHim/yummybox/compare/v1.26.2...v1.26.3) (2026-11-09)
+
+## [1.26.2](https://github.com/RouHim/yummybox/compare/v1.26.1...v1.26.2) (2026-11-08)
+
+## [1.26.1](https://github.com/RouHim/yummybox/compare/v1.26.0...v1.26.1) (2026-11-08)
+
 # [1.26.0](https://github.com/RouHim/yummybox/compare/v1.25.2...v1.26.0) (2026-11-03)
 
 
