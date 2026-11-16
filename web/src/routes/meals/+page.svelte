@@ -718,6 +718,14 @@ import { focusTrap } from '$lib/focusTrap';
 </main>
 
 <style>
+	/* .glass opens a stacking context (backdrop-filter), so the actions menu
+	   z-index only competes inside the header. Lift the header itself above
+	   the positioned meal cards (cover z-index 1, overlay z-index 2) so an
+	   open menu stays on top of and clickable over the first card row. */
+	.page-hero {
+		z-index: 3;
+	}
+
 	.add-modal {
 		max-width: 960px;
 		width: 90vw;

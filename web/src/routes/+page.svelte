@@ -64,27 +64,28 @@
 				<ul class="meal-grid">
 					{#each plan.meals as meal, i (meal.id)}
 						<li
-							class="meal-card"
 							in:fly={{ y: 12, duration: tierDuration(250), delay: staggerDuration(i) }}
 							out:scale={{ duration: tierDuration(200), start: 0.95 }}
 						>
-							<div class="meal-card__media">
-								{#if meal.has_image}
-									<img src={mealImageUrl(meal.id)} alt={meal.name} class="meal-card__hero" />
-								{:else}
-									<div class="meal-card__placeholder" aria-hidden="true">
-										<Icon name="utensils" size={48} />
-									</div>
-								{/if}
-							</div>
-							<div class="meal-card__body">
-								<h2 class="meal-card__name">{meal.name}</h2>
-							</div>
-							<a
-								class="meal-card__cover"
-								href="/meals/{meal.id}"
-								aria-label={t('mealCardCookAria', { name: meal.name })}
-							></a>
+							<article class="meal-card">
+								<div class="meal-card__media">
+									{#if meal.has_image}
+										<img src={mealImageUrl(meal.id)} alt={meal.name} class="meal-card__hero" />
+									{:else}
+										<div class="meal-card__placeholder" aria-hidden="true">
+											<Icon name="utensils" size={48} />
+										</div>
+									{/if}
+								</div>
+								<div class="meal-card__body">
+									<h2 class="meal-card__name">{meal.name}</h2>
+								</div>
+								<a
+									class="meal-card__cover"
+									href="/meals/{meal.id}"
+									aria-label={t('mealCardCookAria', { name: meal.name })}
+								></a>
+							</article>
 						</li>
 					{/each}
 				</ul>
