@@ -132,7 +132,7 @@
 			<div class="image-preview__overlay">
 				<button
 					type="button"
-					class="image-preview__action-btn btn btn--ghost"
+					class="overlay-action-btn btn btn--ghost"
 					onclick={onRemoveImageClickStop}
 					aria-label={t('fieldImageRemove')}
 				>
@@ -147,7 +147,7 @@
 			<div class="image-preview__overlay">
 				<button
 					type="button"
-					class="image-preview__action-btn btn btn--ghost"
+					class="overlay-action-btn btn btn--ghost"
 					onclick={onRemoveImageClickStop}
 					aria-label={t('fieldImageRemove')}
 				>
@@ -198,13 +198,15 @@
 				<span>{t('imageImportPaste')}</span>
 			</div>
 
-			<div
+			<button
+				type="button"
 				class="image-tile image-tile--drop"
 				class:image-tile--drop-active={isDragging}
+				onclick={onBrowseClick}
 			>
 				<Icon name="image-down" size={24} />
 				<span>{t('imageImportDragDrop')}</span>
-			</div>
+			</button>
 		</div>
 	{/if}
 
@@ -246,134 +248,8 @@
 </div>
 
 <style>
-	.image-input {
-		display: flex;
-		position: relative;
-		flex-direction: column;
-		gap: var(--space-2);
-		border-radius: var(--radius-lg);
-		transition: box-shadow var(--transition-fast);
-	}
-
-
-	/* --- 4-tile grid --- */
-
-	.image-tiles {
-		display: grid;
-		grid-template-columns: 1fr 1fr;
-		gap: var(--space-2);
-	}
-
-	@media (max-width: 639px) {
-		.image-tiles {
-			grid-template-columns: 1fr;
-		}
-	}
-
-	.image-tile {
-		display: flex;
-		flex-direction: column;
-		align-items: center;
-		justify-content: center;
-		gap: var(--space-2);
-		padding: var(--space-4);
-		min-height: 96px;
-		background: var(--color-surface-2);
-		border: 2px dashed var(--color-border);
-		border-radius: var(--radius-lg);
-		color: var(--color-text-secondary);
-		font-size: var(--text-sm);
-		font-family: var(--font-sans);
-		cursor: pointer;
-		transition: border-color var(--transition-fast), background var(--transition-fast),
-			transform var(--transition-fast), box-shadow var(--transition-fast),
-			opacity var(--transition-fast);
-	}
-
-	.image-tile:hover {
-		border-color: var(--color-primary);
-		background: var(--color-primary-soft);
-		color: var(--color-primary);
-	}
-
-	.image-tile:active {
-		transform: scale(0.98);
-	}
-
-	.image-tile:focus-visible {
-		outline: 2px solid var(--color-primary);
-		outline-offset: 2px;
-	}
-
-	.image-tile--paste:focus-visible {
-		outline: 2px solid var(--color-primary);
-		outline-offset: 2px;
-	}
-
-	.image-tile--drop-active {
-		border-color: var(--color-primary);
-		border-style: solid;
-		background: var(--color-primary-soft);
-		color: var(--color-primary);
-		box-shadow: inset 0 0 0 1px var(--color-primary);
-	}
-
-	/* --- Tile dimming during drag-over --- */
-
-	.image-tiles.tiles-dimmed .image-tile {
-		transform: scale(0.98);
-		opacity: 0.55;
-	}
-
-	.image-tiles.tiles-dimmed .image-tile--drop-active {
-		transform: scale(1.02);
-		opacity: 1;
-	}
-
-	/* --- Full-surface drop-zone overlay --- */
-
-	.image-input__drop-zone {
-		position: absolute;
-		inset: calc(-1 * var(--space-2));
-		z-index: 5;
-		border-radius: var(--radius-lg);
-		background: var(--glass-bg-strong);
-		border: 2px dashed var(--color-primary);
-		backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-saturation));
-		-webkit-backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-saturation));
-		display: flex;
-		align-items: center;
-		justify-content: center;
-		pointer-events: none;
-		animation: drop-zone-pulse 1.6s ease-in-out infinite;
-	}
-
-	.image-input__drop-zone-inner {
-		display: flex;
-		flex-direction: column;
-		align-items: center;
-		gap: var(--space-2);
-		color: var(--color-primary);
-		font-family: var(--font-sans);
-		font-size: var(--text-sm);
-		font-weight: var(--weight-medium);
-	}
-
-	@keyframes drop-zone-pulse {
-		0%, 100% { box-shadow: 0 0 0 0 rgba(124, 45, 18, 0.0); }
-		50%      { box-shadow: 0 0 0 6px rgba(124, 45, 18, 0.08); }
-	}
-
-	@media (prefers-color-scheme: dark) {
-		.image-input__drop-zone {
-			background: var(--glass-bg-strong);
-			border-color: var(--color-primary);
-		}
-		@keyframes drop-zone-pulse {
-			0%, 100% { box-shadow: 0 0 0 0 rgba(217, 119, 87, 0.0); }
-			50%      { box-shadow: 0 0 0 6px rgba(217, 119, 87, 0.12); }
-		}
-	}
+	/* Shared picker chrome (.image-input, .image-tiles, .image-tile,
+	   .image-input__drop-zone, .image-url-row) lives in app.css. */
 
 	/* --- Preview stage --- */
 
@@ -443,12 +319,6 @@
 		}
 	}
 
-	.image-preview__action-btn {
-		min-height: 32px;
-		padding: var(--space-1) var(--space-2);
-		border: 0;
-	}
-
 	/* --- Removing state --- */
 
 	.image-removing {
@@ -462,59 +332,5 @@
 		border-radius: var(--radius-lg);
 		color: var(--color-text-secondary);
 		font-size: var(--text-sm);
-	}
-
-	/* --- URL input row --- */
-
-	.image-url-row {
-		display: flex;
-		gap: var(--space-2);
-		align-items: center;
-	}
-
-	.image-url-row input {
-		flex: 1;
-		min-width: 0;
-	}
-
-	/* --- Error messages --- */
-
-	.form-error {
-		animation: shake var(--motion-exit);
-	}
-
-	/* --- Accessibility --- */
-
-	@media (prefers-reduced-motion: reduce) {
-		.image-tile {
-			transition: none;
-		}
-		.image-preview {
-			transition: none;
-		}
-		.image-preview__overlay {
-			transition: none;
-		}
-		.form-error {
-			animation: none;
-		}
-		.image-input__drop-zone {
-			animation: none;
-		}
-		.image-tiles.tiles-dimmed .image-tile,
-		.image-tiles.tiles-dimmed .image-tile--drop-active {
-			transition: none;
-		}
-	}
-
-	@media (prefers-reduced-transparency: reduce) {
-		.image-tile--drop-active {
-			background: var(--color-surface);
-		}
-		.image-input__drop-zone {
-			background: var(--color-primary-soft);
-			backdrop-filter: none;
-			-webkit-backdrop-filter: none;
-		}
 	}
 </style>

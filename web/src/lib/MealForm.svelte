@@ -21,6 +21,7 @@
 		oncancel,
 		submitLabel,
 		oncook,
+		showHeading = true,
 	}: {
 		initialName?: string;
 		initialIngredients?: NewIngredientLine[];
@@ -44,6 +45,7 @@
 		oncancel?: () => void;
 		submitLabel?: string;
 		oncook?: (payload: MealFormPayload) => void | Promise<void>;
+		showHeading?: boolean;
 	} = $props();
 
 	let formName = $state(initialName);
@@ -146,13 +148,15 @@
 </script>
 
 <section class="form-card">
-	<h2>
-		{#if editMode}
-			{t('formEditHeading', { name: formName || t('formUntitled') })}
-		{:else}
-			{t('formAddHeading')}
-		{/if}
-	</h2>
+	{#if showHeading}
+		<h2>
+			{#if editMode}
+				{t('formEditHeading', { name: formName || t('formUntitled') })}
+			{:else}
+				{t('formAddHeading')}
+			{/if}
+		</h2>
+	{/if}
 	<form onsubmit={(e) => { e.preventDefault(); onSubmit(); }} class="form-card__form">
 		<label class="field">
 			<span class="field__label">{t('fieldNameLabel')}</span>
@@ -288,7 +292,7 @@
 	.form-card {
 		background: var(--color-surface);
 		border: 1px solid var(--color-border);
-		border-top: 2px solid rgb(124 45 18 / 0.15);
+		border-top: 2px solid var(--card-accent);
 		border-radius: var(--radius-lg);
 		padding: var(--space-6);
 		box-shadow: var(--shadow-sm);
@@ -326,27 +330,9 @@
 	.ingredient-row__quantity {
 		max-width: 140px;
 	}
-	.btn--icon {
-		padding: var(--space-1);
-		min-width: 36px;
-		min-height: 36px;
-		display: flex;
-		align-items: center;
-		justify-content: center;
-	}
 	.form-card__actions {
 		display: flex;
 		gap: var(--space-2);
 		flex-wrap: wrap;
-	}
-	@keyframes shake {
-		0%, 100% { transform: translateX(0); }
-		20% { transform: translateX(-6px); }
-		40% { transform: translateX(6px); }
-		60% { transform: translateX(-4px); }
-		80% { transform: translateX(4px); }
-	}
-	.form-error {
-		animation: shake var(--motion-exit);
 	}
 </style>

@@ -358,39 +358,42 @@ import { focusTrap } from '$lib/focusTrap';
 
 <svelte:window onclick={() => { if (menuOpen) menuOpen = false; }} />
 <main>
-	<div class="page-toolbar">
-		<div class="search">
-			<Icon name="search" class="search__icon" />
-			<input type="search" class="search__input"
-				bind:value={searchTerm}
-				placeholder={t('searchPlaceholder')}
-				aria-label={t('searchAriaLabel')} />
-		</div>
-		<div class="toolbar-actions">
-			<button type="button" class="btn btn--primary" onclick={openAdd} aria-label={t('navAddMeal')}>
-				<Icon name="plus" size={18} />
-				<span>{t('navAddMeal')}</span>
-			</button>
-			<div class="menu-container">
-				<button type="button" class="btn btn--ghost" onclick={(e) => { e.stopPropagation(); menuOpen = !menuOpen; }}
-					aria-label={t('buttonMore')} title={t('buttonMore')}>
-					<Icon name="ellipsis-vertical" size={20} />
+	<header class="page-hero glass">
+		<h1 class="page-hero__title">{t('navMeals')}</h1>
+		<div class="page-toolbar">
+			<div class="search">
+				<Icon name="search" class="search__icon" />
+				<input type="search" class="search__input"
+					bind:value={searchTerm}
+					placeholder={t('searchPlaceholder')}
+					aria-label={t('searchAriaLabel')} />
+			</div>
+			<div class="toolbar-actions">
+				<button type="button" class="btn btn--primary" onclick={openAdd} aria-label={t('navAddMeal')}>
+					<Icon name="plus" size={18} />
+					<span>{t('navAddMeal')}</span>
 				</button>
-				{#if menuOpen}
-					<!-- svelte-ignore a11y_click_events_have_key_events -->
-					<!-- svelte-ignore a11y_no_static_element_interactions -->
-					<div class="menu-dropdown" role="menu" tabindex="-1" onclick={(e) => { e.stopPropagation(); menuOpen = false; }} onkeydown={() => {}}>
-						<button type="button" class="menu-dropdown__item" role="menuitem" onclick={openImport}>
-							<Icon name="upload" size={16} /> {t('buttonImport')}
-						</button>
-						<a href={exportMealsUrl()} class="menu-dropdown__item" role="menuitem" download title={t('exportMeals')}>
-							<Icon name="download" size={16} /> {t('exportMeals')}
-						</a>
-					</div>
-				{/if}
+				<div class="menu-container">
+					<button type="button" class="btn btn--ghost btn--icon" onclick={(e) => { e.stopPropagation(); menuOpen = !menuOpen; }}
+						aria-label={t('buttonMore')} title={t('buttonMore')}>
+						<Icon name="ellipsis-vertical" size={18} />
+					</button>
+					{#if menuOpen}
+						<!-- svelte-ignore a11y_click_events_have_key_events -->
+						<!-- svelte-ignore a11y_no_static_element_interactions -->
+						<div class="menu-dropdown" role="menu" tabindex="-1" onclick={(e) => { e.stopPropagation(); menuOpen = false; }} onkeydown={() => {}}>
+							<button type="button" class="menu-dropdown__item" role="menuitem" onclick={openImport}>
+								<Icon name="upload" size={16} /> {t('buttonImport')}
+							</button>
+							<a href={exportMealsUrl()} class="menu-dropdown__item" role="menuitem" download title={t('exportMeals')}>
+								<Icon name="download" size={16} /> {t('exportMeals')}
+							</a>
+						</div>
+					{/if}
+				</div>
 			</div>
 		</div>
-	</div>
+	</header>
 
 	{#if loadError}
 		<p class="form-error" role="alert">
@@ -409,24 +412,19 @@ import { focusTrap } from '$lib/focusTrap';
 			{:else}
 				<div class="empty-state" data-testid="empty-state">
 					<Icon name="empty-meals" size={96} class="empty-state__icon" />
-					<h3 class="empty-state__title">{t('emptyStateTitle')}</h3>
+					<h2>{t('emptyStateTitle')}</h2>
 					<p>{t('emptyStateDescription')}</p>
 				</div>
 			{/if}
 		{:else}
-			<ul class="meal-list">
+			<ul class="meal-grid">
 				{#each meals as meal, i (meal.id)}
 					<li
-						class:meal-card--editing={editTarget?.id === meal.id}
 						in:fly={{ y: -10, duration: tierDuration(250), delay: staggerDuration(i) }}
 						out:scale={{ duration: tierDuration(200), start: 0.95 }}
 						animate:flip={{ duration: tierDuration(200) }}
 					>
-						<a
-							href="/meals/{meal.id}"
-							class="meal-card"
-							aria-label={t('mealCardCookAria', { name: meal.name })}
-						>
+						<article class="meal-card" class:meal-card--editing={editTarget?.id === meal.id}>
 							<div class="meal-card__media">
 								{#if meal.has_image}
 									<img
@@ -442,19 +440,19 @@ import { focusTrap } from '$lib/focusTrap';
 								<div class="meal-card__overlay">
 									<button
 										type="button"
-										class="btn btn--ghost meal-card__action-btn"
+										class="btn btn--ghost overlay-action-btn"
 										aria-label={t('buttonEdit')}
 										title={t('buttonEdit')}
-										onclick={(e) => { e.preventDefault(); e.stopPropagation(); openEdit(meal); }}
+										onclick={() => openEdit(meal)}
 									>
 										<Icon name="pen-line" size={16} />
 									</button>
 									<button
 										type="button"
-										class="btn btn--danger-ghost meal-card__action-btn"
+										class="btn btn--danger-ghost overlay-action-btn"
 										aria-label={t('buttonDelete')}
 										title={t('buttonDelete')}
-										onclick={(e) => { e.preventDefault(); e.stopPropagation(); onDelete(meal); }}
+										onclick={() => onDelete(meal)}
 									>
 										<Icon name="trash-2" size={16} />
 									</button>
@@ -462,7 +460,7 @@ import { focusTrap } from '$lib/focusTrap';
 							</div>
 							<div class="meal-card__body">
 								<div class="meal-card__header">
-									<h3 class="meal-card__name">{meal.name}</h3>
+									<h2 class="meal-card__name">{meal.name}</h2>
 									<span class="meal-card__chip">
 										{meal.ingredients.length === 1
 											? t('ingredientCountOne')
@@ -477,7 +475,12 @@ import { focusTrap } from '$lib/focusTrap';
 									</p>
 								{/if}
 							</div>
-						</a>
+							<a
+								class="meal-card__cover"
+								href="/meals/{meal.id}"
+								aria-label={t('mealCardCookAria', { name: meal.name })}
+							></a>
+						</article>
 					</li>
 				{/each}
 			</ul>
@@ -496,7 +499,7 @@ import { focusTrap } from '$lib/focusTrap';
 	{#if editTarget}
 		<!-- svelte-ignore a11y_click_events_have_key_events -->
 		<!-- svelte-ignore a11y_no_static_element_interactions -->
-		<div class="edit-modal-overlay glass--strong" role="dialog" aria-label={t('formEditHeading', { name: editTarget.name || t('formUntitled') })} tabindex="-1" transition:fade={{ duration: tierDuration(200) }} onclick={closeEdit} onkeydown={(e) => { if (e.key === 'Escape') closeEdit(); }} ondragover={(e) => e.preventDefault()} ondrop={(e) => e.preventDefault()} use:focusTrap>
+		<div class="edit-modal-overlay" role="dialog" aria-modal="true" aria-label={t('formEditHeading', { name: editTarget.name || t('formUntitled') })} tabindex="-1" transition:fade={{ duration: tierDuration(200) }} onclick={closeEdit} onkeydown={(e) => { if (e.key === 'Escape') closeEdit(); }} ondragover={(e) => e.preventDefault()} ondrop={(e) => e.preventDefault()} use:focusTrap>
 			<div class="edit-modal" onclick={(e) => e.stopPropagation()} onkeydown={() => {}}>
 				<MealForm
 					editMode={true}
@@ -518,11 +521,11 @@ import { focusTrap } from '$lib/focusTrap';
 	{#if addOpen}
 		<!-- svelte-ignore a11y_click_events_have_key_events -->
 		<!-- svelte-ignore a11y_no_static_element_interactions -->
-		<div class="edit-modal-overlay glass--strong" role="dialog" aria-label={t('addMealTitle')} tabindex="-1" transition:fade={{ duration: tierDuration(200) }} onclick={closeAdd} onkeydown={(e) => { if (e.key === 'Escape') closeAdd(); }} ondragover={(e) => e.preventDefault()} ondrop={(e) => e.preventDefault()} use:focusTrap>
+		<div class="edit-modal-overlay" role="dialog" aria-modal="true" aria-label={t('addMealTitle')} tabindex="-1" transition:fade={{ duration: tierDuration(200) }} onclick={closeAdd} onkeydown={(e) => { if (e.key === 'Escape') closeAdd(); }} ondragover={(e) => e.preventDefault()} ondrop={(e) => e.preventDefault()} use:focusTrap>
 			<div class="add-modal" onclick={(e) => e.stopPropagation()} onkeydown={() => {}}>
 				<div class="add-modal__header">
 					<h2 class="add-modal__title">{t('addMealTitle')}</h2>
-					<button class="add-modal__close" onclick={closeAdd} aria-label={t('lightboxClose')} title={t('lightboxClose')}>
+					<button class="btn btn--ghost btn--icon" onclick={closeAdd} aria-label={t('lightboxClose')} title={t('lightboxClose')}>
 						<Icon name="x" size={20} />
 					</button>
 				</div>
@@ -694,6 +697,7 @@ import { focusTrap } from '$lib/focusTrap';
 							{#key importToken}
 								<MealForm
 									editMode={false}
+									showHeading={false}
 									initialName={formName}
 									initialIngredients={formIngredients}
 									initialInstructions={formInstructions}
@@ -714,38 +718,6 @@ import { focusTrap } from '$lib/focusTrap';
 </main>
 
 <style>
-	.meal-list {
-		list-style: none;
-		padding: 0;
-		margin: 0;
-		display: flex;
-		flex-direction: column;
-		gap: var(--space-4);
-	}
-	.empty-state__title {
-		margin: 0;
-		font-size: var(--text-xl);
-		font-weight: var(--weight-semibold);
-		color: var(--color-text);
-	}
-	.empty-state p {
-		margin: 0;
-		color: var(--color-text-secondary);
-	}
-
-	.no-results__icon {
-		display: block;
-		margin: 0 auto var(--space-3);
-		color: var(--color-text-muted);
-	}
-	@media (min-width: 768px) {
-		.meal-list {
-			display: grid;
-			grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
-			gap: var(--space-5);
-		}
-	}
-
 	.add-modal {
 		max-width: 960px;
 		width: 90vw;
@@ -771,23 +743,6 @@ import { focusTrap } from '$lib/focusTrap';
 		font-size: var(--text-xl);
 		font-weight: var(--weight-semibold);
 		margin: 0;
-	}
-	.add-modal__close {
-		border-radius: var(--radius-full);
-		width: 36px;
-		height: 36px;
-		padding: 0;
-		display: flex;
-		align-items: center;
-		justify-content: center;
-		background: transparent;
-		border: 0;
-		color: var(--color-text-secondary);
-		cursor: pointer;
-	}
-	.add-modal__close:hover {
-		background: var(--color-surface-2);
-		color: var(--color-text);
 	}
 	.add-modal__body {
 		overflow-y: auto;
@@ -927,12 +882,6 @@ import { focusTrap } from '$lib/focusTrap';
 		gap: var(--space-1);
 	}
 
-	.btn--primary {
-		display: inline-flex;
-		align-items: center;
-		gap: var(--space-2);
-	}
-
 	.menu-container {
 		position: relative;
 	}
@@ -946,7 +895,7 @@ import { focusTrap } from '$lib/focusTrap';
 		background: var(--color-surface);
 		border: 1px solid var(--color-border);
 		border-radius: var(--radius-md);
-		box-shadow: 0 4px 16px rgb(0 0 0 / 0.12);
+		box-shadow: var(--shadow-md);
 		padding: var(--space-1);
 	}
 
@@ -968,6 +917,6 @@ import { focusTrap } from '$lib/focusTrap';
 	}
 
 	.menu-dropdown__item:hover {
-		background: var(--color-surface-hover);
+		background: var(--color-surface-2);
 	}
 </style>

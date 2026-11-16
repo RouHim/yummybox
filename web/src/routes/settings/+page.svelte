@@ -287,8 +287,8 @@
 </script>
 
 <main class="settings-page">
-	<header class="settings-hero glass glass--strong">
-		<h1 class="settings-hero__title">{t('settingsTitle')}</h1>
+	<header class="page-hero glass">
+		<h1 class="page-hero__title">{t('settingsTitle')}</h1>
 	</header>
 
 	<section class="settings-card glass glass--strong">
@@ -422,19 +422,6 @@
 			opacity: 1;
 			transform: none;
 		}
-	}
-
-	.settings-hero {
-		padding: var(--space-4) var(--space-5);
-		border-radius: var(--radius-lg);
-	}
-	.settings-hero__title {
-		margin: 0;
-		font-family: var(--font-display);
-		font-size: var(--text-2xl);
-		font-weight: var(--weight-semibold);
-		line-height: 1.15;
-		color: var(--color-primary);
 	}
 
 	.settings-card {

@@ -103,7 +103,7 @@
 
 {@render children()}
 
-<footer class="site-footer glass">
+<footer class="site-footer glass glass--strong">
 	<p class="attribution">
 		{t('bgPhoto')}: <a href="https://www.pexels.com/photo/cooked-food-with-sesame-seeds-8481834/" target="_blank" rel="noopener">Sergey Meshkov</a> / Pexels
 	</p>
