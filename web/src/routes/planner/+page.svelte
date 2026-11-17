@@ -132,6 +132,11 @@ import { focusTrap } from '$lib/focusTrap';
 
 <main>
 
+	<header class="page-hero glass">
+		<h1 class="page-hero__title">{t('plannerTitle')}</h1>
+		<p class="page-hero__sub">{t('plannerSubtitle')}</p>
+	</header>
+
 	<!-- Month navigation -->
 	<div class="cal-nav glass">
 		<button class="btn btn--ghost btn--icon" onclick={() => calendar.prevMonth()} aria-label={t('plannerMonthPrev')} title={t('plannerMonthPrev')}>
@@ -148,7 +153,7 @@ import { focusTrap } from '$lib/focusTrap';
 
 	<!-- Two-column planner layout -->
 	<div class="planner-layout">
-		<aside class="planner-weeks" class:planner-weeks--collapsed={calendarCollapsed}>
+		<aside class="planner-weeks glass" class:planner-weeks--collapsed={calendarCollapsed}>
 
 			<!-- Compact selected week bar (mobile collapsed) -->
 			{#if planner.selectedWeek !== null && planner.selectedWeekYear !== null}
@@ -248,7 +253,7 @@ import { focusTrap } from '$lib/focusTrap';
 												</div>
 												<div class="plan-meal-card__body">
 													<h3 class="plan-meal-card__name">{meal.name}</h3>
-													<span class="plan-meal-card__chip">
+													<span class="meal-card__chip">
 														{meal.ingredients.length === 1
 															? t('ingredientCountOne')
 															: t('ingredientCount', { count: String(meal.ingredients.length) })}
@@ -288,7 +293,7 @@ import { focusTrap } from '$lib/focusTrap';
 												<span class="summary-card__name">{entry.name}</span>
 												{#if entry.numeric_total}
 													<span class="summary-card__num">
-														{entry.numeric_total.value}{#if entry.numeric_total.unit} {entry.numeric_total.unit}{/if}
+														{entry.numeric_total.value}{#if entry.numeric_total.unit}{' '}{entry.numeric_total.unit}{/if}
 													</span>
 												{/if}
 												{#each entry.non_numeric as qty}
@@ -355,12 +360,12 @@ import { focusTrap } from '$lib/focusTrap';
 					{/if}
 				</section>
 			{:else}
-				<div class="planner-empty">
+				<div class="planner-empty glass">
 					<div class="planner-empty__icon">
 						<Icon name="calendar" size={48} />
 					</div>
-					<h2>{t('plannerTitle')}</h2>
-					<p>{t('plannerSubtitle')}</p>
+					<h2>{t('plannerPickWeekTitle')}</h2>
+					<p>{t('plannerPickWeekHint')}</p>
 				</div>
 			{/if}
 		</div>
@@ -368,8 +373,8 @@ import { focusTrap } from '$lib/focusTrap';
 
 	<!-- Meal picker overlay -->
 	{#if mealPickerOpen}
-		<div class="meal-picker-overlay glass--strong" transition:fade={{ duration: tierDuration(200) }} onclick={(e) => { if (e.target === e.currentTarget) mealPickerOpen = false; }} onkeydown={(e) => { if (e.key === 'Escape') mealPickerOpen = false; }} role="dialog" aria-label={t('plannerPickMeals')} tabindex="-1">
-			<div class="meal-picker" use:focusTrap in:scale={{ duration: tierDuration(250), start: 0.95 }}>
+		<div class="meal-picker-overlay" transition:fade={{ duration: tierDuration(200) }} onclick={(e) => { if (e.target === e.currentTarget) mealPickerOpen = false; }} onkeydown={(e) => { if (e.key === 'Escape') mealPickerOpen = false; }} role="dialog" aria-modal="true" aria-label={t('plannerPickMeals')} tabindex="-1">
+			<div class="meal-picker" tabindex="-1" use:focusTrap in:scale={{ duration: tierDuration(250), start: 0.95 }}>
 				<div class="meal-picker__header">
 					<h3>{t('plannerPickMeals')}</h3>
 					<button class="btn btn--ghost btn--icon" onclick={() => mealPickerOpen = false} aria-label={t('plannerClose')} title={t('plannerClose')}>
@@ -446,7 +451,7 @@ import { focusTrap } from '$lib/focusTrap';
 		top: var(--app-bar-h);
 		z-index: 15;
 		padding: var(--space-2) var(--space-4);
-		border-radius: var(--radius-md);
+		border-radius: var(--radius-lg);
 	}
 	.cal-nav__label {
 		font-size: var(--text-xl);
@@ -467,6 +472,8 @@ import { focusTrap } from '$lib/focusTrap';
 		display: flex;
 		flex-direction: column;
 		gap: var(--space-1);
+		padding: var(--space-3);
+		border-radius: var(--radius-lg);
 	}
 	.planner-weeks__info {
 		margin-top: var(--space-3);
@@ -548,6 +555,7 @@ import { focusTrap } from '$lib/focusTrap';
 		gap: var(--space-4);
 		padding: var(--space-16) var(--space-4);
 		text-align: center;
+		border-radius: var(--radius-lg);
 	}
 	.planner-empty__icon {
 		color: var(--color-text-muted);
@@ -649,7 +657,7 @@ import { focusTrap } from '$lib/focusTrap';
 		border-radius: 50%;
 		font-size: var(--text-xs);
 		font-weight: var(--weight-medium);
-		color: var(--color-text-secondary);
+		color: var(--color-text);
 		transition: background var(--transition-fast), color var(--transition-fast);
 	}
 	.cal-day--today .cal-day__chip {
@@ -677,7 +685,6 @@ import { focusTrap } from '$lib/focusTrap';
 
 	/* ---- Plan Detail Panel ---- */
 	.plan-detail {
-		border: 1px solid var(--glass-border);
 		border-radius: var(--radius-lg);
 		padding: var(--space-6);
 	}
@@ -711,7 +718,7 @@ import { focusTrap } from '$lib/focusTrap';
 	.plan-meal-card {
 		position: relative;
 		border: 1px solid var(--color-border);
-		border-radius: var(--radius-md);
+		border-radius: var(--radius-lg);
 		background: var(--color-surface);
 		overflow: hidden;
 		transition: border-color var(--transition-base), box-shadow var(--transition-base), transform var(--transition-base);
@@ -750,6 +757,7 @@ import { focusTrap } from '$lib/focusTrap';
 		padding: var(--space-2) var(--space-3);
 		display: flex;
 		flex-direction: column;
+		align-items: flex-start;
 		gap: var(--space-1);
 	}
 	.plan-meal-card__name {
@@ -758,11 +766,6 @@ import { focusTrap } from '$lib/focusTrap';
 		font-size: var(--text-base);
 		font-weight: var(--weight-semibold);
 		line-height: 1.3;
-	}
-	.plan-meal-card__chip {
-		font-size: var(--text-xs);
-		font-weight: var(--weight-medium);
-		color: var(--color-text-muted);
 	}
 	.plan-meal-card__remove {
 		position: absolute;
@@ -919,17 +922,6 @@ import { focusTrap } from '$lib/focusTrap';
 	.plan-count-input {
 		max-width: 80px;
 	}
-	.form-error {
-		display: flex;
-		align-items: center;
-		gap: var(--space-2);
-		margin-top: var(--space-3);
-		padding: var(--space-3);
-		background: var(--color-danger-soft);
-		border-radius: var(--radius-md);
-		color: var(--color-danger);
-		font-size: var(--text-sm);
-	}
 
 	/* Meal picker overlay */
 	.meal-picker-overlay {
@@ -939,13 +931,14 @@ import { focusTrap } from '$lib/focusTrap';
 		display: flex;
 		align-items: center;
 		justify-content: center;
-		z-index: 100;
+		z-index: 1000;
 		padding: var(--space-4);
 	}
 	.meal-picker {
-		background: var(--color-bg);
+		background: var(--color-surface);
 		border: 1px solid var(--glass-border);
 		border-radius: var(--radius-lg);
+		box-shadow: var(--shadow-lg);
 		padding: var(--space-6);
 		max-width: 480px;
 		width: 100%;
@@ -1018,18 +1011,6 @@ import { focusTrap } from '$lib/focusTrap';
 		text-align: center;
 		padding: var(--space-8);
 	}
-	.btn--sm {
-		padding: var(--space-1) var(--space-3);
-		font-size: var(--text-sm);
-	}
-	.btn--icon {
-		padding: var(--space-1);
-		min-width: 36px;
-		min-height: 36px;
-		display: flex;
-		align-items: center;
-		justify-content: center;
-	}
 
 	/* ---- Bring! button ---- */
 	.bring-btn {
@@ -1092,10 +1073,12 @@ import { focusTrap } from '$lib/focusTrap';
 		.cal-day__chip {
 			width: 24px;
 			height: 24px;
-			font-size: 0.6875rem;
 		}
 		.cal-nav__label {
-			min-width: 12ch;
+			min-width: 0;
+			flex: 1;
+			font-size: var(--text-lg);
+			white-space: nowrap;
 		}
 		.plan-meal-grid {
 			grid-template-columns: repeat(2, 1fr);

@@ -155,7 +155,7 @@ import { focusTrap } from '$lib/focusTrap';
 
 <main>
 	{#if loading}
-		<p class="cooking-view__loading">Loading...</p>
+		<p class="view-loading">{t('loadingLabel')}</p>
 	{:else if notFound}
 		<p class="cooking-view__not-found">{t('cookingViewNotFound')}</p>
 	{:else if meal}
@@ -175,7 +175,7 @@ import { focusTrap } from '$lib/focusTrap';
 				{#snippet heroActions()}
 					<button
 						type="button"
-						class="btn btn--ghost cooking-view__action-btn"
+						class="btn btn--ghost overlay-action-btn"
 						aria-label={t('buttonEdit')}
 						title={t('buttonEdit')}
 						onclick={editMeal}
@@ -186,7 +186,7 @@ import { focusTrap } from '$lib/focusTrap';
 					{#if aiFlowReady(settingsLoaded, hasLlmConfig)}
 						<button
 							type="button"
-							class="btn btn--ghost cooking-view__action-btn"
+							class="btn btn--ghost overlay-action-btn"
 							aria-label={t('buttonPolish')}
 							title={t('buttonPolish')}
 							onclick={doPolish}
@@ -201,7 +201,7 @@ import { focusTrap } from '$lib/focusTrap';
 					{/if}
 					<button
 						type="button"
-						class="btn btn--danger-ghost cooking-view__action-btn"
+						class="btn btn--danger-ghost overlay-action-btn"
 						aria-label={t('buttonDelete')}
 						title={t('buttonDelete')}
 						onclick={openDelete}
@@ -218,7 +218,7 @@ import { focusTrap } from '$lib/focusTrap';
 	{#if editOpen && meal}
 		<!-- svelte-ignore a11y_click_events_have_key_events -->
 		<!-- svelte-ignore a11y_no_static_element_interactions -->
-		<div class="edit-modal-overlay glass--strong" role="dialog" aria-label={t('formEditHeading', { name: meal.name || t('formUntitled') })} tabindex="-1" transition:fade={{ duration: tierDuration(200) }} onclick={closeEdit} onkeydown={(e) => { if (e.key === 'Escape') closeEdit(); }} ondragover={(e) => e.preventDefault()} ondrop={(e) => e.preventDefault()} use:focusTrap>
+		<div class="edit-modal-overlay" role="dialog" aria-modal="true" aria-label={t('formEditHeading', { name: meal.name || t('formUntitled') })} tabindex="-1" transition:fade={{ duration: tierDuration(200) }} onclick={closeEdit} onkeydown={(e) => { if (e.key === 'Escape') closeEdit(); }} ondragover={(e) => e.preventDefault()} ondrop={(e) => e.preventDefault()} use:focusTrap>
 		<div class="edit-modal" onclick={(e) => e.stopPropagation()} onkeydown={() => {}}>
 				<MealForm
 					editMode={true}

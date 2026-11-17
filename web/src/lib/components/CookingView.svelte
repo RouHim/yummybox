@@ -86,7 +86,7 @@
 
 <article class="cooking-view" in:fly={{ y: 8, duration: tierDuration(250) }}>
 
-	<figure class="cooking-view__hero">
+	<figure class="cooking-view__hero" class:cooking-view__hero--empty={!imageUrl}>
 		{#if imageUrl}
 			<img
 				src={imageUrl}

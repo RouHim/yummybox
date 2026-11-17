@@ -34,4 +34,18 @@ test.describe('Delete meal', () => {
 
 		await expect(page.getByRole('listitem').filter({ hasText: 'Soup' })).toBeVisible();
 	});
+
+	test('pressing Escape dismisses the confirmation', async ({ page }) => {
+		await createMeal(page, 'Soup', [{ name: 'water' }, { name: 'salt' }]);
+
+		const item = page.getByRole('listitem').filter({ hasText: 'Soup' });
+		await item.hover();
+		await item.getByRole('button', { name: 'Delete' }).click();
+
+		await expect(page.getByRole('alertdialog')).toBeVisible();
+		await page.keyboard.press('Escape');
+		await expect(page.getByRole('alertdialog')).not.toBeVisible();
+
+		await expect(page.getByRole('listitem').filter({ hasText: 'Soup' })).toBeVisible();
+	});
 });

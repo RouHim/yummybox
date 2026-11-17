@@ -172,11 +172,9 @@
 </script>
 
 <main class="spontan-page">
-	<header class="spontan-hero glass">
-		<div class="spontan-hero__text">
-			<h1 class="spontan-hero__title">{t('generatePageTitle')}</h1>
-			<p class="spontan-hero__sub">{t('generateIntro')}</p>
-		</div>
+	<header class="page-hero glass">
+		<h1 class="page-hero__title">{t('generatePageTitle')}</h1>
+		<p class="page-hero__sub">{t('generateIntro')}</p>
 	</header>
 
 	<section class="spontan-config glass" class:spontan-config--collapsed={settingsCollapsed && !!provider}>
@@ -195,7 +193,7 @@
 			{#if provider}
 				<button
 					type="button"
-					class="btn btn--ghost spontan-config__toggle"
+					class="btn btn--ghost btn--compact spontan-config__toggle"
 					onclick={() => (settingsCollapsed = !settingsCollapsed)}
 					disabled={generating}
 					aria-expanded={!settingsCollapsed}
@@ -248,7 +246,7 @@
 						class="create-card__textarea"
 					></textarea>
 					{#if ingredientCount > 0}
-						<span class="field__helper create-card__helper">
+						<span class="field__helper">
 							{ingredientCount === 1 ? t('ingredientCountOne') : t('ingredientCount', { count: String(ingredientCount) })}
 						</span>
 					{/if}
@@ -359,36 +357,9 @@
 		gap: var(--space-6);
 	}
 
-	/* Hero: glass panel like other views so text is readable on ambient */
-	.spontan-hero {
-		display: flex;
-		flex-direction: column;
-		gap: var(--space-2);
-		padding: var(--space-5) var(--space-6);
-		border-radius: var(--radius-lg);
-	}
-
-	.spontan-hero__title {
-		margin: 0;
-		font-family: var(--font-display);
-		font-size: clamp(1.9rem, 4vw, 2.5rem);
-		line-height: 1.05;
-		letter-spacing: -0.02em;
-		color: var(--color-text);
-	}
-
-	.spontan-hero__sub {
-		margin: var(--space-1) 0 0;
-		max-width: 42ch;
-		font-size: var(--text-base);
-		line-height: 1.6;
-		color: var(--color-text-secondary);
-	}
-
 	/* Recessive AI config bar */
 	.spontan-config {
 		border-radius: var(--radius-lg);
-		border: 1px solid var(--glass-border);
 		padding: var(--space-3) var(--space-4);
 		display: flex;
 		flex-direction: column;
@@ -456,9 +427,6 @@
 
 	.spontan-config__toggle {
 		flex-shrink: 0;
-		padding: 6px 12px;
-		font-size: var(--text-sm);
-		border-radius: var(--radius-full);
 	}
 
 	.spontan-config__picker--hidden {
@@ -474,23 +442,13 @@
 	.create-card {
 		background: var(--color-surface);
 		border: 1px solid var(--color-border);
-		border-top: 2px solid rgb(124 45 18 / 0.14);
+		border-top: 2px solid var(--card-accent);
 		border-radius: var(--radius-lg);
 		box-shadow: var(--shadow-sm);
 		padding: var(--space-6);
 		display: flex;
 		flex-direction: column;
 		gap: var(--space-5);
-	}
-
-	:root[data-theme='dark'] .create-card {
-		border-top-color: rgb(217 119 87 / 0.18);
-	}
-
-	@media (prefers-color-scheme: dark) {
-		:root:not([data-theme]) .create-card {
-			border-top-color: rgb(217 119 87 / 0.18);
-		}
 	}
 
 	.create-card__header {
@@ -547,13 +505,6 @@
 		font-size: var(--text-base);
 	}
 
-	.create-card__helper {
-		display: block;
-		margin-top: var(--space-2);
-		font-size: var(--text-xs);
-		color: var(--color-text-muted);
-	}
-
 	.create-card__photos {
 		display: flex;
 		flex-direction: column;
@@ -585,11 +536,7 @@
 		font-weight: var(--weight-semibold);
 		font-size: var(--text-base);
 		gap: var(--space-2);
-		box-shadow: 0 4px 14px rgb(124 45 18 / 0.14);
-	}
-
-	:root[data-theme='dark'] .create-card__cta {
-		box-shadow: 0 4px 14px rgb(0 0 0 / 0.22);
+		box-shadow: var(--shadow-primary);
 	}
 
 	.create-card__or {
@@ -723,7 +670,7 @@
 		}
 	}
 
-	@media (max-width: 759px) {
+	@media (max-width: 767px) {
 		.spontan-page {
 			gap: var(--space-5);
 		}

@@ -38,7 +38,7 @@
 
 <main>
 	{#if loading}
-		<p class="week-meals__loading">Loading...</p>
+		<p class="view-loading">{t('loadingLabel')}</p>
 	{:else if loadError}
 		<p class="form-error" role="alert">
 			<Icon name="circle-alert" size={18} />
@@ -46,41 +46,46 @@
 		</p>
 		<button class="btn btn--ghost" onclick={loadCurrentWeek}>{t('buttonRetry')}</button>
 	{:else if plan}
-		<header class="week-header">
-			<h1 class="week-header__title">{t('currentWeekMeals')}</h1>
-			<p class="week-header__range">{formatWeekRange(currentWeekInfo.year, currentWeekInfo.week)}</p>
+		<header class="page-hero glass">
+			<h1 class="page-hero__title">{t('currentWeekMeals')}</h1>
+			<p class="page-hero__sub">{formatWeekRange(currentWeekInfo.year, currentWeekInfo.week)}</p>
 		</header>
 
 		<section class="week-meals">
 			{#if plan.meals.length === 0}
-				<div class="week-empty">
-					<Icon name="empty-meals" size={48} />
-					<p class="week-empty__msg">{t('currentWeekNoMeals')}</p>
+				<div class="empty-state">
+					<Icon name="empty-meals" size={96} class="empty-state__icon" />
+					<p>{t('currentWeekNoMeals')}</p>
 					<a href="/planner?focus=current" class="btn btn--ghost">
 						<Icon name="calendar" size={16} /> {t('currentWeekPlannerLink')}
 					</a>
 				</div>
 			{:else}
-				<ul class="week-meal-list">
+				<ul class="meal-grid">
 					{#each plan.meals as meal, i (meal.id)}
 						<li
 							in:fly={{ y: 12, duration: tierDuration(250), delay: staggerDuration(i) }}
 							out:scale={{ duration: tierDuration(200), start: 0.95 }}
 						>
-							<a href="/meals/{meal.id}" class="week-meal-card" aria-label={t('mealCardCookAria', { name: meal.name })}>
-								<div class="week-meal-card__media">
+							<article class="meal-card">
+								<div class="meal-card__media">
 									{#if meal.has_image}
-										<img src={mealImageUrl(meal.id)} alt={meal.name} class="week-meal-card__img" />
+										<img src={mealImageUrl(meal.id)} alt={meal.name} class="meal-card__hero" />
 									{:else}
-										<div class="week-meal-card__placeholder" aria-hidden="true">
+										<div class="meal-card__placeholder" aria-hidden="true">
 											<Icon name="utensils" size={48} />
 										</div>
 									{/if}
 								</div>
-								<div class="week-meal-card__body">
-									<h2 class="week-meal-card__name">{meal.name}</h2>
+								<div class="meal-card__body">
+									<h2 class="meal-card__name">{meal.name}</h2>
 								</div>
-							</a>
+								<a
+									class="meal-card__cover"
+									href="/meals/{meal.id}"
+									aria-label={t('mealCardCookAria', { name: meal.name })}
+								></a>
+							</article>
 						</li>
 					{/each}
 				</ul>
@@ -89,106 +94,3 @@
 
 	{/if}
 </main>
-
-
-<style>
-
-	.week-header {
-		margin-bottom: var(--space-6);
-		background: var(--color-surface);
-		border: 1px solid var(--color-border);
-		border-radius: var(--radius-lg);
-		padding: var(--space-4) var(--space-5);
-	}
-	.week-header__title {
-		font-family: var(--font-display);
-		font-size: var(--text-2xl);
-		font-weight: var(--weight-semibold);
-		margin: 0 0 var(--space-1) 0;
-		line-height: 1.15;
-	}
-	.week-header__range {
-		font-size: var(--text-sm);
-		color: var(--color-text-secondary);
-		margin: 0;
-	}
-
-	.week-meals__loading {
-		color: var(--color-text-secondary);
-		font-style: italic;
-	}
-
-	.week-meal-list {
-		list-style: none;
-		padding: 0;
-		margin: 0;
-		display: grid;
-		grid-template-columns: 1fr;
-		gap: var(--space-4);
-	}
-
-	@media (min-width: 768px) {
-		.week-meal-list {
-			grid-template-columns: repeat(auto-fill, 300px);
-			justify-content: center;
-		}
-	}
-	.week-meal-card {
-		display: block;
-		background: var(--color-surface);
-		border: 1px solid var(--color-border);
-		border-radius: var(--radius-lg);
-		overflow: hidden;
-		text-decoration: none;
-		color: inherit;
-		transition: box-shadow var(--transition-base), border-color var(--transition-base);
-	}
-	.week-meal-card:hover {
-		box-shadow: var(--shadow-md);
-		border-color: var(--color-border-strong);
-	}
-	.week-meal-card__media {
-		aspect-ratio: 16 / 9;
-		background: var(--color-surface-2);
-	}
-	.week-meal-card__img {
-		width: 100%;
-		height: 100%;
-		object-fit: cover;
-		display: block;
-	}
-	.week-meal-card__placeholder {
-		width: 100%;
-		height: 100%;
-		display: flex;
-		align-items: center;
-		justify-content: center;
-		color: var(--color-text-muted);
-	}
-	.week-meal-card__body {
-		padding: var(--space-3);
-	}
-	.week-meal-card__name {
-		font-family: var(--font-display);
-		font-size: var(--text-lg);
-		font-weight: var(--weight-semibold);
-		margin: 0 0 var(--space-1) 0;
-		line-height: 1.2;
-	}
-
-	.week-empty {
-		display: flex;
-		flex-direction: column;
-		align-items: center;
-		gap: var(--space-3);
-		padding: var(--space-8) var(--space-4);
-		text-align: center;
-		color: var(--color-text-muted);
-	}
-	.week-empty__msg {
-		margin: 0;
-		color: var(--color-text-secondary);
-	}
-
-
-</style>

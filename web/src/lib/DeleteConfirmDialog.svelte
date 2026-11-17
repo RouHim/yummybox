@@ -29,7 +29,7 @@ import { focusTrap } from '$lib/focusTrap';
 	<!-- svelte-ignore a11y_click_events_have_key_events -->
 	<!-- svelte-ignore a11y_no_static_element_interactions -->
 	<div
-		class="confirm-dialog glass--strong"
+		class="confirm-dialog"
 		role="alertdialog"
 		aria-modal="true"
 		aria-label={title}
@@ -42,7 +42,8 @@ import { focusTrap } from '$lib/focusTrap';
 		}}
 	>
 		<div
-			class="confirm-dialog__panel glass--strong"
+			class="confirm-dialog__panel glass glass--strong"
+			tabindex="-1"
 			in:scale={{ duration: tierDuration(250), start: 0.95 }}
 			use:focusTrap
 			onclick={(e) => e.stopPropagation()}
@@ -66,7 +67,7 @@ import { focusTrap } from '$lib/focusTrap';
 		display: flex;
 		align-items: center;
 		justify-content: center;
-		background: var(--glass-scrim);
+		background: var(--glass-scrim-dark);
 		padding: var(--space-4);
 	}
 	.confirm-dialog__panel {
