@@ -1,3 +1,10 @@
+## [1.26.5](https://github.com/RouHim/yummybox/compare/v1.26.4...v1.26.5) (2026-11-17)
+
+
+### Bug Fixes
+
+* **ui:** align route headers, cards and overlays ([#32](https://github.com/RouHim/yummybox/issues/32)) ([ef06123](https://github.com/RouHim/yummybox/commit/ef0612352f27041046f8fcad62b9508f0f1d058f))
+
 ## [1.26.4](https://github.com/RouHim/yummybox/compare/v1.26.3...v1.26.4) (2026-11-14)
 
 ## [1.26.3](https://github.com/RouHim/yummybox/compare/v1.26.2...v1.26.3) (2026-11-09)
