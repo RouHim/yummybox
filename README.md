@@ -60,8 +60,6 @@ If the host directory is owned by another user, the container cannot create the 
 
 ### Docker Compose
 
-From a checkout, this builds the image with the bundled frontend and starts it on port 11341. The compose file mounts `./data`, and no Rust or Node.js toolchain is needed on the host. Rebuild after source changes with `docker compose up -d --build`.
-
 ```bash
 docker compose up -d
 ```
@@ -100,14 +98,9 @@ Ollama needs no API key; run a local Ollama server, then select Ollama and a mod
 
 ## Limitations
 
-- No authentication. Anyone who can reach the port can read and change the collection and settings. Keep it on a trusted network.
-- Settings, including API keys and the Bring! password, are stored in plaintext in the SQLite file. Protect the data directory.
 - Single user. There are no accounts, sharing, or sync between devices. Move the data directory or use the ZIP export to move a collection.
 - Published binaries are Linux only, for x86_64 and arm64. Use the container on other systems.
 - AI features need a configured provider: an API key, a local Ollama server, or a custom OpenAI-compatible endpoint. Photo input needs a vision-capable model.
-- URL import reads JSON-LD recipe data. A page that publishes the recipe only as text cannot be imported.
-- Cookidoo import depends on its mobile API and page markup, so a change on their side can break it until YummyBox is updated.
-- Bring! items go to the first shopping list in the [Bring!](https://getbring.com) account.
 
 ## Resources
 
