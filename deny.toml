@@ -8,6 +8,13 @@ ignore = [
     # database's -wal file; the data directory belongs to the app user in a
     # single-user local deployment, so the exposure does not apply.
     "RUSTSEC-2026-0459",
+    # chrono is soft-deprecated upstream (no patch will ever exist). Leaving it
+    # means migrating model.rs/plan.rs/db.rs timestamps to `time` and switching
+    # sqlx's `chrono` feature to `time`; sqlx 0.9 has no jiff feature, and jiff
+    # 1.0 only shipped on 2026-11-24. The advisory is informational — chrono
+    # has no open soundness/vulnerability reports — so this is a planned
+    # migration, not an accepted risk. Remove this entry once it lands.
+    { id = "RUSTSEC-2026-0543", reason = "chrono migration to `time` pending, see comment above" },
 ]
 
 [licenses]
