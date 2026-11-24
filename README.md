@@ -1,281 +1,116 @@
 <p align="center">
-  <img src=".github/readme/banner.svg" width="600" alt="YummyBox, a local-first meal manager">
+  <img src=".github/readme/banner.svg" alt="YummyBox" width="600">
 </p>
 
 <p align="center">
-  <a href="https://github.com/RouHim/yummybox/releases/latest"><img src="https://img.shields.io/github/v/release/RouHim/yummybox?label=latest" alt="Latest release"></a>
-  <a href="https://github.com/RouHim/yummybox/actions/workflows/ci.yml"><img src="https://github.com/RouHim/yummybox/actions/workflows/ci.yml/badge.svg" alt="CI/CD"></a>
+  <a href="https://github.com/RouHim/yummybox/actions/workflows/ci.yml"><img src="https://github.com/RouHim/yummybox/actions/workflows/ci.yml/badge.svg?branch=main" alt="CI status"></a>
+  <a href="https://github.com/RouHim/yummybox/releases/latest"><img src="https://img.shields.io/github/v/release/RouHim/yummybox" alt="Latest release"></a>
+  <a href="https://github.com/RouHim/yummybox/releases/latest"><img src="https://img.shields.io/badge/arch-amd64%20%7C%20arm64-blue" alt="Supported architectures"></a>
 </p>
-<hr>
-<i align="center">
-YummyBox is a personal meal manager that runs entirely on your computer: no cloud, no accounts, no subscriptions. Add meals, search your collection, plan your week, and import recipes from the web or from photos using AI.
-</i>
-<br>
-<hr>
-<br>
+
+<p align="center">
+  A local-first meal manager for your recipes, weekly plans, and shopping lists.
+</p>
 
 <p align="center">
   <picture>
     <source media="(prefers-color-scheme: dark)" srcset=".github/readme/screenshot-dark.png">
     <source media="(prefers-color-scheme: light)" srcset=".github/readme/screenshot-light.png">
-    <img src=".github/readme/screenshot-dark.png" width="720" alt="YummyBox meals screen showing the meal collection">
+    <img src=".github/readme/screenshot-dark.png" width="1280" alt="Meals screen showing meal cards with photos and ingredient previews">
   </picture>
 </p>
 
-## What you can do
+## How it works
 
-### Your kitchen
+YummyBox is one binary that serves a web interface and keeps your collection in a single SQLite file. Open its address in a browser; YummyBox itself has no account and no cloud service.
 
-- **Manage your meals**: add, edit, search, and delete. Each meal has a name, ingredients with quantities, optional image, and creation/update times.
-- **Cooking view**: open a meal to see ingredients and instructions rendered for cooking. HTML instructions are sanitised and rendered as formatted paragraphs; plain text preserves newlines.
-- **Portions**: a meal can state how many servings it makes. The cooking view shows **Serves N** and scales the ingredient quantities to any serving count you pick.
-- **Add meal images**: paste from clipboard, load from a URL, or drop a file. Non-image files are rejected inline; oversized PNGs are downscaled to JPEG (max 3840×2160). Only meals with images display a thumbnail.
-- **Spontaneous cooking**: list the ingredients you have and let a vision-capable LLM draft a recipe. Edit it, save it to your collection, or open it in the cooking view without saving it.
+Recipes arrive by hand, from recipe page URLs, a Mealie backup, or a photo and text hint handled by a vision model you configure. The planner prefers meals you have not planned recently, merges the ingredients for a week, and sends items to Bring! on request.
 
-### Plan and shop
+## Features
 
-- **Plan your week**: generate a weekly meal plan from your collection. Plans aggregate ingredients and sum numeric quantities, ready for your shopping list.
-- **Shopping list sync**: send planned ingredients to your Bring! shopping list.
+- Keep a searchable collection of meals with ingredients, quantities, instructions, photos, and servings.
+- Cook from a dedicated view that renders formatted instructions and scales quantities to the serving count you choose.
+- Plan a week from your collection, add or remove meals, and read a merged ingredient list.
+- Send individual planned ingredients to a Bring! shopping list.
+- Import recipes from one or many recipe page URLs, a Mealie backup, or a YummyBox ZIP export.
+- Read Cookidoo recipes through its mobile API when the public page hides the preparation steps.
+- Draft a recipe from the ingredients you have and up to five photos, then save it or cook it without saving.
+- Add meal photos by clipboard paste, image URL, or drag and drop.
+- Export the collection as a ZIP for backup or to move it to another machine.
+- Follow the system theme or choose light or dark, and use the interface in English or German.
+- Run from a static Linux binary or a container, with data in one file you control.
 
-### Import recipes
+## Run the application
 
-- **From URL or paste**: paste a link to any recipe website, or drop in raw HTML/JSON-LD markup. YummyBox fetches and extracts the recipe automatically. Imported recipes land in a review form before saving.
-- **From Cookidoo**: paste a Cookidoo recipe link. Cookidoo hides preparation steps from anonymous visitors, so YummyBox reads the recipe through its mobile API and falls back to the page markup when that fails.
-- **From photo or text (AI)**: attach a photo of a dish or recipe card, optionally add a text hint, and a vision-capable LLM parses it into a structured recipe. This requires an API key from a supported provider (see [Configuration](#configuration)).
-- **Bulk import**: paste a list of recipe URLs at once; each is fetched and parsed, with successes and failures summarised.
-- **From a Mealie backup**: import a Mealie export `.zip`; each recipe is validated and saved, and names you already have are skipped.
-
-### Runs anywhere
-
-- **Run anywhere**: single binary, no dependencies. Data lives in a SQLite file on disk; you control it.
-- **Export and back up**: export your collection as a `.zip` and re-import it on another machine.
-- **Themes and languages**: follows your system preference for light/dark with a manual toggle that remembers your choice; the UI is available in English and German with a switcher for system, English, or Deutsch.
-
-## Getting started
-
-### Download a pre-built binary
-
-Grab the latest release from the [Releases page](https://github.com/RouHim/yummybox/releases/latest). Published artifacts are static Linux builds (musl) for `x86_64` and `aarch64`; other platforms build [from source](#build-from-source).
+Run the container for a self-hosted install. It runs as UID 1000 and keeps the database in `/data`.
 
 ```bash
-# Linux x86_64 (static musl)
-curl -L -o yummybox https://github.com/RouHim/yummybox/releases/latest/download/yummybox-x86_64-unknown-linux-musl
-chmod +x yummybox
-./yummybox
-
-# Linux arm64 (static musl)
-curl -L -o yummybox https://github.com/RouHim/yummybox/releases/latest/download/yummybox-aarch64-unknown-linux-musl
-chmod +x yummybox
-./yummybox
+docker run -d --name yummybox -p 11341:11341 -v ./data:/data ghcr.io/rouhim/yummybox:latest
 ```
 
-Then open **http://127.0.0.1:11341** in your browser.
+Open <http://localhost:11341>. The server listens on all interfaces on port 11341.
 
-### Build from source
+### Prerequisites
 
-Requires [Rust](https://rustup.rs) 1.88+ and [Node.js](https://nodejs.org) 26+ (build-time only, not needed to run).
+Use Docker, or a Linux x86_64 or arm64 machine for the pre-built binary. The binary is statically linked and needs no runtime libraries.
 
-```bash
-git clone https://github.com/RouHim/yummybox.git
-cd yummybox
-cargo run --release
-```
+### Permissions
 
-### Run with Docker
+If the host directory is owned by another user, the container cannot create the database and logs `(code: 14) unable to open database file`. Give the directory to UID 1000 with `sudo chown -R 1000:1000 ./data`, or run the container with `--user` set to the directory owner. The [usage guide](docs/USAGE.md#container-permissions) covers TrueNAS SCALE.
 
-YummyBox is published as a multi-arch container image (`linux/amd64` + `linux/arm64`) on GitHub Container Registry.
+### Docker Compose
 
-```bash
-# Pull and run the latest release
-docker run -d -p 11341:11341 -v ./data:/data ghcr.io/rouhim/yummybox:latest
-```
-
-Then open **http://localhost:11341** in your browser. The database is stored in `./data/yummybox.db` on your host and persists across container restarts. The container runs as a non-root user (UID `1000` / GID `1000`).
-
-#### Troubleshooting: `unable to open database file` (permission denied)
-
-If the container logs show:
-
-```
-failed to initialize database: database error: error returned from database: (code: 14) unable to open database file
-```
-
-it means `/data` inside the container is not writable by UID `1000`. This happens on TrueNAS SCALE (and any host mount) where the dataset is owned by a different user — TrueNAS SCALE defaults to `apps` (UID `568`) or `root` with `755` permissions.
-
-Fix with one of:
-
-**Option A — give the dataset to the container user (recommended, keeps the published image unchanged):**
-
-```bash
-sudo chown -R 1000:1000 /path/to/host/data
-# TrueNAS UI: Datasets → select dataset → Edit Permissions → User: 1000, Group: 1000 → Apply Recursively
-```
-
-**Option B — run the container as the dataset owner:**
-
-```bash
-docker run -d -p 11341:11341 -v /path/to/data:/data --user 568:568 ghcr.io/rouhim/yummybox:latest
-```
-
-In TrueNAS SCALE Apps set `Workload Configuration → Run As User: 568`, `Run As Group: 568` (or whatever `stat /path/to/data` shows on your host). In `docker-compose.yaml` set `user: "568:568"`.
-
-Verify with `ls -ld /path/to/host/data` and `docker logs yummybox` — the `using database at /data/yummybox.db` line should no longer be followed by `code: 14`.
-
-**Build locally with docker compose:**
+From a checkout, this builds the image with the bundled frontend and starts it on port 11341. The compose file mounts `./data`, and no Rust or Node.js toolchain is needed on the host. Rebuild after source changes with `docker compose up -d --build`.
 
 ```bash
 docker compose up -d
 ```
 
-This builds from `Containerfile.local` — no Rust or Node toolchain required on your host. Rebuild after source changes with `docker compose up -d --build`.
+### Pre-built binary
 
+Download the static binary, make it executable, and start it. It listens on port 11341 and writes to `./data`.
 
-## Using YummyBox
-
-### Meals
-
-The home screen shows your meal collection, newest first. Use the search bar to filter by name or ingredient. Click a meal to edit it, or use the delete button to remove it.
-
-When adding or editing a meal, each ingredient goes on its own line with an optional quantity:
-
-```
-200g pasta
-2 eggs
-salt to taste
+```bash
+curl -L -o yummybox https://github.com/RouHim/yummybox/releases/latest/download/yummybox-x86_64-unknown-linux-musl
+chmod +x yummybox
+./yummybox
 ```
 
-Quantity text (e.g. `200g`, `2 cups`, `a pinch`) is preserved and used by the planner to sum up your shopping list.
-
-### Cooking view
-
-Click any meal to open its cooking view at `/meals/{id}`. You'll see the full ingredient list and instructions rendered for cooking. HTML instructions are sanitised and displayed as formatted paragraphs; plain text preserves newlines. Use the **Polish instructions** action to have an LLM rewrite rough steps into clean numbered steps before saving.
-
-A meal can also record its portions. When it does, the cooking view shows **Serves N** above the ingredients with a stepper next to it; changing the count scales every ingredient quantity that has one, and setting it back to the stored value restores the original amounts.
-
-### Meal images
-
-Add images to your meals three ways: paste from clipboard, load from a URL, or drop a file onto the image upload area. Non-image files are rejected with an inline error message. Oversized PNGs are automatically downscaled to JPEG (max 3840×2160). Only meals with images display a thumbnail.
-
-### Weekly planner
-
-Switch to the **Planner** tab to generate a weekly meal plan. Pick a week, choose how many meals you want, and the planner randomly selects them from your collection. You can swap individual meals or regenerate the whole plan.
-
-The ingredient summary merges identical ingredients across all planned meals and sums numeric quantities, ready for your shopping list.
-
-### Spontaneous cooking
-
-The **Spontaneous cooking** button in the top bar opens `/spontaneous`, where you list what you have: ingredients one per line, optionally with extra instructions and up to five photos. A vision-capable LLM drafts a recipe, which you can edit and then save to your collection or open in the cooking view with **Cook now** without saving it first. The draft travels through `sessionStorage`, so reloading keeps it and **Start over** discards it.
-
-### Recipe import
-
-**From URL**: paste a link to any recipe website. YummyBox fetches the page and extracts the recipe automatically. Cookidoo links are read through the Cookidoo mobile API, because its public pages hide the preparation steps from anonymous visitors; if that call fails, YummyBox falls back to parsing the page.
-
-**From paste**: drop in raw HTML or JSON-LD markup if you already have the source.
-
-**From photo or text (AI)**: attach a photo of a dish or recipe card, optionally add a text hint, and a vision-capable LLM parses it into a structured recipe. This requires an API key from a supported provider: store it on the [settings page](#settings-page), or set the provider's environment variable (see [Configuration](#configuration)).
-
-#### Using AI recipe import
-
-1. Select your provider from the dropdown. Every provider is selectable; one that needs an API key and had neither a stored nor an inherited one when the provider list was loaded carries a `(not configured)` note.
-2. Choose a model from the list fetched live from the provider's API.
-3. Either describe the dish in text, attach a photo, or both.
-4. Vision-capable models (e.g., `gpt-4o-mini`, `gemini-2.5-flash`, `llama3.2-vision`) are needed for photo input.
-5. The extracted recipe appears in the review form; edit before saving.
-
-#### Custom OpenAI-compatible endpoints
-
-Select "Custom OpenAI-compatible" as the provider to use any server with an OpenAI-compatible API: vLLM, LocalAI, LiteLLM router, LM Studio, text-generation-webui, or any server exposing `/v1/models` and `/v1/chat/completions`.
-
-1. Enter the base URL (e.g., `http://localhost:8080/v1/` for LM Studio, `http://localhost:4000/v1/` for LiteLLM router).
-2. Optionally enter an API key if your server requires authentication.
-3. Models are fetched live from the server's `/v1/models` endpoint.
-
-#### Bulk URL import
-
-Paste a list of recipe URLs (one per line) to import multiple recipes at once. Each URL is fetched and parsed automatically. The result shows which imports succeeded and which failed, so you can retry or skip problematic URLs. The meal list reloads automatically on success.
-
-#### Mealie backup import
-
-Choose a Mealie export `.zip` in the import dialog to bring your Mealie recipes over. Each recipe is validated and saved; entries whose name already exists in your collection are skipped, and the result reports how many were imported or skipped.
-
-#### Troubleshooting AI import
-
-- **"No providers available"**: the provider list could not be loaded; reload the page or use **Retry**.
-- **"API key not configured"**: store the provider's API key on the settings page; it takes effect immediately, with no server restart.
-- **"Could not load models"**: check API key validity and network connection; for Ollama, ensure `ollama serve` is running on port 11434.
-- **"Request timed out"**: use a faster model, check your network, or try a local model.
-- **"Could not extract a recipe"**: use a clearer photo or a more descriptive text hint.
-
-### Export and backup
-
-Export your entire meal collection as a `.zip` file and re-import it on another machine through the **ZIP file** tab of the import dialog (`POST /api/import/zip`). Useful for moving between computers or taking a snapshot before making bulk changes.
-
-### Appearance and language
-
-Click the **Theme** button to cycle through system → light → dark → system. Your choice is saved to `localStorage` as `yummybox-theme`. Click the **Language** button to switch between System, English, or Deutsch (stored as `yummybox-locale`). The UI updates immediately.
-
-### Bring! shopping list
-
-After generating a weekly plan, send ingredients to your [Bring!](https://getbring.com) shopping list. Each ingredient in the plan summary gets a one-click **Send to Bring!** button. You'll need a Bring! account; if you signed up with Google, Apple, or Facebook, set a password first via the Bring! app or website settings.
+On arm64, replace `x86_64` with `aarch64` in the file name.
 
 ## Configuration
 
-| Variable | What it does | Default |
-|----------|--------------|---------|
-| `YUMMYBOX_DATA_DIR` | Where the database file lives | `./data` (next to the binary) |
-| `YUMMYBOX_PORT` | Port the server listens on | `11341` |
+|Name|Description|Default value|Example|
+|---|---|---|---|
+|`YUMMYBOX_DATA_DIR`|Directory that holds `yummybox.db`|`./data`|`/srv/yummybox`|
+|`YUMMYBOX_PORT`|Port the HTTP server listens on|`11341`|`8080`|
+|`RUST_LOG`|Log filter for the server|`info`|`debug`|
+|`OPENAI_API_KEY`|OpenAI API key for AI import, generation, and instruction polish|_(none)_|`<your-key>`|
+|`ANTHROPIC_API_KEY`|Anthropic API key for the same AI features|_(none)_|`<your-key>`|
+|`GEMINI_API_KEY`|Google Gemini API key for the same AI features|_(none)_|`<your-key>`|
+|`GROQ_API_KEY`|Groq API key for the same AI features|_(none)_|`<your-key>`|
+|`DEEPSEEK_API_KEY`|DeepSeek API key for the same AI features|_(none)_|`<your-key>`|
+|`XAI_API_KEY`|xAI API key for the same AI features|_(none)_|`<your-key>`|
+|`BRING_EMAIL`|Bring! account email|_(none)_|`you@example.com`|
+|`BRING_PASSWORD`|Bring! account password|_(none)_|`<your-password>`|
 
-### Settings page
+Values stored on the settings page at `/settings` take precedence over the environment. Clearing a stored value falls back to the environment variable. Provider, model, and custom base URL are stored only, so choose them on that page. The container sets `YUMMYBOX_DATA_DIR=/data` and `RUST_LOG=info`.
 
-Open `/settings` (top-bar gear) to configure the AI provider and your Bring! account. Values entered there are stored in the SQLite database and take precedence over environment variables; a value cleared on the page falls back to the environment variable, or is reported as not configured when the environment provides none.
+Ollama needs no API key; run a local Ollama server, then select Ollama and a model in settings. For another OpenAI-compatible server, select Custom OpenAI-compatible and enter its base URL, such as `http://localhost:8080/v1/`; the key is optional.
 
-Only the API key and the Bring! credentials have environment variables: the provider, the model and the custom base URL are stored-only. An environment-only deployment therefore has to open this page once to pick provider and model.
+## Limitations
 
-A stored API key belongs to the endpoint it was stored for: changing the provider, or changing the custom base URL while the provider is `custom`, deletes it unless the same commit supplies a new key, and a commit that changes the provider without a model deletes the stored model with it. Storing a key requires that endpoint to exist first: a key committed with no provider, or for `custom` before its base URL exists, is rejected with the missing field named, so the typed key stays in the form instead of being stored and dropped again by the next commit.
+- No authentication. Anyone who can reach the port can read and change the collection and settings. Keep it on a trusted network.
+- Settings, including API keys and the Bring! password, are stored in plaintext in the SQLite file. Protect the data directory.
+- Single user. There are no accounts, sharing, or sync between devices. Move the data directory or use the ZIP export to move a collection.
+- Published binaries are Linux only, for x86_64 and arm64. Use the container on other systems.
+- AI features need a configured provider: an API key, a local Ollama server, or a custom OpenAI-compatible endpoint. Photo input needs a vision-capable model.
+- URL import reads JSON-LD recipe data. A page that publishes the recipe only as text cannot be imported.
+- Cookidoo import depends on its mobile API and page markup, so a change on their side can break it until YummyBox is updated.
+- Bring! items go to the first shopping list in the [Bring!](https://getbring.com) account.
 
-API keys and the Bring! password are never sent back to the browser: the page only shows whether a value is set and whether it comes from the settings or from the environment.
+## Resources
 
-> **Security:** settings are stored in plaintext inside the database file. YummyBox has no authentication, so the database file permissions and the network exposure of the port are the security boundary. Do not expose the app to the internet.
-
-### LLM providers
-
-To use the AI-powered recipe import, set an API key for your provider:
-
-| Provider | Environment variable (fallback; prefer the settings page) | Example model |
-|----------|---------------------|---------------|
-| OpenAI | `OPENAI_API_KEY` | `gpt-4o-mini` |
-| Anthropic | `ANTHROPIC_API_KEY` | `claude-sonnet-4-20250514` |
-| Google | `GEMINI_API_KEY` | `gemini-2.5-flash` |
-| Groq | `GROQ_API_KEY` | `llama-4-maverick-17b-128e-instruct` |
-| DeepSeek | `DEEPSEEK_API_KEY` | `deepseek-chat` |
-| xAI | `XAI_API_KEY` | `grok-3-mini` |
-| Ollama (local) | _(none; uses local Ollama server)_ | `llama3.2-vision` |
-
-Ollama needs no API key but requires a running local server (`ollama serve` on port 11434). Pull a vision-capable model first: `ollama pull llama3.2-vision`.
-
-Example:
-
-```bash
-OPENAI_API_KEY=sk-... ./yummybox
-```
-
-### Bring! shopping list
-
-| Variable | What it does |
-|----------|--------------|
-| `BRING_EMAIL` | Your Bring! account email address (fallback; prefer the settings page) |
-| `BRING_PASSWORD` | Your Bring! account password (fallback; prefer the settings page) |
-
-Example:
-
-```bash
-BRING_EMAIL=you@example.com BRING_PASSWORD=your-password ./yummybox
-```
-
-## Contributing
-
-Bug reports and pull requests are welcome. See [CONTRIBUTING.md](CONTRIBUTING.md) for development setup and guidelines.
-
-## License
-
-MIT. See [LICENSE](LICENSE).
+- [Usage guide](docs/USAGE.md): meal editing, cooking, the planner, imports, and settings.
+- [Latest release](https://github.com/RouHim/yummybox/releases/latest): binaries for x86_64 and arm64.
+- [Container image](https://github.com/RouHim/yummybox/pkgs/container/yummybox): multi-arch image on GitHub Container Registry.
