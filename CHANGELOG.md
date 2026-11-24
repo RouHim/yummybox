@@ -1,3 +1,10 @@
+## [1.26.6](https://github.com/RouHim/yummybox/compare/v1.26.5...v1.26.6) (2026-11-24)
+
+
+### Bug Fixes
+
+* **deps:** clear RUSTSEC advisories blocking CI ([d06db6a](https://github.com/RouHim/yummybox/commit/d06db6a75bc9a073d06d8d0a96b6dfd4258179de))
+
 ## [1.26.5](https://github.com/RouHim/yummybox/compare/v1.26.4...v1.26.5) (2026-11-17)
 
 
